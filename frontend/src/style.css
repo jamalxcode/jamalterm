@@ -1,0 +1,53 @@
+:root {
+  --bg: #15161e;
+  --title: #7a88cf;
+  --titlebar-height: 28px; /* room for the macOS traffic lights */
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#titlebar {
+  height: var(--titlebar-height);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 500 12px -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  color: var(--title);
+  --wails-draggable: drag; /* drag the window by the title bar */
+  cursor: default;
+}
+
+#title {
+  max-width: 60%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+#terminal {
+  position: absolute;
+  inset: var(--titlebar-height) 0 0 0;
+  padding: 4px 10px 8px 12px;
+}
+
+/* Match xterm's own background so the padding blends in. */
+.xterm,
+.xterm .xterm-viewport {
+  background-color: var(--bg) !important;
+}
+
+.xterm .xterm-viewport::-webkit-scrollbar {
+  width: 8px;
+}
+.xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  background: #ffffff22;
+  border-radius: 4px;
+}

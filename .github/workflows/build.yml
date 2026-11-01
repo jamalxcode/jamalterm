@@ -1,0 +1,32 @@
+name: Build macOS app
+on:
+  push: { branches: [main] }
+  pull_request: {}
+  workflow_dispatch: {}
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+
+      - name: Test the shell layer (zsh, bash, tcsh, sh)
+        run: go test -race ./internal/...
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.0
+
+      - name: Build jamalterm.app (Apple silicon + Intel)
+        run: wails build -platform darwin/universal -clean
+
+      - name: Zip
+        run: ditto -c -k --keepParent build/bin/jamalterm.app jamalterm-macos.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jamalterm-macos
+          path: jamalterm-macos.zip
