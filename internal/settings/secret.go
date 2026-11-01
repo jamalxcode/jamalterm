@@ -1,31 +1,47 @@
 package settings
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
+	"sync"
 )
 
-// API keys live in the macOS Keychain, never in settings.json. On other
-// systems (used for development) they are 0600 files next to it.
+// API keys never go in settings.json.
 //
-// Providers: "anthropic" (Claude), "openai" (ChatGPT), "deepseek", "xai" (Grok).
+// macOS: one native Keychain item ("jamalterm" / "api-keys") holds every
+// provider's key as JSON. Items an app adds through the Keychain API trust
+// only that app, so other programs — including the `security` tool — must
+// ask first. (jamalterm is ad-hoc signed, so after an update macOS asks
+// once more: "Always Allow".) Keys saved by older versions with the
+// `security` tool are moved over and the old items deleted.
+//
+// Other systems (development builds): 0600 files next to settings.json.
+//
+// Providers: "anthropic" (Claude), "openai" (ChatGPT), "deepseek", "xai"
+// (Grok), "openrouter".
 
 // Secrets stores the API keys.
 type Secrets struct {
 	fileDir string // fallback location (non-macOS)
 	// useKeychain is true on macOS.
 	useKeychain bool
+	// service names the Keychain item ("jamalterm"; tests use their own).
+	service string
+
+	mu     sync.Mutex
+	loaded bool
+	keys   map[string]string
 }
 
 func NewSecrets(settingsPath string) *Secrets {
-	return &Secrets{fileDir: filepath.Dir(settingsPath), useKeychain: runtime.GOOS == "darwin"}
+	return &Secrets{fileDir: filepath.Dir(settingsPath), useKeychain: nativeKeychainAvailable(), service: "jamalterm"}
 }
 
-func keychainService(provider string) string { return "jamalterm-" + provider + "-api-key" }
+const keychainAccount = "api-keys"
 
 func keyFile(provider string) string {
 	if provider == "anthropic" {
@@ -70,17 +86,54 @@ func (s *Secrets) saved(provider string) string {
 		return ""
 	}
 	if s.useKeychain {
-		out, err := exec.Command("/usr/bin/security", "find-generic-password", "-s", keychainService(provider), "-w").Output()
-		if err != nil {
-			return ""
-		}
-		return strings.TrimSpace(string(out))
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.loadLocked()
+		return s.keys[provider]
 	}
 	data, err := os.ReadFile(filepath.Join(s.fileDir, keyFile(provider)))
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
+}
+
+// loadLocked reads the Keychain item once (one prompt at most).
+func (s *Secrets) loadLocked() {
+	if s.loaded {
+		return
+	}
+	s.loaded = true
+	s.keys = map[string]string{}
+	data, found, err := keychainGet(s.service, keychainAccount)
+	if err != nil {
+		return // denied or locked: behave as if no keys are saved
+	}
+	if found {
+		json.Unmarshal(data, &s.keys)
+		return
+	}
+	// First run of this version: move keys saved by the `security` tool.
+	moved := false
+	for p := range envVar {
+		if k := legacyGet(s.service, p); k != "" {
+			s.keys[p] = k
+			moved = true
+		}
+	}
+	if moved && s.storeLocked() == nil {
+		for p := range envVar {
+			legacyDelete(s.service, p)
+		}
+	}
+}
+
+func (s *Secrets) storeLocked() error {
+	if len(s.keys) == 0 {
+		return keychainDelete(s.service, keychainAccount)
+	}
+	data, _ := json.Marshal(s.keys)
+	return keychainSet(s.service, keychainAccount, data)
 }
 
 // SetKeyFor saves a provider's key; an empty key deletes it.
@@ -93,18 +146,17 @@ func (s *Secrets) SetKeyFor(provider, key string) error {
 		return errors.New("that doesn't look like an API key (it has spaces or quotes)")
 	}
 	if s.useKeychain {
-		service := keychainService(provider)
-		// Remove any old entry first; "not found" is fine.
-		exec.Command("/usr/bin/security", "delete-generic-password", "-s", service).Run()
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.loadLocked()
 		if key == "" {
-			return nil
+			delete(s.keys, provider)
+		} else {
+			s.keys[provider] = key
 		}
-		// Sent on stdin ("security -i") so the key never shows up in the
-		// process list. -U updates in place.
-		cmd := exec.Command("/usr/bin/security", "-i")
-		cmd.Stdin = strings.NewReader(`add-generic-password -U -a jamalterm -s ` + service + ` -w "` + key + "\"\n")
-		if out, err := cmd.CombinedOutput(); err != nil || strings.Contains(string(out), "error") {
-			return errors.New("Keychain: " + strings.TrimSpace(string(out)))
+		if err := s.storeLocked(); err != nil {
+			s.loaded = false // re-read next time
+			return err
 		}
 		return nil
 	}
@@ -120,4 +172,19 @@ func (s *Secrets) SetKeyFor(provider, key string) error {
 		return err
 	}
 	return os.WriteFile(path, []byte(key+"\n"), 0o600)
+}
+
+// Keys saved by jamalterm 1.x with the `security` tool.
+func legacyService(service, provider string) string { return service + "-" + provider + "-api-key" }
+
+func legacyGet(service, provider string) string {
+	out, err := exec.Command("/usr/bin/security", "find-generic-password", "-s", legacyService(service, provider), "-w").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func legacyDelete(service, provider string) {
+	exec.Command("/usr/bin/security", "delete-generic-password", "-s", legacyService(service, provider)).Run()
 }
