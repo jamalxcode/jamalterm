@@ -35,8 +35,16 @@ jobs:
       - name: Install Wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.0
 
+      - name: Build the frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          # npm sometimes skips Rollup's native package for this platform (npm/cli#4828).
+          node -e "require('rollup')" 2>/dev/null || npm install --no-save "@rollup/rollup-darwin-$(uname -m | sed 's/x86_64/x64/')"
+          npm run build
+
       - name: Build jamalterm.app (Apple silicon + Intel)
-        run: wails build -platform darwin/universal -clean -trimpath -ldflags "-X main.version=${{ steps.v.outputs.version }}"
+        run: wails build -s -platform darwin/universal -clean -trimpath -ldflags "-X main.version=${{ steps.v.outputs.version }}"
 
       - name: Sign (ad hoc)
         # Not notarized: that needs a paid Apple Developer account.
