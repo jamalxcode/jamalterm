@@ -62,7 +62,8 @@ type App struct {
 	mu       sync.Mutex
 	cfg      settings.Settings
 	sessions map[int]*shell.Session
-	release  *update.Release // newest release seen by CheckForUpdate
+	pumps    map[int]*shell.Pump // batched output per tab
+	release  *update.Release     // newest release seen by CheckForUpdate
 	toolWait map[string]chan toolReply
 	// blurAtLaunch: the window was created translucent (blur behind).
 	blurAtLaunch bool
@@ -81,6 +82,7 @@ func NewApp() *App {
 		store:    store,
 		secrets:  settings.NewSecrets(store.Path()),
 		sessions: map[int]*shell.Session{},
+		pumps:    map[int]*shell.Pump{},
 		toolWait: map[string]chan toolReply{},
 
 		providerItems: map[string]*menu.MenuItem{},
@@ -157,17 +159,21 @@ func (a *App) Start(id, cols, rows int, cwd string) error {
 		}
 	}
 	cfg := a.cfg
+	// Output is batched (≈60 times a second) and paced by the window's
+	// acknowledgements (Ack), so heavy output can't freeze the app.
+	pump := shell.NewPump(func(b []byte) {
+		// Base64 keeps multi-byte characters split across batches intact.
+		runtime.EventsEmit(a.ctx, eventData, ptyData{ID: id, Data: base64.StdEncoding.EncodeToString(b)})
+	})
 	s, err := shell.Start(shell.Options{
 		Shell:       cfg.Shell,
 		Dir:         cwd,
 		Cols:        uint16(cols),
 		Rows:        uint16(rows),
 		Integration: cfg.ShellIntegration,
-		OnOutput: func(p []byte) {
-			// Base64 keeps multi-byte characters split across reads intact.
-			runtime.EventsEmit(a.ctx, eventData, ptyData{ID: id, Data: base64.StdEncoding.EncodeToString(p)})
-		},
+		OnOutput:    pump.Write,
 		OnExit: func(err error) {
+			pump.Close() // the last output goes out before the exit notice
 			code := 0
 			var ee *exec.ExitError
 			if errors.As(err, &ee) {
@@ -177,10 +183,22 @@ func (a *App) Start(id, cols, rows int, cwd string) error {
 		},
 	})
 	if err != nil {
+		pump.Close()
 		return err
 	}
 	a.sessions[id] = s
+	a.pumps[id] = pump
 	return nil
+}
+
+// Ack: the window has drawn n bytes of tab id's output.
+func (a *App) Ack(id, n int) {
+	a.mu.Lock()
+	p := a.pumps[id]
+	a.mu.Unlock()
+	if p != nil {
+		p.Ack(n)
+	}
 }
 
 // Write sends keyboard input or pasted text to tab id's shell.
@@ -201,8 +219,13 @@ func (a *App) Resize(id, cols, rows int) {
 func (a *App) CloseTab(id int) {
 	a.mu.Lock()
 	s := a.sessions[id]
+	p := a.pumps[id]
 	delete(a.sessions, id)
+	delete(a.pumps, id)
 	a.mu.Unlock()
+	if p != nil {
+		p.Close() // never leave the shell blocked waiting for the window
+	}
 	if s != nil {
 		s.Close()
 	}

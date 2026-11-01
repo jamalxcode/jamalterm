@@ -5,7 +5,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { SearchAddon } from '@xterm/addon-search'
 
-import { Start, Write, Resize, CloseTab, OpenURL, GitBranch } from '../wailsjs/go/main/App'
+import { Start, Write, Resize, CloseTab, OpenURL, GitBranch, Ack } from '../wailsjs/go/main/App'
 import type { settings } from '../wailsjs/go/models'
 import { type Theme, bgAt } from './themes'
 import { b64ToBytes, b64ToText, el, escapeHtml, toast, copyText, duration, relTime } from './util'
@@ -179,7 +179,9 @@ export class Tab {
   }
 
   write(b64: string) {
-    this.term.write(b64ToBytes(b64))
+    const bytes = b64ToBytes(b64)
+    // Tell Go once this batch is drawn, so it can send more (backpressure).
+    this.term.write(bytes, () => Ack(this.id, bytes.length))
   }
 
   onExit(code: number) {

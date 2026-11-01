@@ -14,6 +14,8 @@ export function AIReset(arg1:string):Promise<void>;
 
 export function AIToolResult(arg1:string,arg2:string,arg3:boolean):Promise<void>;
 
+export function Ack(arg1:number,arg2:number):Promise<void>;
+
 export function AnthropicAccount():Promise<ai.Account>;
 
 export function BlurActive():Promise<boolean>;

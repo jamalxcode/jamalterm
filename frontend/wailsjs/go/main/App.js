@@ -22,6 +22,10 @@ export function AIToolResult(arg1, arg2, arg3) {
   return window['go']['main']['App']['AIToolResult'](arg1, arg2, arg3);
 }
 
+export function Ack(arg1, arg2) {
+  return window['go']['main']['App']['Ack'](arg1, arg2);
+}
+
 export function AnthropicAccount() {
   return window['go']['main']['App']['AnthropicAccount']();
 }
