@@ -1,0 +1,334 @@
+import { AIAsk, AICancel, AIReset, HasAPIKey } from '../wailsjs/go/main/App'
+import { EventsOn } from '../wailsjs/runtime/runtime'
+import type { Tab, Block } from './tab'
+import { el, renderMarkdown, copyText, toast } from './util'
+
+type Handler = { delta(t: string): void; done(t: string): void; error(e: string): void }
+const handlers = new Map<string, Handler>()
+let seq = 0
+
+EventsOn('ai:delta', (e: { id: string; text: string }) => handlers.get(e.id)?.delta(e.text))
+EventsOn('ai:done', (e: { id: string; text: string }) => {
+  handlers.get(e.id)?.done(e.text)
+  handlers.delete(e.id)
+})
+EventsOn('ai:error', (e: { id: string; error: string }) => {
+  handlers.get(e.id)?.error(e.error)
+  handlers.delete(e.id)
+})
+
+function ask(chat: string, mode: 'chat' | 'command', prompt: string, context: string, shell: string, h: Handler): string {
+  const id = `q${++seq}`
+  handlers.set(id, h)
+  AIAsk({ id, chat, mode, prompt, context, shell })
+  return id
+}
+
+export interface AIHost {
+  activeTab(): Tab | undefined
+  shellName(): string
+  openSettings(): void
+  model(): string
+}
+
+// ---- Side panel (⌘I) ------------------------------------------------------------
+
+export class AIPanel {
+  private root = document.getElementById('ai-panel')!
+  private list = el('div', { class: 'ai-list' })
+  private input = el('textarea', { rows: '1', placeholder: 'Ask about your terminal…  (⏎ to send)' }) as HTMLTextAreaElement
+  private sendBtn = el('button', { class: 'ai-send', title: 'Send' }, '↑')
+  private modelLabel = el('span', { class: 'ai-model' })
+  private streaming: string | null = null
+  private chatOf = new Map<number, HTMLElement[]>() // per-tab conversation
+  private shownTab = -1
+
+  constructor(private host: AIHost) {
+    const newBtn = el('button', { class: 'ghost', title: 'Start a new conversation' }, 'New chat')
+    const closeBtn = el('button', { class: 'ghost icon', title: 'Close (esc)' }, '✕')
+    const head = el('div', { class: 'ai-head' }, el('span', { class: 'ai-title' }, '✦ Claude'), this.modelLabel, el('span', { class: 'grow' }), newBtn, closeBtn)
+    const form = el('div', { class: 'ai-input' }, this.input, this.sendBtn)
+    this.root.append(head, this.list, form)
+
+    newBtn.addEventListener('click', () => this.newChat())
+    closeBtn.addEventListener('click', () => this.hide())
+    this.sendBtn.addEventListener('click', () => (this.streaming ? AICancel(this.streaming) : this.send()))
+    this.input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+        e.preventDefault()
+        this.send()
+      } else if (e.key === 'Escape') {
+        e.preventDefault()
+        this.hide()
+      }
+    })
+    this.input.addEventListener('input', () => this.autosize())
+  }
+
+  get visible() {
+    return !this.root.hidden
+  }
+
+  async show(focus = true) {
+    this.root.hidden = false
+    document.body.classList.add('ai-open')
+    this.modelLabel.textContent = this.host.model().replace(/^claude-/, '')
+    this.syncTab()
+    if (!(await HasAPIKey())) this.showSetup()
+    if (focus) this.input.focus()
+    window.dispatchEvent(new Event('resize'))
+  }
+
+  hide() {
+    this.root.hidden = true
+    document.body.classList.remove('ai-open')
+    window.dispatchEvent(new Event('resize'))
+    this.host.activeTab()?.term.focus()
+  }
+
+  toggle() {
+    if (this.visible) this.hide()
+    else void this.show()
+  }
+
+  /** Each tab has its own conversation; switch the list when tabs change. */
+  syncTab() {
+    const tab = this.host.activeTab()
+    if (!tab || tab.id === this.shownTab) return
+    if (this.shownTab >= 0) this.chatOf.set(this.shownTab, Array.from(this.list.children) as HTMLElement[])
+    this.shownTab = tab.id
+    this.list.textContent = ''
+    const saved = this.chatOf.get(tab.id)
+    if (saved?.length) this.list.append(...saved)
+    else this.welcome()
+  }
+
+  forgetTab(id: number) {
+    this.chatOf.delete(id)
+    AIReset(`tab-${id}`)
+  }
+
+  private newChat() {
+    const tab = this.host.activeTab()
+    if (!tab) return
+    if (this.streaming) AICancel(this.streaming)
+    AIReset(`tab-${tab.id}`)
+    this.list.textContent = ''
+    this.welcome()
+    this.input.focus()
+  }
+
+  private welcome() {
+    const card = el('div', { class: 'ai-welcome' })
+    card.innerHTML = `<p><strong>Ask Claude about anything in this tab.</strong> It sees your recent commands and their output.</p>
+      <p class="dim">Try: “why did that fail?”, “undo my last git commit”, “what's using port 3000?”</p>`
+    this.list.append(card)
+  }
+
+  private showSetup() {
+    if (this.list.querySelector('.ai-setup')) return
+    const btn = el('button', { class: 'primary' }, 'Open Settings')
+    btn.addEventListener('click', () => this.host.openSettings())
+    const card = el(
+      'div',
+      { class: 'ai-setup' },
+      el('p', {}, el('strong', { text: 'Add your Claude API key to turn on AI.' })),
+      el('p', { class: 'dim', text: 'Create one at console.anthropic.com → API Keys, then paste it in Settings. It is stored in your macOS Keychain.' }),
+      btn,
+    )
+    this.list.append(card)
+  }
+
+  private autosize() {
+    this.input.style.height = 'auto'
+    this.input.style.height = `${Math.min(this.input.scrollHeight, 160)}px`
+  }
+
+  /** "Why did this fail?" from a red dot, browse mode or the AI menu. */
+  async explain(tab: Tab, block: Block) {
+    await this.show(false)
+    const status = block.end ? (block.exitCode === 0 ? 'succeeded' : `failed with exit code ${block.exitCode}`) : 'is still running'
+    const q = block.end && block.exitCode !== 0
+      ? `Why did \`${block.command}\` fail (exit ${block.exitCode}), and how do I fix it?`
+      : `Explain what \`${block.command}\` did and what its output means. (It ${status}.)`
+    this.send(q, tab.aiContext(block))
+  }
+
+  send(text?: string, context?: string) {
+    const tab = this.host.activeTab()
+    if (!tab || this.streaming) return
+    const prompt = (text ?? this.input.value).trim()
+    if (!prompt) return
+    if (text === undefined) {
+      this.input.value = ''
+      this.autosize()
+    }
+    this.list.querySelector('.ai-welcome')?.remove()
+    this.list.append(el('div', { class: 'msg user', text: prompt }))
+    const body = el('div', { class: 'msg-body' })
+    const msg = el('div', { class: 'msg assistant thinking' }, body)
+    this.list.append(msg)
+    this.scroll()
+
+    let acc = ''
+    const render = () => {
+      body.textContent = ''
+      body.append(renderMarkdown(acc, (code, pre) => this.codeActions(code, pre)))
+      this.scroll()
+    }
+    this.streaming = ask(`tab-${tab.id}`, 'chat', prompt, context ?? tab.aiContext(), this.host.shellName(), {
+      delta: (t) => {
+        msg.classList.remove('thinking')
+        acc += t
+        render()
+      },
+      done: (t) => {
+        msg.classList.remove('thinking')
+        acc = t || acc
+        render()
+        this.finish()
+      },
+      error: (e) => {
+        msg.classList.remove('thinking')
+        msg.classList.add('error')
+        if (acc) render()
+        body.append(el('p', { class: 'err', text: e }))
+        if (/API key/i.test(e)) this.showSetup()
+        this.finish()
+      },
+    })
+    this.sendBtn.textContent = '■'
+    this.sendBtn.title = 'Stop'
+  }
+
+  private finish() {
+    this.streaming = null
+    this.sendBtn.textContent = '↑'
+    this.sendBtn.title = 'Send'
+    this.scroll()
+  }
+
+  private codeActions(code: string, pre: HTMLElement) {
+    const command = code.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n').trim()
+    if (!command) return
+    const bar = el('div', { class: 'code-actions' })
+    const mk = (label: string, title: string, fn: () => void) => {
+      const b = el('button', { title }, label)
+      b.addEventListener('click', fn)
+      bar.append(b)
+    }
+    mk('▶ Run', 'Run in the terminal', () => this.host.activeTab()?.sendCommand(command, true))
+    mk('Insert', 'Put on the prompt to edit first', () => this.host.activeTab()?.sendCommand(command, false))
+    mk('Copy', 'Copy', () => {
+      copyText(command)
+      toast('Copied')
+    })
+    pre.append(bar)
+  }
+
+  private scroll() {
+    this.list.scrollTop = this.list.scrollHeight
+  }
+}
+
+// ---- Command bar (⌘J): plain English → one command ---------------------------------
+
+export class CommandBar {
+  private root = document.getElementById('cmdbar')!
+  private input = el('input', { type: 'text', placeholder: 'Describe a command in plain English…', spellcheck: 'false' }) as HTMLInputElement
+  private preview = el('div', { class: 'cmd-preview' })
+  private help = el('div', { class: 'cmd-help' })
+  private result = ''
+  private pending: string | null = null
+
+  constructor(private host: AIHost) {
+    this.root.append(el('div', { class: 'cmd-row' }, el('span', { class: 'spark' }, '✦'), this.input), this.preview, this.help)
+    this.input.addEventListener('keydown', (e) => this.onKey(e))
+    this.input.addEventListener('input', () => {
+      if (this.result) {
+        this.result = ''
+        this.render()
+      }
+    })
+  }
+
+  async open() {
+    if (!(await HasAPIKey())) {
+      toast('Add your Claude API key in Settings (⌘,) first', 'error')
+      this.host.openSettings()
+      return
+    }
+    this.root.hidden = false
+    this.input.value = ''
+    this.result = ''
+    this.render()
+    this.input.focus()
+  }
+
+  close() {
+    if (this.pending) AICancel(this.pending)
+    this.pending = null
+    this.root.hidden = true
+    this.host.activeTab()?.term.focus()
+  }
+
+  private onKey(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      this.close()
+      return
+    }
+    if (e.key !== 'Enter' || e.isComposing) return
+    e.preventDefault()
+    const runIt = e.metaKey || e.ctrlKey
+    if (this.result && !this.result.startsWith('#')) {
+      const tab = this.host.activeTab()
+      if (tab?.sendCommand(this.result, runIt)) this.close()
+      return
+    }
+    this.generate()
+  }
+
+  private generate() {
+    const tab = this.host.activeTab()
+    const prompt = this.input.value.trim()
+    if (!tab || !prompt || this.pending) return
+    this.result = ''
+    this.preview.className = 'cmd-preview loading'
+    this.preview.textContent = 'Thinking…'
+    this.help.textContent = ''
+    let acc = ''
+    this.pending = ask('commandbar', 'command', prompt, tab.aiContext(), this.host.shellName(), {
+      delta: (t) => {
+        acc += t
+        this.preview.className = 'cmd-preview'
+        this.preview.textContent = acc
+      },
+      done: (t) => {
+        this.pending = null
+        this.result = (t || acc).trim().replace(/^```\w*\n?|```$/g, '').replace(/^\$\s+/, '').trim()
+        this.render()
+      },
+      error: (err) => {
+        this.pending = null
+        this.preview.className = 'cmd-preview error'
+        this.preview.textContent = err
+      },
+    })
+  }
+
+  private render() {
+    if (!this.result) {
+      this.preview.className = 'cmd-preview empty'
+      this.preview.textContent = ''
+      this.help.innerHTML = '<kbd>⏎</kbd> ask Claude <kbd>esc</kbd> cancel'
+      return
+    }
+    const note = this.result.startsWith('#')
+    this.preview.className = 'cmd-preview' + (note ? ' note' : '')
+    this.preview.textContent = note ? this.result.replace(/^#\s*/, '') : this.result
+    this.help.innerHTML = note
+      ? 'Try describing it differently. <kbd>esc</kbd> cancel'
+      : '<kbd>⏎</kbd> put on the prompt <kbd>⌘⏎</kbd> run now <kbd>esc</kbd> cancel · edit the text to ask again'
+  }
+}

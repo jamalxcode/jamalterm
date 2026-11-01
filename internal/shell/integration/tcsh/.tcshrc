@@ -1,0 +1,13 @@
+# jamalterm: tcsh reads this because HOME points here for a moment.
+# Put HOME back, read your own startup file, then add the hooks.
+setenv HOME "$JAMALTERM_HOME"
+set home = "$JAMALTERM_HOME"
+unsetenv JAMALTERM_HOME
+if ( -r ~/.tcshrc ) then
+  source ~/.tcshrc
+else if ( -r ~/.cshrc ) then
+  source ~/.cshrc
+endif
+if ( $?prompt && $?JAMALTERM_INTEGRATION ) then
+  source "$JAMALTERM_INTEGRATION/tcsh/integration.tcsh"
+endif

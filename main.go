@@ -2,10 +2,8 @@ package main
 
 import (
 	"embed"
-	"runtime"
 
 	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
@@ -14,38 +12,34 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+// version is set at build time: -ldflags "-X main.version=1.0.0"
+var version = "dev"
+
+// Version is shown in About.
+func (a *App) Version() string { return version }
+
 func main() {
 	app := NewApp()
 
-	// macOS needs an Edit menu, otherwise Cmd+C / Cmd+V / Cmd+A do nothing
-	// inside the web view.
-	appMenu := menu.NewMenu()
-	if runtime.GOOS == "darwin" {
-		appMenu.Append(menu.AppMenu())
-		appMenu.Append(menu.EditMenu())
-		appMenu.Append(menu.WindowMenu())
-	}
-
 	err := wails.Run(&options.App{
 		Title:     "jamalterm",
-		Width:     960,
-		Height:    620,
-		MinWidth:  400,
-		MinHeight: 240,
+		Width:     1100,
+		Height:    700,
+		MinWidth:  480,
+		MinHeight: 300,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		// Same as the theme background, so there's no flash on launch.
+		// Same as the default theme background, so there's no flash on launch.
 		BackgroundColour: &options.RGBA{R: 21, G: 22, B: 30, A: 255},
-		Menu:             appMenu,
+		Menu:             app.buildMenu(),
 		OnStartup:        app.startup,
 		OnShutdown:       app.shutdown,
 		Bind:             []interface{}{app},
 		Mac: &mac.Options{
-			// Content runs under a transparent title bar, like modern terminals.
+			// Tabs sit in a transparent title bar, like modern terminals.
 			TitleBar:             mac.TitleBarHiddenInset(),
 			WebviewIsTransparent: true,
-			WindowIsTranslucent:  false,
 			About: &mac.AboutInfo{
 				Title:   "jamalterm",
 				Message: "A terminal with a free-floating cursor.",

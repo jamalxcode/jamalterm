@@ -12,7 +12,8 @@
   },
   "info": {
     "productName": "jamalterm",
-    "productVersion": "0.1.0",
-    "comments": "A terminal with a free-floating cursor"
+    "productVersion": "1.0.0",
+    "comments": "A terminal with a free-floating cursor",
+    "copyright": "jamal xcode"
   }
 }

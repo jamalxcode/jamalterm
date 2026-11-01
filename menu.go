@@ -1,0 +1,80 @@
+package main
+
+import (
+	goruntime "runtime"
+
+	"github.com/wailsapp/wails/v2/pkg/menu"
+	"github.com/wailsapp/wails/v2/pkg/menu/keys"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
+)
+
+type menuData = menu.CallbackData
+
+// cmd is ⌘+key on macOS. Elsewhere (only used for development) it is
+// Ctrl+Shift+key so the shell keeps Ctrl+W, Ctrl+K and friends.
+func cmd(key string) *keys.Accelerator {
+	if goruntime.GOOS == "darwin" {
+		return keys.CmdOrCtrl(key)
+	}
+	return keys.Combo(key, keys.CmdOrCtrlKey, keys.ShiftKey)
+}
+
+func cmdShift(key string) *keys.Accelerator {
+	return keys.Combo(key, keys.CmdOrCtrlKey, keys.ShiftKey)
+}
+
+// buildMenu creates the menu bar. Each item sends a "menu" event that the
+// frontend handles (frontend/src/main.ts, runMenu).
+func (a *App) buildMenu() *menu.Menu {
+	m := menu.NewMenu()
+
+	appMenu := m.AddSubmenu("jamalterm")
+	appMenu.AddText("About jamalterm", nil, a.menu("about"))
+	appMenu.AddSeparator()
+	appMenu.AddText("Settings…", cmd(","), a.menu("settings"))
+	appMenu.AddSeparator()
+	appMenu.AddText("Hide jamalterm", cmd("h"), func(_ *menu.CallbackData) { runtime.Hide(a.ctx) })
+	appMenu.AddText("Quit jamalterm", cmd("q"), func(_ *menu.CallbackData) { runtime.Quit(a.ctx) })
+
+	shellMenu := m.AddSubmenu("Shell")
+	shellMenu.AddText("New Tab", cmd("t"), a.menu("newTab"))
+	shellMenu.AddText("Close Tab", cmd("w"), a.menu("closeTab"))
+	shellMenu.AddSeparator()
+	shellMenu.AddText("Clear", cmd("k"), a.menu("clear"))
+	shellMenu.AddText("Find…", cmd("f"), a.menu("find"))
+
+	m.Append(menu.EditMenu())
+
+	view := m.AddSubmenu("View")
+	view.AddText("Browse Commands", cmd("up"), a.menu("browse"))
+	view.AddText("Previous Command", cmdShift("up"), a.menu("prevCommand"))
+	view.AddText("Next Command", cmdShift("down"), a.menu("nextCommand"))
+	view.AddSeparator()
+	view.AddText("Bigger Text", cmd("="), a.menu("zoomIn"))
+	view.AddText("Smaller Text", cmd("-"), a.menu("zoomOut"))
+	view.AddText("Actual Size", cmd("0"), a.menu("zoomReset"))
+
+	aiMenu := m.AddSubmenu("AI")
+	aiMenu.AddText("Ask Claude…", cmd("i"), a.menu("aiPanel"))
+	aiMenu.AddText("Command from English…", cmd("j"), a.menu("aiCommand"))
+	aiMenu.AddText("Explain Last Error", cmdShift("e"), a.menu("aiExplainLast"))
+
+	win := m.AddSubmenu("Window")
+	win.AddText("Next Tab", cmdShift("]"), a.menu("nextTab"))
+	win.AddText("Previous Tab", cmdShift("["), a.menu("prevTab"))
+	win.AddSeparator()
+	for i := 1; i <= 9; i++ {
+		n := string(rune('0' + i))
+		win.AddText("Tab "+n, cmd(n), a.menu("tab"+n))
+	}
+	win.AddSeparator()
+	win.AddText("Minimize", cmd("m"), func(_ *menu.CallbackData) { runtime.WindowMinimise(a.ctx) })
+	win.AddText("Toggle Full Screen", keys.Combo("f", keys.CmdOrCtrlKey, keys.ControlKey), func(_ *menu.CallbackData) {
+		if runtime.WindowIsFullscreen(a.ctx) {
+			runtime.WindowUnfullscreen(a.ctx)
+		} else {
+			runtime.WindowFullscreen(a.ctx)
+		}
+	})
+	return m
+}

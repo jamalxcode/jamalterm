@@ -6,8 +6,20 @@
     <title>jamalterm</title>
 </head>
 <body>
-<div id="titlebar"><span id="title">jamalterm</span></div>
-<div id="terminal"></div>
+<header id="titlebar">
+    <nav id="tabs"></nav>
+    <button id="ai-button" title="Ask Claude (⌘I)">✦ Ask</button>
+</header>
+<main id="main">
+    <section id="terminals"></section>
+    <aside id="ai-panel" hidden></aside>
+</main>
+<div id="hint" hidden></div>
+<div id="find" hidden></div>
+<div id="cmdbar" hidden></div>
+<div id="settings" class="modal" hidden></div>
+<div id="about" class="modal" hidden></div>
+<div id="toast"></div>
 <script src="./src/main.ts" type="module"></script>
 </body>
 </html>

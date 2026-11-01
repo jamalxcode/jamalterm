@@ -1,71 +1,91 @@
 # jamalterm
 
-A macOS terminal written in Go. It runs your normal shell (zsh, bash, tcsh, fish…) and will grow a **free-floating cursor**: move up through earlier commands with the arrow keys or the mouse, press Enter, and run them again. AI add-ons come later.
+A terminal for macOS with a **free-floating cursor** and **Claude built in**. Move up through everything you've run with the arrow keys or the mouse, press Enter, and the command runs again. Ask Claude why something failed, or describe a command in plain English.
 
-Built with [Wails](https://wails.io) (Go backend, native macOS window) and [xterm.js](https://xtermjs.org) (the terminal engine inside VS Code).
+It runs your normal shell (zsh, bash, tcsh, fish…), so everything you already use keeps working.
 
-## What works now (step 1)
+## Download
 
-- Starts your login shell from `$SHELL` (`zsh` on a default Mac) inside a real pseudo-terminal, so `vim`, `htop`, `less`, `tmux`, colors and the arrow-key history all behave as usual.
-- **Jamal Night** color theme with truecolor and 256-color support, plus a blinking pink block cursor.
-- GPU (WebGL) rendering, emoji and CJK widths, 10,000 lines of scrollback, clickable links.
-- Mac shortcuts: Cmd+C / Cmd+V copy and paste, Cmd+K clears, Cmd+= / Cmd+- / Cmd+0 change the font size, and Option works as Meta (Option+B / Option+F jump words).
-- The window title follows the shell (`user@mac: ~/code`). When the shell exits, any key starts a new one.
+**[Latest release →](https://github.com/jamalxcode/jamalterm/releases/latest)**: download the `.dmg`, open it, and drag jamalterm into Applications.
 
-## Run it on your Mac
+The app isn't notarized by Apple (that needs a paid developer account), so macOS blocks the first launch. Run this once:
 
-You need [Go](https://go.dev/dl/) 1.25+, [Node](https://nodejs.org) 20+ and the Xcode command-line tools (`xcode-select --install`).
+```bash
+xattr -dr com.apple.quarantine /Applications/jamalterm.app
+```
+
+Or try to open it, then click **Open Anyway** in System Settings → Privacy & Security. Universal build: Apple silicon and Intel, macOS 10.15+.
+
+## Using it
+
+### Browse mode: the free-floating cursor
+
+| Key | What it does |
+|---|---|
+| **⌘↑**, or click any earlier line | Enter browse mode (a pink cursor appears) |
+| ↑ ↓ ← → (or j k) | Move the cursor anywhere in the scrollback |
+| ⌥↑ ⌥↓ (or ⇧↑ ⇧↓) | Jump between commands |
+| **⏎** | Run the selected command again |
+| ⇧⏎ or E | Put it on the prompt to edit first |
+| C / O | Copy the command / its output |
+| A | Ask Claude about this command |
+| esc, or just start typing | Back to the prompt |
+
+Each command gets a dot in the margin: green for success, red for failure, and pulsing blue while it runs. Hover for how long it took. Click a red dot to ask Claude what went wrong.
+
+### Claude
+
+| Key | What it does |
+|---|---|
+| **⌘I** | Chat panel. Claude sees your recent commands, exit codes and output. Commands in answers have **Run** and **Insert** buttons. |
+| **⌘J** | Command bar: type "find big files in Downloads", get the command, press ⏎ to put it on the prompt (⌘⏎ runs it). |
+| ⇧⌘E | Explain the last error |
+
+Add your API key from [console.anthropic.com](https://console.anthropic.com) in **Settings (⌘,)**. It's stored in your macOS Keychain. The default model is Claude Opus 5.5; Sonnet and Haiku are faster and cheaper options. You can turn off sending command output, or turn AI off completely.
+
+### Everything else
+
+- Tabs: ⌘T, ⌘W, ⌘1–9, ⇧⌘[ / ⇧⌘]. New tabs open in the current folder.
+- ⌘F find, ⌘K clear, ⌘= / ⌘- / ⌘0 font size.
+- 10 themes (Jamal Night, Catppuccin, Dracula, Tokyo Night, One Dark, Nord, Gruvbox, Solarized dark and light, GitHub Light), with a font, cursor style and blink setting.
+- Option works as Meta (⌥B / ⌥F jump words). Turn it off in Settings.
+
+## How it works
+
+```
+┌────────────────── jamalterm.app (Wails) ──────────────────┐
+│ frontend/src/   xterm.js terminal, tabs, browse mode,     │
+│                 AI panel, command bar, settings           │
+├────────────────── events / bound methods ─────────────────┤
+│ app.go, menu.go     tabs, menu bar, settings, AI bridge   │
+│ internal/shell      PTY + your shell + shell integration  │
+│ internal/ai         Claude via the official Go SDK        │
+│ internal/settings   settings.json + Keychain              │
+└───────────────────────────────────────────────────────────┘
+```
+
+**Shell integration.** To know where each command starts and ends, jamalterm loads a small hook script into zsh, bash and tcsh. It never edits your dotfiles: zsh gets a temporary `ZDOTDIR`, bash an `--rcfile`, and tcsh a temporary `HOME`. Each one hands straight back to your own startup files. The hooks print invisible marks (OSC 133, the same convention iTerm2, VS Code and Ghostty use), plus the command text and current folder. The scripts are in `internal/shell/integration/`. Other shells (fish, nu…) work normally. Browse mode can still move around and copy lines there, but can't re-run commands. You can turn integration off in Settings.
+
+**Claude.** Requests go from Go straight to the Claude API, using streaming, adaptive thinking and server-side fallbacks. The key never reaches the web view.
+
+## Develop
+
+Requires Go 1.25+, Node 20+, and the Xcode command-line tools.
 
 ```bash
 go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.0
 ```
 
 ```bash
-git clone https://github.com/jamalxcode/jamalterm && cd jamalterm
-```
-
-```bash
 ~/go/bin/wails dev
 ```
 
-`wails dev` opens the app with live reload: edit anything in `frontend/src` and the window updates instantly. To make a real app:
-
 ```bash
-~/go/bin/wails build -platform darwin/universal
+go test ./...
 ```
 
-```bash
-open build/bin/jamalterm.app
-```
+The tests start real zsh, bash, tcsh and sh sessions and check the integration marks, exit codes and folders. The AI tests use a fake streaming server.
 
-### Or download a build
+Every push builds the app on GitHub Actions. Pushing a tag like `v1.2.0` publishes a release with the `.dmg`.
 
-Every push to `main` builds `jamalterm.app` on GitHub (Actions → *Build macOS app* → `jamalterm-macos` artifact). The app isn't signed yet, so after unzipping, clear the quarantine flag once:
-
-```bash
-xattr -dr com.apple.quarantine ~/Downloads/jamalterm.app
-```
-
-## How it fits together
-
-```
-┌──────────── jamalterm.app (Wails) ───────────┐
-│ frontend/src/main.ts   xterm.js: draws the   │
-│ frontend/src/theme.ts  screen, keys, colors  │
-├──────────── events / bound methods ──────────┤
-│ app.go                 Start, Write, Resize  │
-│ internal/shell/        PTY + your shell      │
-└──────────────────────────────────────────────┘
-```
-
-- `internal/shell` starts the shell in a PTY (via [creack/pty](https://github.com/creack/pty)) and streams its output. It has no GUI code, and its tests run real `zsh`, `bash`, `tcsh` and `sh`: `go test ./internal/...`
-- `app.go` connects it to the window: output goes to the frontend as `pty:data` events, keystrokes come back through `Write`.
-- `frontend/src/main.ts` sets up xterm.js. Change colors in `theme.ts`.
-
-## Roadmap
-
-1. ~~Skeleton: a shell in a window, colors, blinking cursor~~ ✅
-2. Settings, themes, fonts, tabs
-3. Shell integration (OSC 133): know where each command and its output start and end
-4. **Browse mode**: a free-floating cursor that moves through past commands with the arrows or the mouse; Enter re-runs a command
-5. AI: explain an error, turn plain English into a command, fix and re-run
+Debug switches: `JAMALTERM_NO_GPU=1` draws without WebGL; `JAMALTERM_ANTHROPIC_BASE_URL` points AI requests at another server.

@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -29,6 +30,9 @@ type Options struct {
 	Dir string
 	// Env is added on top of the inherited environment.
 	Env []string
+	// Integration loads jamalterm's hooks into zsh, bash and tcsh so the
+	// terminal can tell where each command starts and ends.
+	Integration bool
 	// Cols and Rows are the initial terminal size.
 	Cols, Rows uint16
 
@@ -89,9 +93,21 @@ func Start(o Options) (*Session, error) {
 		o.Rows = 24
 	}
 
+	extraEnv := o.Env
+	if o.Integration {
+		home, _ := os.UserHomeDir()
+		args, extraEnv = withIntegration(shellPath, args, append([]string{}, o.Env...), home)
+	}
+
 	cmd := exec.Command(shellPath, args...)
 	cmd.Dir = dir
-	cmd.Env = buildEnv(os.Environ(), shellPath, o.Env)
+	cmd.Env = buildEnv(os.Environ(), shellPath, extraEnv)
+	if filepath.Base(shellPath) == "tcsh" || filepath.Base(shellPath) == "csh" {
+		// csh decides it is a login shell from a leading "-" in argv[0].
+		if len(args) == 1 && args[0] == "-l" {
+			cmd.Args = []string{"-" + filepath.Base(shellPath)}
+		}
+	}
 
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: o.Cols, Rows: o.Rows})
 	if err != nil {
@@ -212,8 +228,16 @@ func loginShellFromAccount() string {
 	if err != nil {
 		return ""
 	}
-	// /etc/passwd (Linux). On macOS accounts live in Directory Services,
-	// but $SHELL is always set there for GUI apps too, so this rarely runs.
+	if runtime.GOOS == "darwin" {
+		// macOS keeps accounts in Directory Services, not /etc/passwd.
+		out, err := exec.Command("/usr/bin/dscl", ".", "-read", "/Users/"+u.Username, "UserShell").Output()
+		if err == nil {
+			if f := strings.Fields(string(out)); len(f) == 2 && filepath.IsAbs(f[1]) {
+				return f[1]
+			}
+		}
+		return ""
+	}
 	data, err := os.ReadFile("/etc/passwd")
 	if err != nil {
 		return ""
