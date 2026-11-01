@@ -110,6 +110,10 @@ export function ShellName() {
   return window['go']['main']['App']['ShellName']();
 }
 
+export function SignInOpenRouter() {
+  return window['go']['main']['App']['SignInOpenRouter']();
+}
+
 export function Start(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['Start'](arg1, arg2, arg3, arg4);
 }

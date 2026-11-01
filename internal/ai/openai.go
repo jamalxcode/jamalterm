@@ -22,6 +22,8 @@ const (
 	ProviderOpenAI    = "openai"    // ChatGPT models via the OpenAI API
 	ProviderDeepSeek  = "deepseek"  // DeepSeek (OpenAI-compatible API)
 	ProviderXAI       = "xai"       // Grok by xAI (OpenAI-compatible API)
+	// OpenRouter: many models through one OpenAI-compatible API.
+	ProviderOpenRouter = "openrouter"
 )
 
 // ProviderInfo describes a provider for the UI.
@@ -37,6 +39,7 @@ var Providers = []ProviderInfo{
 	{ProviderOpenAI, "ChatGPT", "https://platform.openai.com/api-keys", "sk-…"},
 	{ProviderDeepSeek, "DeepSeek", "https://platform.deepseek.com/api_keys", "sk-…"},
 	{ProviderXAI, "Grok", "https://console.x.ai", "xai-…"},
+	{ProviderOpenRouter, "OpenRouter", "https://openrouter.ai/keys", "sk-or-…"},
 }
 
 func providerName(id string) string {
@@ -51,6 +54,11 @@ func providerName(id string) string {
 // compatBase is the API address for an OpenAI-compatible provider.
 func compatBase(provider string) string {
 	switch provider {
+	case ProviderOpenRouter:
+		if b := os.Getenv("JAMALTERM_OPENROUTER_BASE_URL"); b != "" {
+			return b
+		}
+		return "https://openrouter.ai/api/v1"
 	case ProviderXAI:
 		if b := os.Getenv("JAMALTERM_XAI_BASE_URL"); b != "" {
 			return b
@@ -70,7 +78,14 @@ func compatBase(provider string) string {
 }
 
 func compatClient(provider, key string) openai.Client {
-	return openai.NewClient(oaioption.WithAPIKey(key), oaioption.WithBaseURL(compatBase(provider)))
+	opts := []oaioption.RequestOption{oaioption.WithAPIKey(key), oaioption.WithBaseURL(compatBase(provider))}
+	if provider == ProviderOpenRouter {
+		// OpenRouter's (optional) app attribution headers.
+		opts = append(opts,
+			oaioption.WithHeader("HTTP-Referer", "https://github.com/jamalxcode/jamalterm"),
+			oaioption.WithHeader("X-Title", "jamalterm"))
+	}
+	return openai.NewClient(opts...)
 }
 
 // ListModels returns the chat models a provider offers to this key, newest
@@ -97,7 +112,9 @@ func ListModels(ctx context.Context, provider, key string) ([]string, error) {
 		}
 		page = next
 	}
-	sort.SliceStable(out, func(i, j int) bool { return rankModel(out[i]) > rankModel(out[j]) })
+	if provider != ProviderOpenRouter { // OpenRouter lists hundreds of models from many makers: keep its order
+		sort.SliceStable(out, func(i, j int) bool { return rankModel(out[i]) > rankModel(out[j]) })
+	}
 	return out, nil
 }
 
@@ -156,6 +173,10 @@ func (c *Client) resolveModel(ctx context.Context, provider, key string) (string
 	if provider == ProviderDeepSeek {
 		// DeepSeek's current general model (per its docs).
 		return "deepseek-v4-flash", nil
+	}
+	if provider == ProviderOpenRouter {
+		// OpenRouter's Auto Router picks a model for each request.
+		return "openrouter/auto", nil
 	}
 	models, err := ListModels(ctx, provider, key)
 	if err != nil {

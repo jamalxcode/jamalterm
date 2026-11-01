@@ -1,4 +1,4 @@
-import { SaveSettings, SetAPIKey, HasSavedAPIKey, AnthropicAccount, BlurActive, SetProviderKey, HasSavedProviderKey, ListProviderModels } from '../wailsjs/go/main/App'
+import { SaveSettings, SetAPIKey, HasSavedAPIKey, AnthropicAccount, BlurActive, SetProviderKey, HasSavedProviderKey, ListProviderModels, SignInOpenRouter } from '../wailsjs/go/main/App'
 import { settings } from '../wailsjs/go/models'
 import { themes } from './themes'
 import { el, toast, SIGN_IN_COMMAND, SIGN_OUT_COMMAND } from './util'
@@ -214,11 +214,12 @@ export class SettingsView {
 
     // ChatGPT and DeepSeek: an API key and a model (blank = automatic).
     const compatKeys: Record<string, HTMLInputElement> = {}
-    const compatBox = async (id: 'openai' | 'deepseek' | 'xai') => {
+    const compatBox = async (id: 'openai' | 'deepseek' | 'xai' | 'openrouter') => {
       const info = {
         openai: { name: 'ChatGPT', company: 'OpenAI', url: 'platform.openai.com → API keys', bill: 'Billed to your OpenAI API account (separate from a ChatGPT Plus subscription).', auto: 'Automatic: the newest general GPT model your key can use' },
         deepseek: { name: 'DeepSeek', company: 'DeepSeek', url: 'platform.deepseek.com → API keys', bill: 'Billed to your DeepSeek API balance.', auto: 'Automatic: deepseek-v4-flash' },
         xai: { name: 'Grok', company: 'xAI', url: 'console.x.ai → API keys', bill: 'Billed to your xAI API account (separate from SuperGrok / X Premium).', auto: 'Automatic: the newest general Grok model your key can use' },
+        openrouter: { name: 'OpenRouter', company: 'OpenRouter', url: 'openrouter.ai/keys, or use Sign in with OpenRouter above', bill: 'Billed to your OpenRouter credits.', auto: 'Automatic: openrouter/auto (OpenRouter picks a model each time)' },
       }[id]
       const saved = await HasSavedProviderKey(id)
       const key = el('input', { type: 'password', placeholder: saved ? '•••••••• saved in your Keychain' : 'sk-…', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement
@@ -234,12 +235,13 @@ export class SettingsView {
       const listId = `models-${id}`
       const datalist = el('datalist', { id: listId })
       const modelInput = el('input', { type: 'text', list: listId, placeholder: info.auto, spellcheck: 'false' }) as HTMLInputElement
-      modelInput.value = { openai: s.openaiModel, deepseek: s.deepseekModel, xai: s.xaiModel }[id]
+      modelInput.value = { openai: s.openaiModel, deepseek: s.deepseekModel, xai: s.xaiModel, openrouter: s.openrouterModel }[id]
       modelInput.addEventListener('input', () => {
         const v = modelInput.value.trim()
         if (id === 'openai') s.openaiModel = v
         else if (id === 'deepseek') s.deepseekModel = v
-        else s.xaiModel = v
+        else if (id === 'xai') s.xaiModel = v
+        else s.openrouterModel = v
       })
       const load = el('button', { type: 'button', class: 'ghost small' }, 'Show available models')
       const modelHelp = el('span', { class: 'help', text: 'Leave empty for automatic, or pick one your key can use.' })
@@ -255,13 +257,36 @@ export class SettingsView {
           modelHelp.textContent = String(err)
         }
       })
+      // OpenRouter has a public browser sign-in that hands back a key.
+      const signIn: HTMLElement[] = []
+      if (id === 'openrouter') {
+        const btn = el('button', { type: 'button', class: 'primary small' }, 'Sign in with OpenRouter')
+        const note = el('span', { class: 'help', text: 'Opens your browser; approve, and the key is saved for you. No key to copy.' })
+        btn.addEventListener('click', async () => {
+          btn.setAttribute('disabled', '')
+          note.textContent = 'Waiting for you to approve in the browser…'
+          try {
+            await SignInOpenRouter()
+            note.textContent = '✓ Signed in. Your OpenRouter key is saved in your Keychain.'
+            note.classList.add('ok')
+            key.placeholder = '•••••••• saved in your Keychain'
+            remove.hidden = false
+          } catch (err) {
+            note.textContent = String(err)
+          } finally {
+            btn.removeAttribute('disabled')
+          }
+        })
+        signIn.push(el('div', { class: 'field' }, el('span', { class: 'label', text: 'OpenRouter account' }), el('div', { class: 'keyrow' }, btn), note))
+      }
       return el('div', { class: 'provider-box' },
-        field(`${info.company} API key`, el('div', { class: 'keyrow' }, key, remove), `From ${info.url}. Stored in your macOS Keychain. ${info.bill}`),
+        ...signIn,
+        field(id === 'openrouter' ? 'Or paste an API key' : `${info.company} API key`, el('div', { class: 'keyrow' }, key, remove), `From ${info.url}. Stored in your macOS Keychain. ${info.bill}`),
         field('Model', el('div', { class: 'keyrow' }, modelInput, load, datalist)),
         modelHelp,
       )
     }
-    const boxes: Record<string, HTMLElement> = { anthropic: claudeBox, openai: await compatBox('openai'), deepseek: await compatBox('deepseek'), xai: await compatBox('xai') }
+    const boxes: Record<string, HTMLElement> = { anthropic: claudeBox, openai: await compatBox('openai'), deepseek: await compatBox('deepseek'), xai: await compatBox('xai'), openrouter: await compatBox('openrouter') }
     const showBox = () => Object.entries(boxes).forEach(([id, b]) => (b.hidden = id !== s.aiProvider))
     showBox()
 
@@ -269,8 +294,8 @@ export class SettingsView {
       'section', {},
       el('h3', { text: 'AI assistant' }),
       el('label', { class: 'check' }, check(s.aiEnabled, (v) => (s.aiEnabled = v)), ' Turn on AI features'),
-      field('Assistant', select([['anthropic', 'Claude (Anthropic)'], ['openai', 'ChatGPT (OpenAI)'], ['deepseek', 'DeepSeek'], ['xai', 'Grok (xAI)']], s.aiProvider, (v) => { s.aiProvider = v; showBox() })),
-      claudeBox, boxes.openai, boxes.deepseek, boxes.xai,
+      field('Assistant', select([['anthropic', 'Claude (Anthropic)'], ['openai', 'ChatGPT (OpenAI)'], ['deepseek', 'DeepSeek'], ['xai', 'Grok (xAI)'], ['openrouter', 'OpenRouter (many models)']], s.aiProvider, (v) => { s.aiProvider = v; showBox() })),
+      claudeBox, boxes.openai, boxes.deepseek, boxes.xai, boxes.openrouter,
       el('label', { class: 'check' }, check(s.aiShareOutput, (v) => (s.aiShareOutput = v)), ' Send recent command output with questions (otherwise only the commands)'),
     )
 

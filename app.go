@@ -98,6 +98,8 @@ func NewApp() *App {
 				return a.Settings().DeepSeekModel
 			case ai.ProviderXAI:
 				return a.Settings().XAIModel
+			case ai.ProviderOpenRouter:
+				return a.Settings().OpenRouterModel
 			}
 			return ""
 		})
@@ -288,6 +290,18 @@ func (a *App) refreshProviderMenu() {
 	if a.ctx != nil {
 		runtime.MenuUpdateApplicationMenu(a.ctx)
 	}
+}
+
+// SignInOpenRouter runs OpenRouter's browser sign-in and saves the key
+// it returns in the Keychain. It returns once the user has approved.
+func (a *App) SignInOpenRouter() error {
+	ctx, cancel := context.WithTimeout(a.ctx, 6*time.Minute)
+	defer cancel()
+	key, err := ai.OpenRouterSignIn(ctx, func(u string) { runtime.BrowserOpenURL(a.ctx, u) })
+	if err != nil {
+		return err
+	}
+	return a.secrets.SetKeyFor(ai.ProviderOpenRouter, key)
 }
 
 // AIProviders lists the assistants to choose from (Claude, ChatGPT, DeepSeek).

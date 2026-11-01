@@ -58,6 +58,8 @@ export function Settings():Promise<settings.Settings>;
 
 export function ShellName():Promise<string>;
 
+export function SignInOpenRouter():Promise<void>;
+
 export function Start(arg1:number,arg2:number,arg3:number,arg4:string):Promise<void>;
 
 export function Version():Promise<string>;

@@ -35,10 +35,11 @@ func keyFile(provider string) string {
 }
 
 var envVar = map[string]string{
-	"anthropic": "ANTHROPIC_API_KEY",
-	"openai":    "OPENAI_API_KEY",
-	"deepseek":  "DEEPSEEK_API_KEY",
-	"xai":       "XAI_API_KEY",
+	"anthropic":  "ANTHROPIC_API_KEY",
+	"openai":     "OPENAI_API_KEY",
+	"deepseek":   "DEEPSEEK_API_KEY",
+	"xai":        "XAI_API_KEY",
+	"openrouter": "OPENROUTER_API_KEY",
 }
 
 // APIKey is the Claude key (saved, else $ANTHROPIC_API_KEY).

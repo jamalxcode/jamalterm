@@ -112,6 +112,7 @@ export namespace settings {
 	    openaiModel: string;
 	    deepseekModel: string;
 	    xaiModel: string;
+	    openrouterModel: string;
 	    aiShareOutput: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -141,6 +142,7 @@ export namespace settings {
 	        this.openaiModel = source["openaiModel"];
 	        this.deepseekModel = source["deepseekModel"];
 	        this.xaiModel = source["xaiModel"];
+	        this.openrouterModel = source["openrouterModel"];
 	        this.aiShareOutput = source["aiShareOutput"];
 	    }
 	}

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.8.0
+
+- **OpenRouter** joins the assistants (AI menu → Use OpenRouter, ⌥⌘5): hundreds of models through one account
+- **Sign in with OpenRouter**: approve in your browser and jamalterm saves the key for you; or paste an API key
+- By default OpenRouter's Auto Router picks the model; or choose any model your account can use
+- The AI panel's welcome text names the assistant you switched to
+
 ## 1.7.0
 
 - **Grok** (xAI) joins Claude, ChatGPT and DeepSeek: AI menu → Use Grok (⌥⌘4), or Settings → AI assistant

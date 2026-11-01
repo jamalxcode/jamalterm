@@ -45,9 +45,10 @@ type Settings struct {
 	AIProvider string `json:"aiProvider"`
 	AIModel    string `json:"aiModel"` // Claude model
 	// OpenAIModel / DeepSeekModel: "" picks automatically.
-	OpenAIModel   string `json:"openaiModel"`
-	DeepSeekModel string `json:"deepseekModel"`
-	XAIModel      string `json:"xaiModel"`
+	OpenAIModel     string `json:"openaiModel"`
+	DeepSeekModel   string `json:"deepseekModel"`
+	XAIModel        string `json:"xaiModel"`
+	OpenRouterModel string `json:"openrouterModel"`
 	// AIShareOutput sends recent command output to Claude with questions.
 	AIShareOutput bool `json:"aiShareOutput"`
 }
@@ -159,13 +160,14 @@ func (c Settings) normalized() Settings {
 		c.FontFamily = d.FontFamily
 	}
 	switch c.AIProvider {
-	case "anthropic", "openai", "deepseek", "xai":
+	case "anthropic", "openai", "deepseek", "xai", "openrouter":
 	default:
 		c.AIProvider = d.AIProvider
 	}
 	c.OpenAIModel = strings.TrimSpace(c.OpenAIModel)
 	c.DeepSeekModel = strings.TrimSpace(c.DeepSeekModel)
 	c.XAIModel = strings.TrimSpace(c.XAIModel)
+	c.OpenRouterModel = strings.TrimSpace(c.OpenRouterModel)
 	if c.AIModel == "" {
 		c.AIModel = d.AIModel
 	}

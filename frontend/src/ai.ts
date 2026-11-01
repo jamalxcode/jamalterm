@@ -1,4 +1,4 @@
-import { AIAsk, AICancel, AIReset, HasAPIKey, AIToolResult, SetAIProvider } from '../wailsjs/go/main/App'
+import { AIAsk, AICancel, AIReset, HasAPIKey, AIToolResult, SetAIProvider, SignInOpenRouter } from '../wailsjs/go/main/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 import type { Tab, Block } from './tab'
 import { el, renderMarkdown, copyText, toast, SIGN_IN_COMMAND } from './util'
@@ -48,11 +48,12 @@ export class AIPanel {
   private sendBtn = el('button', { class: 'ai-send', title: 'Send' }, '↑')
   private modelLabel = el('span', { class: 'ai-model' })
   // The assistant's name is also a switcher (Claude / ChatGPT / DeepSeek).
-  private titleEl = el('select', { class: 'ai-title ai-switch', title: 'Switch assistant (⌥⌘1–⌥⌘4)' },
+  private titleEl = el('select', { class: 'ai-title ai-switch', title: 'Switch assistant (⌥⌘1–⌥⌘5)' },
     el('option', { value: 'anthropic', text: 'Claude' }),
     el('option', { value: 'openai', text: 'ChatGPT' }),
     el('option', { value: 'deepseek', text: 'DeepSeek' }),
-    el('option', { value: 'xai', text: 'Grok' })) as HTMLSelectElement
+    el('option', { value: 'xai', text: 'Grok' }),
+    el('option', { value: 'openrouter', text: 'OpenRouter' })) as HTMLSelectElement
   private streaming: string | null = null
   private chatOf = new Map<number, HTMLElement[]>() // per-tab conversation
   private shownTab = -1
@@ -92,8 +93,12 @@ export class AIPanel {
     const who = this.host.assistant()
     if (this.titleEl.value !== who.id) {
       this.titleEl.value = who.id
-      // The setup hint was for the previous assistant.
+      // The welcome and setup hints were for the previous assistant.
       this.list.querySelector('.ai-setup')?.remove()
+      if (this.list.querySelector('.ai-welcome')) {
+        this.list.querySelector('.ai-welcome')!.remove()
+        this.welcome()
+      }
       if (this.list.querySelector('.msg')) {
         this.list.append(el('div', { class: 'ai-divider', text: `Switched to ${who.name} — it starts fresh and doesn't see the messages above` }))
         this.scroll()
@@ -162,6 +167,25 @@ export class AIPanel {
   private showSetup() {
     if (this.list.querySelector('.ai-setup')) return
     const who = this.host.assistant()
+    if (who.id === 'openrouter') {
+      const signIn = el('button', { class: 'primary' }, 'Sign in with OpenRouter')
+      const status = el('p', { class: 'dim', text: 'Opens your browser — approve and the key is saved for you. Or paste a key from openrouter.ai/keys in Settings.' })
+      const useKey = el('button', { class: 'ghost' }, 'Use an API key')
+      useKey.addEventListener('click', () => this.host.openSettings())
+      signIn.addEventListener('click', async () => {
+        status.textContent = 'Waiting for you to approve in the browser…'
+        try {
+          await SignInOpenRouter()
+          this.list.querySelector('.ai-setup')?.remove()
+          toast('Signed in to OpenRouter')
+          this.input.focus()
+        } catch (err) {
+          status.textContent = String(err)
+        }
+      })
+      this.list.append(el('div', { class: 'ai-setup' }, el('p', {}, el('strong', { text: 'Connect OpenRouter to turn on AI.' })), status, el('div', { class: 'row' }, signIn, useKey)))
+      return
+    }
     if (who.id !== 'anthropic') {
       const open = el('button', { class: 'primary' }, 'Open Settings')
       open.addEventListener('click', () => this.host.openSettings())
