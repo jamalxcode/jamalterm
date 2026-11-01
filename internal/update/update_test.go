@@ -113,11 +113,38 @@ func fakeRelease(t *testing.T, content []byte, corruptSum bool) []byte {
 	return final
 }
 
+// oldVersion is the installed app's executable in these tests.
+var oldVersion []byte
+
+// installedApp makes the "currently installed" jamalterm.app. On macOS it
+// is a real signed bundle (going back checks the signature), so its
+// executable is a copy of /bin/echo; elsewhere it's the text "old".
 func installedApp(t *testing.T) string {
 	dir := t.TempDir()
 	app := filepath.Join(dir, "jamalterm.app")
 	os.MkdirAll(filepath.Join(app, "Contents", "MacOS"), 0o755)
-	os.WriteFile(filepath.Join(app, "Contents", "MacOS", "jamalterm"), []byte("old"), 0o755)
+	exe := filepath.Join(app, "Contents", "MacOS", "jamalterm")
+	if runtime.GOOS != "darwin" {
+		os.WriteFile(exe, []byte("old"), 0o755)
+		oldVersion = []byte("old")
+		return app
+	}
+	data, err := os.ReadFile("/bin/echo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(exe, data, 0o755)
+	os.WriteFile(filepath.Join(app, "Contents", "Info.plist"), []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>com.jamalxcode.jamalterm</string>
+<key>CFBundleExecutable</key><string>jamalterm</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+</dict></plist>`), 0o644)
+	if out, err := exec.Command("/usr/bin/codesign", "--force", "--deep", "--sign", "-", app).CombinedOutput(); err != nil {
+		t.Fatalf("codesign: %v %s", err, out)
+	}
+	oldVersion, _ = os.ReadFile(exe)
 	return app
 }
 
@@ -157,8 +184,8 @@ func TestBadChecksumChangesNothing(t *testing.T) {
 		t.Fatal("expected a checksum error")
 	}
 	got, _ := os.ReadFile(filepath.Join(app, "Contents", "MacOS", "jamalterm"))
-	if string(got) != "old" {
-		t.Fatalf("app was changed: %q", got)
+	if !bytes.Equal(got, oldVersion) {
+		t.Fatalf("app was changed (%d bytes)", len(got))
 	}
 }
 
@@ -181,15 +208,15 @@ func TestKeepAndRevert(t *testing.T) {
 	if prev == "" {
 		t.Fatal("old version not kept")
 	}
-	if old, _ := os.ReadFile(filepath.Join(prev, "Contents", "MacOS", "jamalterm")); string(old) != "old" {
-		t.Fatalf("kept %q", old)
+	if old, _ := os.ReadFile(filepath.Join(prev, "Contents", "MacOS", "jamalterm")); !bytes.Equal(old, oldVersion) {
+		t.Fatalf("kept the wrong version (%d bytes)", len(old))
 	}
 	// Revert: the old one is back, the new one is kept.
 	if err := Revert(app); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := os.ReadFile(filepath.Join(app, "Contents", "MacOS", "jamalterm")); string(got) != "old" {
-		t.Fatalf("after revert: %q", got)
+	if got, _ := os.ReadFile(filepath.Join(app, "Contents", "MacOS", "jamalterm")); !bytes.Equal(got, oldVersion) {
+		t.Fatalf("after revert: wrong version (%d bytes)", len(got))
 	}
 	if kept, _ := os.ReadFile(filepath.Join(PreviousApp(), "Contents", "MacOS", "jamalterm")); !bytes.Equal(kept, content) {
 		t.Fatal("new version not kept after revert")
