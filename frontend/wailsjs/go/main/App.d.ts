@@ -10,6 +10,8 @@ export function AICancel(arg1:string):Promise<void>;
 
 export function AIReset(arg1:string):Promise<void>;
 
+export function AIToolResult(arg1:string,arg2:string,arg3:boolean):Promise<void>;
+
 export function AnthropicAccount():Promise<ai.Account>;
 
 export function CheckForUpdate():Promise<main.UpdateInfo>;

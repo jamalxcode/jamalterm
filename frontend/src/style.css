@@ -399,6 +399,20 @@ button.small { padding: 4px 10px; font-size: 12px; }
 .msg.assistant pre.is-text { background: var(--ai-2, var(--panel-2)); border: 1px solid var(--border); white-space: pre; }
 .msg.assistant pre code { background: none; padding: 0; color: var(--fg); }
 .msg.assistant pre.is-command code::before { content: "$ "; color: var(--muted); }
+.tool-card {
+  margin: 6px 0 10px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  border: 1px solid color-mix(in srgb, var(--fg) 25%, transparent);
+  background: color-mix(in srgb, var(--fg) 5%, var(--bg));
+}
+.tool-card.ask { border: 1.5px solid var(--accent); }
+.tool-card .tool-cmd code { font-family: var(--mono); color: var(--fg); white-space: pre-wrap; }
+.tool-card .tool-cmd code::before { content: "$ "; color: var(--muted); }
+.tool-card .tool-status { font-size: 11.5px; margin-top: 6px; color: var(--muted); }
+.tool-card.done .tool-status { color: var(--fg); }
+.tool-card.failed .tool-status { color: var(--red); }
+.msg-part + .msg-part, .tool-card + .msg-part { margin-top: 6px; }
 .code-label {
   font: 600 10px var(--ui);
   text-transform: uppercase;

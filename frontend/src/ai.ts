@@ -1,13 +1,19 @@
-import { AIAsk, AICancel, AIReset, HasAPIKey } from '../wailsjs/go/main/App'
+import { AIAsk, AICancel, AIReset, HasAPIKey, AIToolResult } from '../wailsjs/go/main/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 import type { Tab, Block } from './tab'
 import { el, renderMarkdown, copyText, toast, SIGN_IN_COMMAND } from './util'
 
-type Handler = { delta(t: string): void; done(t: string): void; error(e: string): void }
+type ToolEvent = { id: string; toolId: string; command: string; run: boolean }
+type Handler = { delta(t: string): void; done(t: string): void; error(e: string): void; tool?(e: ToolEvent): void }
 const handlers = new Map<string, Handler>()
 let seq = 0
 
 EventsOn('ai:delta', (e: { id: string; text: string }) => handlers.get(e.id)?.delta(e.text))
+EventsOn('ai:tool', (e: ToolEvent) => {
+  const h = handlers.get(e.id)
+  if (h?.tool) h.tool(e)
+  else AIToolResult(e.toolId, 'The terminal window was not available.', true)
+})
 EventsOn('ai:done', (e: { id: string; text: string }) => {
   handlers.get(e.id)?.done(e.text)
   handlers.delete(e.id)
@@ -176,30 +182,44 @@ export class AIPanel {
     this.list.append(msg)
     this.scroll()
 
+    // The answer is a list of parts: text, then a tool card, then more text…
     let acc = ''
+    let part: HTMLElement | null = null
+    let sawText = false
     const render = () => {
-      body.textContent = ''
-      body.append(renderMarkdown(acc, (code, pre, lang) => this.codeActions(code, pre, lang)))
+      if (!part) {
+        part = el('div', { class: 'msg-part' })
+        body.append(part)
+      }
+      part.textContent = ''
+      part.append(renderMarkdown(acc, (code, pre, lang) => this.codeActions(code, pre, lang)))
       this.scroll()
     }
     this.streaming = ask(`tab-${tab.id}`, 'chat', prompt, context ?? tab.aiContext(), this.host.shellName(), {
       delta: (t) => {
         msg.classList.remove('thinking')
+        if (!part && !t.trim()) return // separator before a new part
         acc += t
+        sawText = true
         render()
       },
-      done: (t) => {
+      tool: (e) => {
         msg.classList.remove('thinking')
-        acc = t || acc
-        render()
+        acc = ''
+        part = null // text after the tool goes in a new part
+        body.append(this.toolCard(tab, e))
+        this.scroll()
+      },
+      done: () => {
+        msg.classList.remove('thinking')
+        if (!sawText && !body.childElementCount) body.append(el('p', { class: 'dim', text: '(no answer)' }))
         this.finish()
       },
       error: (e) => {
         msg.classList.remove('thinking')
         msg.classList.add('error')
-        if (acc) render()
         body.append(el('p', { class: 'err', text: e }))
-        if (/API key/i.test(e)) this.showSetup()
+        if (/API key|sign-in/i.test(e)) this.showSetup()
         this.finish()
       },
     })
@@ -207,7 +227,71 @@ export class AIPanel {
     this.sendBtn.title = 'Stop'
   }
 
+  /** Claude wants to type (or run) a command: do it, or ask first for running. */
+  private pendingTool: (() => void) | null = null
+
+  private toolCard(tab: Tab, e: ToolEvent): HTMLElement {
+    const reply = (result: string, isError = false) => {
+      this.pendingTool = null
+      AIToolResult(e.toolId, result, isError)
+    }
+    const cmd = el('code', { text: e.command })
+    const status = el('div', { class: 'tool-status' })
+    const label = el('div', { class: 'code-label', text: e.run ? 'Claude wants to run' : 'Typed into your terminal' })
+    const card = el('div', { class: 'tool-card' }, label, el('div', { class: 'tool-cmd' }, cmd), status)
+
+    if (!e.run) {
+      if (tab.sendCommand(e.command, false)) {
+        status.textContent = '✓ On your prompt — press ⏎ in the terminal to run it'
+        card.classList.add('done')
+        reply('Typed the command onto the user\'s prompt (not run). They can press Enter to run it.')
+      } else {
+        status.textContent = '✕ Couldn\'t type it (see the message at the bottom)'
+        card.classList.add('failed')
+        reply('Could not type the command: the terminal is busy (a command is running or a full-screen program is open).', true)
+      }
+      return card
+    }
+
+    const runBtn = el('button', { class: 'primary small' }, '▶ Run')
+    const noBtn = el('button', { class: 'ghost small' }, 'Cancel')
+    const actions = el('div', { class: 'code-actions' }, runBtn, noBtn)
+    card.append(actions)
+    card.classList.add('ask')
+    this.pendingTool = () => {
+      actions.remove()
+      status.textContent = 'Stopped'
+      reply('The user stopped the request; nothing was run.')
+    }
+    noBtn.addEventListener('click', () => {
+      actions.remove()
+      card.classList.replace('ask', 'failed')
+      label.textContent = 'Not run'
+      status.textContent = 'You cancelled it'
+      reply('The user chose not to run this command.')
+    })
+    runBtn.addEventListener('click', async () => {
+      actions.remove()
+      card.classList.remove('ask')
+      status.textContent = 'Running…'
+      const res = await tab.runAndWait(e.command)
+      if (!res.started) {
+        card.classList.add('failed')
+        status.textContent = '✕ Couldn\'t run it (see the message at the bottom)'
+        reply('Could not run the command: the terminal is busy.', true)
+        return
+      }
+      label.textContent = 'Ran in your terminal'
+      card.classList.add(res.exitCode === 0 || res.exitCode === undefined ? 'done' : 'failed')
+      status.textContent =
+        res.exitCode === undefined ? '↻ Still running in your terminal' : res.exitCode === 0 ? '✓ Ran it' : `✕ Exited with ${res.exitCode}`
+      reply(res.summary)
+    })
+    return card
+  }
+
   private finish() {
+    if (this.pendingTool) this.pendingTool()
     this.streaming = null
     this.sendBtn.textContent = '↑'
     this.sendBtn.title = 'Send'

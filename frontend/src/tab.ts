@@ -507,6 +507,24 @@ export class Tab {
     return true
   }
 
+  /** Runs a command and waits up to 30 s for it to finish (for Claude's tool). */
+  async runAndWait(command: string): Promise<{ started: boolean; exitCode?: number; summary: string }> {
+    const before = this.blocks.length
+    if (!this.sendCommand(command, true)) return { started: false, summary: '' }
+    if (!this.integration) return { started: true, exitCode: 0, summary: 'Ran it. (No result is available: shell integration is off.)' }
+    const deadline = Date.now() + 30000
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 200))
+      const b = this.blocks.slice(before).find((x) => x.end)
+      if (b) {
+        let out = this.blockOutput(b)
+        if (out.length > 3000) out = '[…]\n' + out.slice(-3000)
+        return { started: true, exitCode: b.exitCode, summary: `Ran it. Exit code ${b.exitCode}.\nOutput:\n${out || '(none)'}` }
+      }
+    }
+    return { started: true, summary: 'Started it; it is still running after 30 seconds (output not shown yet).' }
+  }
+
   // ---- Browse mode: the free-floating cursor ----------------------------------
 
   enterBrowse(row?: number, col = 0) {

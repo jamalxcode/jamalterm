@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0
+
+- Claude can now type into your terminal: ask it to "paste" or "type" a command and it puts it on your prompt
+- Ask it to "run" something and the AI panel asks you first (Run / Cancel). Claude then sees the exit code and output and can carry on, for example to fix an error
+- Nothing runs without your click; typing replaces whatever was on the prompt
+
 ## 1.3.0
 
 - Tabs are easier to tell apart, including with color blindness: the active tab is a bright outlined pill with bold text and an underline; background tabs are dimmed

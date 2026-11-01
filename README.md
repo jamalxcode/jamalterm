@@ -41,7 +41,7 @@ Each command gets a dot in the margin: green for success, red for failure, and p
 
 | Key | What it does |
 |---|---|
-| **⌘I** | Chat panel. Claude sees your recent commands, exit codes and output. Commands in answers have **Run** and **Insert** buttons. |
+| **⌘I** | Chat panel. Claude sees your recent commands, exit codes and output. Commands in answers have **Run** and **Insert** buttons. Ask it to *paste* a command and it types it onto your prompt; ask it to *run* one and you get a Run / Cancel prompt first, then Claude sees the result. |
 | **⌘J** | Command bar: type "find big files in Downloads", get the command, press ⏎ to put it on the prompt (⌘⏎ runs it). |
 | ⇧⌘E | Explain the last error |
 

@@ -29,6 +29,7 @@ const (
 	eventAIDone   = "ai:done"          // {id, text}
 	eventAIError  = "ai:error"         // {id, error}
 	eventProgress = "update:progress"  // {done, total}
+	eventAITool   = "ai:tool"          // {id, toolId, command, run}
 )
 
 type ptyData struct {
@@ -60,6 +61,12 @@ type App struct {
 	cfg      settings.Settings
 	sessions map[int]*shell.Session
 	release  *update.Release // newest release seen by CheckForUpdate
+	toolWait map[string]chan toolReply
+}
+
+type toolReply struct {
+	result  string
+	isError bool
 }
 
 func NewApp() *App {
@@ -68,6 +75,7 @@ func NewApp() *App {
 		store:    store,
 		secrets:  settings.NewSecrets(store.Path()),
 		sessions: map[int]*shell.Session{},
+		toolWait: map[string]chan toolReply{},
 	}
 	a.cfg, _ = store.Load()
 	a.ai = ai.New(a.secrets.APIKey, func() string { return a.Settings().AIModel })
@@ -224,6 +232,8 @@ func (a *App) AIAsk(req ai.Request) {
 	go func() {
 		text, err := a.ai.Ask(a.ctx, req, func(delta string) {
 			runtime.EventsEmit(a.ctx, eventAIDelta, aiEvent{ID: req.ID, Text: delta})
+		}, func(call ai.ToolCall) (string, bool) {
+			return a.runTool(req.ID, call)
 		})
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
@@ -234,6 +244,42 @@ func (a *App) AIAsk(req ai.Request) {
 		}
 		runtime.EventsEmit(a.ctx, eventAIDone, aiEvent{ID: req.ID, Text: text})
 	}()
+}
+
+// runTool asks the window to type (or, after the user confirms, run) a
+// command and waits for what happened.
+func (a *App) runTool(reqID string, call ai.ToolCall) (string, bool) {
+	ch := make(chan toolReply, 1)
+	a.mu.Lock()
+	a.toolWait[call.ID] = ch
+	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		delete(a.toolWait, call.ID)
+		a.mu.Unlock()
+	}()
+	runtime.EventsEmit(a.ctx, eventAITool, map[string]any{"id": reqID, "toolId": call.ID, "command": call.Command, "run": call.Run})
+	select {
+	case r := <-ch:
+		return r.result, r.isError
+	case <-time.After(10 * time.Minute):
+		return "No answer from the user; nothing was run.", true
+	case <-a.ctx.Done():
+		return "jamalterm is closing; nothing was run.", true
+	}
+}
+
+// AIToolResult is the window's answer to an ai:tool event.
+func (a *App) AIToolResult(toolID, result string, isError bool) {
+	a.mu.Lock()
+	ch := a.toolWait[toolID]
+	a.mu.Unlock()
+	if ch != nil {
+		select {
+		case ch <- toolReply{result, isError}:
+		default:
+		}
+	}
 }
 
 // AICancel stops a streaming answer.
