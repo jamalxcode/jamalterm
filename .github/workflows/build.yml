@@ -66,7 +66,9 @@ jobs:
           mkdir dmg
           cp -R build/bin/jamalterm.app dmg/
           ln -s /Applications dmg/Applications
-          hdiutil create -volname "jamalterm" -srcfolder dmg -ov -format UDZO "jamalterm-${{ steps.v.outputs.version }}.dmg"
+          # Size the image explicitly: hdiutil's own estimate can come out too small.
+          SIZE_MB=$(( $(du -sm dmg | cut -f1) * 3 / 2 + 20 ))
+          hdiutil create -volname "jamalterm" -srcfolder dmg -fs HFS+ -size "${SIZE_MB}m" -ov -format UDZO "jamalterm-${{ steps.v.outputs.version }}.dmg"
           ditto -c -k --keepParent build/bin/jamalterm.app "jamalterm-${{ steps.v.outputs.version }}-macos.zip"
           shasum -a 256 jamalterm-*.dmg jamalterm-*.zip | tee SHA256SUMS.txt
 
