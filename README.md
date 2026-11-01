@@ -99,3 +99,7 @@ The tests start real zsh, bash, tcsh and sh sessions and check the integration m
 Every push builds the app on GitHub Actions. To publish a release with the `.dmg`, run the *Build macOS app* workflow with a version number (Actions → Run workflow), or push a tag like `v1.2.0`.
 
 Debug switches: `JAMALTERM_NO_GPU=1` draws without WebGL; `JAMALTERM_ANTHROPIC_BASE_URL` points AI requests at another server.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
