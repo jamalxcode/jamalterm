@@ -38,17 +38,18 @@ func TestNewer(t *testing.T) {
 	}
 }
 
-// zipApp returns a zipped jamalterm.app whose executable holds content.
+// zipApp returns a zipped jamalterm.app whose executable holds content,
+// and the executable's final bytes (codesign rewrites it on macOS).
 // On macOS it is a real signed bundle zipped with ditto, so the test goes
 // through the same unzip, bundle id and codesign checks as a real update.
-func zipApp(t *testing.T, content []byte) []byte {
+func zipApp(t *testing.T, content []byte) ([]byte, []byte) {
 	if runtime.GOOS != "darwin" {
 		var buf bytes.Buffer
 		zw := zip.NewWriter(&buf)
 		w, _ := zw.CreateHeader(&zip.FileHeader{Name: "jamalterm.app/Contents/MacOS/jamalterm", Method: zip.Deflate})
 		w.Write(content)
 		zw.Close()
-		return buf.Bytes()
+		return buf.Bytes(), content
 	}
 	dir := t.TempDir()
 	app := filepath.Join(dir, "jamalterm.app")
@@ -69,7 +70,8 @@ func zipApp(t *testing.T, content []byte) []byte {
 		t.Fatalf("ditto: %v %s", err, out)
 	}
 	data, _ := os.ReadFile(zipPath)
-	return data
+	signed, _ := os.ReadFile(filepath.Join(app, "Contents", "MacOS", "jamalterm"))
+	return data, signed
 }
 
 // appContent is what the "new version" executable contains: a real
@@ -86,8 +88,8 @@ func appContent(t *testing.T) []byte {
 }
 
 // fakeRelease serves a GitHub-like release with a zipped jamalterm.app.
-func fakeRelease(t *testing.T, content []byte, corruptSum bool) *httptest.Server {
-	zipBytes := zipApp(t, content)
+func fakeRelease(t *testing.T, content []byte, corruptSum bool) []byte {
+	zipBytes, final := zipApp(t, content)
 	sum := sha256.Sum256(zipBytes)
 	sumHex := hex.EncodeToString(sum[:])
 	if corruptSum {
@@ -108,7 +110,7 @@ func fakeRelease(t *testing.T, content []byte, corruptSum bool) *httptest.Server
 	srv = httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	APIBase = srv.URL
-	return srv
+	return final
 }
 
 func installedApp(t *testing.T) string {
@@ -120,8 +122,7 @@ func installedApp(t *testing.T) string {
 }
 
 func TestInstallReplacesTheApp(t *testing.T) {
-	content := appContent(t)
-	fakeRelease(t, content, false)
+	content := fakeRelease(t, appContent(t), false)
 	rel, err := Latest(context.Background())
 	if err != nil {
 		t.Fatal(err)
