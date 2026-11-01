@@ -23,6 +23,9 @@ type Settings struct {
 	// ShellIntegration lets jamalterm know where commands start and end.
 	// Browse mode and the AI features need it.
 	ShellIntegration bool `json:"shellIntegration"`
+	// ArrowBrowse makes ↑ at an empty prompt start browse mode (the
+	// free-floating cursor) instead of going to the shell's history.
+	ArrowBrowse bool `json:"arrowBrowse"`
 	// ConfirmRerun asks before re-running a command from browse mode.
 	ConfirmRerun bool `json:"confirmRerun"`
 	OptionIsMeta bool `json:"optionIsMeta"`
@@ -44,6 +47,7 @@ func Defaults() Settings {
 		CursorBlink:      true,
 		Scrollback:       10000,
 		ShellIntegration: true,
+		ArrowBrowse:      true,
 		ConfirmRerun:     false,
 		OptionIsMeta:     true,
 		AIEnabled:        true,

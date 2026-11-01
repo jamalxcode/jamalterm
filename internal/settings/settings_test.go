@@ -32,7 +32,7 @@ func TestRoundTripAndDefaults(t *testing.T) {
 	// Fields missing from an older file keep their defaults.
 	os.WriteFile(path, []byte(`{"theme":"nord"}`), 0o600)
 	old, _ := st.Load()
-	if old.Theme != "nord" || !old.CursorBlink || old.AIModel != "claude-opus-5-5" {
+	if old.Theme != "nord" || !old.CursorBlink || !old.ArrowBrowse || old.AIModel != "claude-opus-5-5" {
 		t.Fatalf("partial file: %+v", old)
 	}
 

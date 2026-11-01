@@ -14,6 +14,7 @@ Works on Apple silicon and Intel Macs, macOS 10.15 or later.
 ## What's inside
 
 - Your normal shell (zsh, bash, tcsh) with 10 color themes, a blinking cursor, tabs, find, and font zoom
-- **Browse mode**: ⌘↑ or click any earlier line, move with the arrow keys, press ⏎ to run that command again
+- **Browse mode**: press ↑ at an empty prompt (or ⌘↑, or click any earlier line) and a free-floating cursor appears; move with the arrow keys, press ⏎ to run that command again
 - Green/red dots next to every command; click a red one to ask Claude why it failed
 - ⌘I: ask Claude about your terminal; ⌘J: describe a command in plain English
+- Nerd Font icons (Powerlevel10k, eza, starship) work out of the box

@@ -37,6 +37,7 @@ export namespace settings {
 	    scrollback: number;
 	    shell: string;
 	    shellIntegration: boolean;
+	    arrowBrowse: boolean;
 	    confirmRerun: boolean;
 	    optionIsMeta: boolean;
 	    aiEnabled: boolean;
@@ -58,6 +59,7 @@ export namespace settings {
 	        this.scrollback = source["scrollback"];
 	        this.shell = source["shell"];
 	        this.shellIntegration = source["shellIntegration"];
+	        this.arrowBrowse = source["arrowBrowse"];
 	        this.confirmRerun = source["confirmRerun"];
 	        this.optionIsMeta = source["optionIsMeta"];
 	        this.aiEnabled = source["aiEnabled"];

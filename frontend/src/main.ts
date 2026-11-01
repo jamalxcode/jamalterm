@@ -307,6 +307,8 @@ async function boot() {
   await Promise.all([
     document.fonts.load(`${cfg.fontSize}px "JetBrains Mono"`),
     document.fonts.load(`bold ${cfg.fontSize}px "JetBrains Mono"`),
+    // Load the icon font before the terminal caches any glyphs.
+    document.fonts.load(`${cfg.fontSize}px "Symbols Nerd Font Mono"`, '\ue0b0\uf07b'),
   ]).catch(() => undefined)
   await document.fonts.ready
   newTab('')

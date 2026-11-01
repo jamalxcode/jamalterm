@@ -152,6 +152,7 @@ export class SettingsView {
         field('Scrollback lines', number(s.scrollback, 1000, 200000, 1000, (v) => (s.scrollback = v))),
       ),
       el('label', { class: 'check' }, check(s.shellIntegration, (v) => (s.shellIntegration = v)), ' Shell integration — lets jamalterm find each command (needed for browse mode and AI). zsh, bash and tcsh.'),
+      el('label', { class: 'check' }, check(s.arrowBrowse, (v) => (s.arrowBrowse = v)), ' ↑ at an empty prompt moves the free-floating cursor (off: ↑ goes to shell history; ⌘↑ always browses)'),
       el('label', { class: 'check' }, check(s.confirmRerun, (v) => (s.confirmRerun = v)), ' Ask before re-running a command from browse mode'),
       el('label', { class: 'check' }, check(s.optionIsMeta, (v) => { s.optionIsMeta = v; live() }), ' Use Option as Meta (⌥B / ⌥F jump words)'),
     )

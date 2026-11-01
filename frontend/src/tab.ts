@@ -31,6 +31,15 @@ export interface TabHooks {
   home(): string
 }
 
+/** Adds the bundled Nerd Font icons as a fallback to any font. */
+export function fontStack(family: string): string {
+  const sym = '"Symbols Nerd Font Mono"'
+  if (family.includes(sym)) return family
+  const parts = family.split(',').map((p) => p.trim()).filter(Boolean)
+  const generic = parts.length && /^(monospace|ui-monospace)$/.test(parts[parts.length - 1]) ? parts.pop()! : 'monospace'
+  return [...parts, sym, generic].join(', ')
+}
+
 function termTheme(theme: Theme) {
   return {
     ...theme.colors,
@@ -75,6 +84,7 @@ export class Tab {
   private overlayKey = ''
   private overlayFrame = 0
   private keyConsumed = false
+  private typedSincePrompt = false
   browse: BrowseState = { active: false, row: 0, col: 0, confirm: null }
 
   constructor(readonly id: number, parent: HTMLElement, cwd: string, private hooks: TabHooks, theme: Theme) {
@@ -87,7 +97,7 @@ export class Tab {
     const s = hooks.settings()
     this.term = new Terminal({
       allowProposedApi: true,
-      fontFamily: s.fontFamily,
+      fontFamily: fontStack(s.fontFamily),
       fontSize: s.fontSize,
       lineHeight: s.lineHeight,
       theme: termTheme(theme),
@@ -123,7 +133,10 @@ export class Tab {
         void this.start()
         return
       }
-      if (this.running) Write(this.id, data)
+      if (this.running) {
+        this.typedSincePrompt = true
+        Write(this.id, data)
+      }
     })
     this.term.onTitleChange((t) => {
       this.oscTitle = t
@@ -200,7 +213,7 @@ export class Tab {
   applySettings(s: settings.Settings, theme: Theme) {
     const o = this.term.options
     o.theme = termTheme(theme)
-    o.fontFamily = s.fontFamily
+    o.fontFamily = fontStack(s.fontFamily)
     o.fontSize = s.fontSize
     o.lineHeight = s.lineHeight
     o.cursorBlink = s.cursorBlink
@@ -281,6 +294,7 @@ export class Tab {
   private markPrompt() {
     if (this.pending) this.pending.prompt.dispose() // empty Enter or Ctrl+C at the prompt
     const marker = this.term.registerMarker(0)
+    this.typedSincePrompt = false
     if (!marker) return
     this.pending = { id: this.nextBlockId++, prompt: marker, command: '', cwd: this.cwd }
   }
@@ -446,7 +460,7 @@ export class Tab {
     const buf = this.term.buffer.active
     if (row === undefined) {
       const last = this.lastFinished ?? this.liveBlocks()[this.liveBlocks().length - 1]
-      row = last ? last.prompt.line : Math.max(0, buf.baseY + buf.cursorY - 1)
+      row = last ? this.dotLine(last) : Math.max(0, buf.baseY + buf.cursorY - 1)
     }
     this.browse = { active: true, row: this.clampRow(row), col: Math.max(0, col), confirm: null }
     this.term.clearSelection()
@@ -493,12 +507,12 @@ export class Tab {
     const idx = cur ? live.indexOf(cur) : -1
     let target: Block | undefined
     if (dir < 0) {
-      if (cur && this.browse.row !== cur.prompt.line) target = cur
+      if (cur && this.browse.row > this.dotLine(cur)) target = cur
       else target = idx > 0 ? live[idx - 1] : idx === -1 ? [...live].reverse().find((b) => b.prompt.line < this.browse.row) : undefined
     } else {
       target = idx >= 0 ? live[idx + 1] : live.find((b) => b.prompt.line > this.browse.row)
     }
-    if (target) this.moveTo(target.prompt.line, 0)
+    if (target) this.moveTo(this.dotLine(target), 0)
     else if (dir > 0) this.exitBrowse()
   }
 
@@ -653,7 +667,28 @@ export class Tab {
     }
     // ⌘ shortcuts belong to the menu bar, never to the shell.
     if (e.metaKey) return false
+    if (e.key === 'ArrowUp' && !e.altKey && !e.ctrlKey && !e.shiftKey && this.atEmptyPrompt()) {
+      // The free-floating cursor starts where the text cursor is.
+      const buf = this.term.buffer.active
+      this.keyConsumed = true
+      e.preventDefault()
+      this.enterBrowse(buf.baseY + buf.cursorY - 1, buf.cursorX)
+      return false
+    }
     return true
+  }
+
+  /** True when ↑ should start browse mode instead of going to the shell. */
+  private atEmptyPrompt(): boolean {
+    return (
+      this.hooks.settings().arrowBrowse &&
+      this.running &&
+      !!this.pending &&
+      !this.runningBlock &&
+      !this.typedSincePrompt &&
+      this.term.buffer.active.type === 'normal' &&
+      this.term.modes.mouseTrackingMode === 'none'
+    )
   }
 
   private setupMouse() {
@@ -706,6 +741,13 @@ export class Tab {
   }
 
   // ---- Overlay: gutter dots and the browse cursor ------------------------------
+
+  /** The first line of a block that has text (prompts often start with a blank line). */
+  private dotLine(b: Block): number {
+    const last = b.start && !b.start.isDisposed ? b.start.line - 1 : b.prompt.line + 3
+    for (let i = b.prompt.line; i <= last; i++) if (this.lineText(i).trim()) return i
+    return b.prompt.line
+  }
 
   scheduleOverlay() {
     if (this.overlayFrame) return
@@ -764,10 +806,11 @@ export class Tab {
     }
 
     for (const b of visible) {
-      if (b.prompt.line < vy) continue
+      const line = this.dotLine(b)
+      if (line < vy || line >= vy + rows) continue
       const state = !b.end ? 'run' : b.exitCode === 0 ? 'ok' : 'bad'
       const dot = el('button', { class: `dot ${state}` })
-      dot.style.top = `${y(b.prompt.line) + g.ch / 2 - 4}px`
+      dot.style.top = `${y(line) + g.ch / 2 - 4}px`
       dot.style.left = `${Math.max(2, g.left - 12)}px`
       const took = b.finishedAt && b.startedAt ? ` · took ${duration(b.finishedAt - b.startedAt)}` : ''
       dot.title =
@@ -777,7 +820,7 @@ export class Tab {
       dot.addEventListener('click', (e) => {
         e.stopPropagation()
         if (state === 'bad') this.hooks.onExplain(this, b)
-        else this.enterBrowse(b.prompt.line, 0)
+        else this.enterBrowse(line, 0)
       })
       this.overlay.append(dot)
     }

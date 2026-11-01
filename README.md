@@ -22,14 +22,14 @@ Or try to open it, then click **Open Anyway** in System Settings → Privacy & S
 
 | Key | What it does |
 |---|---|
-| **⌘↑**, or click any earlier line | Enter browse mode (a pink cursor appears) |
+| **↑** at an empty prompt, **⌘↑**, or click any earlier line | Enter browse mode: a pink cursor appears where you are |
 | ↑ ↓ ← → (or j k) | Move the cursor anywhere in the scrollback |
 | ⌥↑ ⌥↓ (or ⇧↑ ⇧↓) | Jump between commands |
 | **⏎** | Run the selected command again |
 | ⇧⏎ or E | Put it on the prompt to edit first |
 | C / O | Copy the command / its output |
 | A | Ask Claude about this command |
-| esc, or just start typing | Back to the prompt |
+| esc, ↓ past the bottom, or just start typing | Back to the prompt |
 
 Each command gets a dot in the margin: green for success, red for failure, and pulsing blue while it runs. Hover for how long it took. Click a red dot to ask Claude what went wrong.
 
@@ -49,6 +49,8 @@ Add your API key from [console.anthropic.com](https://console.anthropic.com) in 
 - ⌘F find, ⌘K clear, ⌘= / ⌘- / ⌘0 font size.
 - 10 themes (Jamal Night, Catppuccin, Dracula, Tokyo Night, One Dark, Nord, Gruvbox, Solarized dark and light, GitHub Light), with a font, cursor style and blink setting.
 - Option works as Meta (⌥B / ⌥F jump words). Turn it off in Settings.
+- Nerd Font icons (Powerlevel10k, eza, starship…) show up with any font. The icon set is built in.
+- If you'd rather ↑ go to shell history at an empty prompt, turn that off in Settings. ⌘↑ always starts browse mode.
 
 ## How it works
 

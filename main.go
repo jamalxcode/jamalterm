@@ -37,8 +37,9 @@ func main() {
 		OnShutdown:       app.shutdown,
 		Bind:             []interface{}{app},
 		Mac: &mac.Options{
-			// Tabs sit in a transparent title bar, like modern terminals.
-			TitleBar:             mac.TitleBarHiddenInset(),
+			// Tabs sit in a transparent, standard-height title bar, centred
+			// on the window buttons (style.css: body.mac --titlebar).
+			TitleBar:             mac.TitleBarHidden(),
 			WebviewIsTransparent: true,
 			About: &mac.AboutInfo{
 				Title:   "jamalterm",
