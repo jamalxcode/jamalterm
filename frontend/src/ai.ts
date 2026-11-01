@@ -4,11 +4,12 @@ import type { Tab, Block } from './tab'
 import { el, renderMarkdown, copyText, toast, SIGN_IN_COMMAND } from './util'
 
 type ToolEvent = { id: string; toolId: string; command: string; run: boolean }
-type Handler = { delta(t: string): void; done(t: string): void; error(e: string): void; tool?(e: ToolEvent): void }
+type Handler = { delta(t: string): void; done(t: string): void; error(e: string): void; tool?(e: ToolEvent): void; redacted?(n: number): void }
 const handlers = new Map<string, Handler>()
 let seq = 0
 
 EventsOn('ai:delta', (e: { id: string; text: string }) => handlers.get(e.id)?.delta(e.text))
+EventsOn('ai:redacted', (e: { id: string; count: number }) => handlers.get(e.id)?.redacted?.(e.count))
 EventsOn('ai:tool', (e: ToolEvent) => {
   const h = handlers.get(e.id)
   if (h?.tool) h.tool(e)
@@ -48,6 +49,8 @@ export class AIPanel {
   private sendBtn = el('button', { class: 'ai-send', title: 'Send' }, '↑')
   private modelLabel = el('span', { class: 'ai-model' })
   // The assistant's name is also a switcher (Claude / ChatGPT / DeepSeek).
+  private shareBox = el('input', { type: 'checkbox' }) as HTMLInputElement
+  private shareLabel = el('label', { class: 'share-toggle', title: 'When off, only the commands are sent with questions — not their output' })
   private titleEl = el('select', { class: 'ai-title ai-switch', title: 'Switch assistant (⌥⌘1–⌥⌘5)' },
     el('option', { value: 'anthropic', text: 'Claude' }),
     el('option', { value: 'openai', text: 'ChatGPT' }),
@@ -66,7 +69,14 @@ export class AIPanel {
       el('div', { class: 'ai-names' }, this.titleEl, el('span', { class: 'ai-sub' }, 'AI assistant · ', this.modelLabel)),
       el('span', { class: 'grow' }), newBtn, closeBtn)
     const form = el('div', { class: 'ai-input' }, this.input, this.sendBtn)
-    this.root.append(head, this.list, form)
+    // Per-tab: keep this tab's output out of AI requests.
+    this.shareBox.addEventListener('change', () => {
+      const tab = this.host.activeTab()
+      if (tab) tab.shareOutput = this.shareBox.checked
+      this.shareLabel.classList.toggle('off', !this.shareBox.checked)
+    })
+    this.shareLabel.append(this.shareBox, el('span', { text: ' Share this tab’s output' }))
+    this.root.append(head, this.list, form, el('div', { class: 'ai-foot' }, this.shareLabel, el('span', { class: 'dim', text: 'Secrets are hidden automatically' })))
 
     newBtn.addEventListener('click', () => this.newChat())
     this.titleEl.addEventListener('change', () => void SetAIProvider(this.titleEl.value))
@@ -133,6 +143,10 @@ export class AIPanel {
   /** Each tab has its own conversation; switch the list when tabs change. */
   syncTab() {
     const tab = this.host.activeTab()
+    if (tab) {
+      this.shareBox.checked = tab.shareOutput
+      this.shareLabel.classList.toggle('off', !tab.shareOutput)
+    }
     if (!tab || tab.id === this.shownTab) return
     if (this.shownTab >= 0) this.chatOf.set(this.shownTab, Array.from(this.list.children) as HTMLElement[])
     this.shownTab = tab.id
@@ -261,6 +275,9 @@ export class AIPanel {
         acc += t
         sawText = true
         render()
+      },
+      redacted: (n) => {
+        msg.append(el('div', { class: 'redacted-note', text: `🔒 Hid ${n} secret${n === 1 ? '' : 's'} from the terminal text sent` }))
       },
       tool: (e) => {
         msg.classList.remove('thinking')

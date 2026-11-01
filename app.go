@@ -89,6 +89,9 @@ func NewApp() *App {
 	}
 	a.cfg, _ = store.Load()
 	a.ai = ai.New(a.secrets.APIKey, func() string { return a.Settings().AIModel })
+	a.ai.OnRedact(func(id string, n int) {
+		runtime.EventsEmit(a.ctx, "ai:redacted", map[string]any{"id": id, "count": n})
+	})
 	a.ai.Configure(
 		func() string { return a.Settings().AIProvider },
 		a.secrets.KeyFor,

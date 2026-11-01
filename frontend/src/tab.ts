@@ -88,6 +88,8 @@ export class Tab {
   private overlayFrame = 0
   private keyConsumed = false
   private typedSincePrompt = false
+  /** Off: this tab's output is never sent to the AI (only the commands). */
+  shareOutput = true
   browse: BrowseState = { active: false, row: 0, col: 0, confirm: null }
 
   constructor(readonly id: number, parent: HTMLElement, cwd: string, private hooks: TabHooks, theme: Theme) {
@@ -472,12 +474,12 @@ export class Tab {
       for (const b of blocks) {
         const status = b.end ? `exit ${b.exitCode}` : 'still running'
         parts.push(`$ ${b.command}    [${status}]`)
-        if (s.aiShareOutput) {
+        if (s.aiShareOutput && this.shareOutput) {
           const out = this.blockOutput(b)
           if (out) parts.push(clip(out, b === focus ? 12000 : 2500))
         }
       }
-    } else if (s.aiShareOutput) {
+    } else if (s.aiShareOutput && this.shareOutput) {
       const buf = this.term.buffer.active
       const end = buf.baseY + buf.cursorY
       parts.push('Screen:', clip(this.textBetween(Math.max(0, end - 120), end), 8000))

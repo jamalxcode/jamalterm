@@ -478,6 +478,13 @@ select.ai-switch:hover { background-color: color-mix(in srgb, var(--fg) 10%, tra
   background: var(--ai-2, var(--panel));
 }
 .ai-input textarea { flex: 1; resize: none; max-height: 160px; }
+.ai-foot {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  padding: 0 12px 9px; font-size: 11px; background: var(--ai-2, var(--panel));
+}
+.share-toggle { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.share-toggle.off { color: var(--yellow); }
+.redacted-note { margin-top: 8px; font-size: 11px; color: var(--muted); }
 .ai-send {
   width: 30px; height: 30px; flex: none;
   border: 0; border-radius: 50%;
