@@ -52,6 +52,11 @@ To connect Claude, click **Sign in with Anthropic** in Settings (⌘,) or the AI
 
 ### Everything else
 
+- Tabs and their recent output come back after a restart or update. Turn this off, or forget saved tabs, in Settings → Shell.
+- ⌘N opens a new window. You get a notification when a long command (10 s or more, adjustable) finishes while jamalterm is in the background.
+- ⌘-click file paths in the output to open them. Programs can copy to your clipboard, also over SSH/tmux (OSC 52), and show pictures (iTerm2 image protocol, Sixel).
+- Before anything is sent to an AI, secrets in the terminal text (API keys, tokens, passwords, private keys) are replaced with `[hidden secret]`. A per-tab switch keeps a tab's output out of AI requests entirely.
+
 - Tabs: ⌘T, ⌘W, ⌘1–9, ⇧⌘[ / ⇧⌘]. New tabs open in the current folder.
 - ⌘F find, ⌘K clear, ⌘= / ⌘- / ⌘0 font size.
 - 10 themes (Jamal Night, Catppuccin, Dracula, Tokyo Night, One Dark, Nord, Gruvbox, Solarized dark and light, GitHub Light), with a font, cursor style and blink setting.
@@ -94,7 +99,11 @@ go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.0
 go test ./...
 ```
 
-The tests start real zsh, bash, tcsh and sh sessions and check the integration marks, exit codes and folders. The AI tests use a fake streaming server.
+The Go tests start real zsh, bash, tcsh, fish and sh sessions and check the integration marks, exit codes and folders. The AI tests use fake streaming servers, and the Keychain tests run on the macOS build machine. The UI tests run the real interface in Chromium with a fake Go side:
+
+```bash
+cd frontend && npm run build && npm run test:ui
+```
 
 Every push builds the app on GitHub Actions. To publish a release with the `.dmg`, run the *Build macOS app* workflow with a version number (Actions → Run workflow), or push a tag like `v1.2.0`.
 

@@ -1,5 +1,34 @@
 # Changelog
 
+## 2.0.0
+
+**Tabs survive restarts**
+- Your tabs come back after a restart or update: same folders, recent output, active tab
+- Updates: **Update now** (tabs reopen) or **When I quit** (installs; new version next launch)
+- jamalterm menu → **Go Back to Previous Version** if an update misbehaves
+
+**Privacy and security**
+- Secrets in your terminal (API keys, tokens, passwords, private keys) are hidden before anything is sent to an AI; the panel says how many
+- Per-tab **Share this tab's output** switch in the AI panel
+- API keys live in one Keychain item that only jamalterm can read without asking (after an update, macOS asks once: choose Always Allow)
+
+**Speed**
+- Heavy output (big logs, `yes`, builds) no longer freezes the window
+
+**New**
+- **⌘N** opens a new window
+- A notification when a long command finishes while you're in another app
+- **⌘-click** file paths in the output to open them
+- Copy from programs to your Mac clipboard, also over SSH/tmux (OSC 52)
+- Pictures in the terminal (iTerm2 image protocol, Sixel)
+- **fish** shell support for browse mode
+- VoiceOver support (Settings)
+
+**Browse mode**
+- Re-running a command that ran in another folder asks first: ⏎ here, ⌥⏎ in its original folder
+- Vi-style prompt keys option
+- The AI panel shows which model answered and how many tokens it used
+
 ## 1.9.1
 
 - Gemini is removed again to keep the assistant choices simple. If you had picked Gemini, jamalterm switches back to Claude

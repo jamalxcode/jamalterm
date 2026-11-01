@@ -15,7 +15,26 @@ permissions:
   contents: write # to publish releases for v* tags
 
 jobs:
+  ui:
+    # The real interface in Chromium with a fake Go side (frontend/tests).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Install
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: UI tests
+        working-directory: frontend
+        run: |
+          npm run build
+          npm run test:ui
+
   macos:
+    needs: ui
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
