@@ -1,11 +1,8 @@
 # Changelog
 
-## 1.9.0
+## 1.9.1
 
-- **Gemini** (Google) joins the assistants: AI menu → Use Gemini (⌥⌘6)
-- **API key**: a free key from aistudio.google.com works straight away
-- **Sign in with Google**: uses Google's own sign-in (gcloud) and runs Gemini on Vertex AI in your Google Cloud project; set the project in Settings and use **Turn on Vertex AI** once
-- The model is picked automatically from the ones you can use, or choose one
+- Gemini is removed again to keep the assistant choices simple. If you had picked Gemini, jamalterm switches back to Claude
 
 ## 1.8.0
 

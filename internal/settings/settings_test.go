@@ -53,7 +53,7 @@ func TestProviderKeysAreSeparate(t *testing.T) {
 	if s.KeyFor("openai") != "sk-oa" || s.KeyFor("deepseek") != "ds-env" || s.HasSavedKeyFor("deepseek") {
 		t.Fatal("keys mixed up")
 	}
-	if s.SetKeyFor("mistral", "x") == nil {
+	if s.SetKeyFor("gemini", "x") == nil {
 		t.Fatal("unknown provider accepted")
 	}
 	st := NewStore(filepath.Join(t.TempDir(), "s.json"))
@@ -86,5 +86,14 @@ func TestSecretsFile(t *testing.T) {
 	}
 	if s.SetAPIKey("a\nb") == nil {
 		t.Fatal("multi-line key accepted")
+	}
+}
+
+func TestRemovedProviderFallsBackToClaude(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	os.WriteFile(path, []byte(`{"aiProvider":"gemini","geminiModel":"x"}`), 0o600)
+	got, err := NewStore(path).Load()
+	if err != nil || got.AIProvider != "anthropic" {
+		t.Fatalf("provider %q err %v", got.AIProvider, err)
 	}
 }

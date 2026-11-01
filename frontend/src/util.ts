@@ -75,19 +75,6 @@ export const SIGN_IN_COMMAND =
 
 export const SIGN_OUT_COMMAND = `ant auth logout`
 
-/** Google's own sign-in for local apps (Application Default Credentials). */
-export const GOOGLE_SIGN_IN_COMMAND =
-  `sh -c 'command -v gcloud >/dev/null 2>&1 || { command -v brew >/dev/null 2>&1 && echo "Installing the Google Cloud CLI with Homebrew..." && brew install --cask google-cloud-sdk; }; ` +
-  `command -v gcloud >/dev/null 2>&1 || { echo "Install the Google Cloud CLI first: https://cloud.google.com/sdk/docs/install"; exit 1; }; ` +
-  `gcloud auth application-default login && echo && echo "Signed in to Google. In jamalterm Settings, set your Google Cloud project and turn on Vertex AI."'`
-
-export const GOOGLE_SIGN_OUT_COMMAND = `gcloud auth application-default revoke`
-
-/** Turns on the Vertex AI API for a Google Cloud project. */
-export function enableVertexCommand(project: string): string {
-  return `gcloud services enable aiplatform.googleapis.com --project ${project.replace(/[^A-Za-z0-9-]/g, '')}`
-}
-
 export const isMac = navigator.platform.toLowerCase().includes('mac') || navigator.userAgent.includes('Mac OS')
 
 /** Minimal, safe Markdown for AI answers: code blocks, inline code, bold, lists, paragraphs. */

@@ -100,12 +100,9 @@ func NewApp() *App {
 				return a.Settings().XAIModel
 			case ai.ProviderOpenRouter:
 				return a.Settings().OpenRouterModel
-			case ai.ProviderGemini:
-				return a.Settings().GeminiModel
 			}
 			return ""
 		})
-	a.ai.ConfigureGoogle(func() string { return a.Settings().GeminiProject })
 	return a
 }
 
@@ -267,10 +264,6 @@ func (a *App) SaveSettings(cfg settings.Settings) (settings.Settings, error) {
 // sign-in with an Anthropic account.
 func (a *App) HasAPIKey() bool {
 	if p := a.Settings().AIProvider; p != ai.ProviderAnthropic {
-		if p == ai.ProviderGemini && a.secrets.KeyFor(p) == "" {
-			g := ai.GoogleSignIn(a.Settings().GeminiProject)
-			return g.SignedIn && g.Project != ""
-		}
 		return a.secrets.KeyFor(p) != ""
 	}
 	return a.secrets.APIKey() != "" || ai.SignedInAccount().SignedIn
@@ -323,14 +316,10 @@ func (a *App) SetProviderKey(provider, key string) error { return a.secrets.SetK
 // ListProviderModels asks ChatGPT or DeepSeek which chat models the saved
 // key can use (newest first).
 func (a *App) ListProviderModels(provider string) ([]string, error) {
-	ctx, cancel := context.WithTimeout(a.ctx, 20*time.Second)
+	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
 	defer cancel()
-	return a.ai.ListModelsFor(ctx, provider)
+	return ai.ListModels(ctx, provider, a.secrets.KeyFor(provider))
 }
-
-// GoogleAccount reports the Google sign-in for Gemini and the project it
-// would use (from Settings, the sign-in, or gcloud's default).
-func (a *App) GoogleAccount() ai.GoogleAccount { return ai.GoogleSignIn(a.Settings().GeminiProject) }
 
 // AnthropicAccount reports the `ant auth login` sign-in, if any.
 func (a *App) AnthropicAccount() ai.Account { return ai.SignedInAccount() }

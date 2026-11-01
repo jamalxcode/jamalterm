@@ -1,7 +1,7 @@
 import { AIAsk, AICancel, AIReset, HasAPIKey, AIToolResult, SetAIProvider, SignInOpenRouter } from '../wailsjs/go/main/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 import type { Tab, Block } from './tab'
-import { el, renderMarkdown, copyText, toast, SIGN_IN_COMMAND, GOOGLE_SIGN_IN_COMMAND } from './util'
+import { el, renderMarkdown, copyText, toast, SIGN_IN_COMMAND } from './util'
 
 type ToolEvent = { id: string; toolId: string; command: string; run: boolean }
 type Handler = { delta(t: string): void; done(t: string): void; error(e: string): void; tool?(e: ToolEvent): void }
@@ -48,13 +48,12 @@ export class AIPanel {
   private sendBtn = el('button', { class: 'ai-send', title: 'Send' }, '↑')
   private modelLabel = el('span', { class: 'ai-model' })
   // The assistant's name is also a switcher (Claude / ChatGPT / DeepSeek).
-  private titleEl = el('select', { class: 'ai-title ai-switch', title: 'Switch assistant (⌥⌘1–⌥⌘6)' },
+  private titleEl = el('select', { class: 'ai-title ai-switch', title: 'Switch assistant (⌥⌘1–⌥⌘5)' },
     el('option', { value: 'anthropic', text: 'Claude' }),
     el('option', { value: 'openai', text: 'ChatGPT' }),
     el('option', { value: 'deepseek', text: 'DeepSeek' }),
     el('option', { value: 'xai', text: 'Grok' }),
-    el('option', { value: 'openrouter', text: 'OpenRouter' }),
-    el('option', { value: 'gemini', text: 'Gemini' })) as HTMLSelectElement
+    el('option', { value: 'openrouter', text: 'OpenRouter' })) as HTMLSelectElement
   private streaming: string | null = null
   private chatOf = new Map<number, HTMLElement[]>() // per-tab conversation
   private shownTab = -1
@@ -168,17 +167,6 @@ export class AIPanel {
   private showSetup() {
     if (this.list.querySelector('.ai-setup')) return
     const who = this.host.assistant()
-    if (who.id === 'gemini') {
-      const google = el('button', { class: 'primary' }, 'Sign in with Google')
-      google.addEventListener('click', () => this.host.runInNewTab(GOOGLE_SIGN_IN_COMMAND))
-      const key = el('button', { class: 'ghost' }, 'Use an API key')
-      key.addEventListener('click', () => this.host.openSettings())
-      this.list.append(el('div', { class: 'ai-setup' },
-        el('p', {}, el('strong', { text: 'Connect Gemini to turn on AI.' })),
-        el('p', { class: 'dim', text: 'Easiest: a free API key from aistudio.google.com, pasted in Settings. Or sign in with Google to use Gemini on Vertex AI in your Google Cloud project (then set the project in Settings).' }),
-        el('div', { class: 'row' }, key, google)))
-      return
-    }
     if (who.id === 'openrouter') {
       const signIn = el('button', { class: 'primary' }, 'Sign in with OpenRouter')
       const status = el('p', { class: 'dim', text: 'Opens your browser — approve and the key is saved for you. Or paste a key from openrouter.ai/keys in Settings.' })

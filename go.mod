@@ -7,11 +7,9 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/openai/openai-go/v3 v3.91.0
 	github.com/wailsapp/wails/v2 v2.17.0
-	golang.org/x/oauth2 v0.37.0
 )
 
 require (
-	cloud.google.com/go/compute/metadata v0.5.0 // indirect
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/bep/debounce v1.2.1 // indirect

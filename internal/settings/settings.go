@@ -49,10 +49,6 @@ type Settings struct {
 	DeepSeekModel   string `json:"deepseekModel"`
 	XAIModel        string `json:"xaiModel"`
 	OpenRouterModel string `json:"openrouterModel"`
-	GeminiModel     string `json:"geminiModel"`
-	// GeminiProject: Google Cloud project for Gemini via Google sign-in
-	// ("" = the sign-in's or gcloud's default project).
-	GeminiProject string `json:"geminiProject"`
 	// AIShareOutput sends recent command output to Claude with questions.
 	AIShareOutput bool `json:"aiShareOutput"`
 }
@@ -164,7 +160,7 @@ func (c Settings) normalized() Settings {
 		c.FontFamily = d.FontFamily
 	}
 	switch c.AIProvider {
-	case "anthropic", "openai", "deepseek", "xai", "openrouter", "gemini":
+	case "anthropic", "openai", "deepseek", "xai", "openrouter":
 	default:
 		c.AIProvider = d.AIProvider
 	}
@@ -172,8 +168,6 @@ func (c Settings) normalized() Settings {
 	c.DeepSeekModel = strings.TrimSpace(c.DeepSeekModel)
 	c.XAIModel = strings.TrimSpace(c.XAIModel)
 	c.OpenRouterModel = strings.TrimSpace(c.OpenRouterModel)
-	c.GeminiModel = strings.TrimSpace(c.GeminiModel)
-	c.GeminiProject = strings.TrimSpace(c.GeminiProject)
 	if c.AIModel == "" {
 		c.AIModel = d.AIModel
 	}

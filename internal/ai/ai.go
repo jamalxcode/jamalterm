@@ -41,8 +41,6 @@ type Client struct {
 	provider func() string
 	keyFor   func(provider string) string
 	modelFor func(provider string) string
-	// googleProject is the Google Cloud project for Gemini via sign-in.
-	googleProject func() string
 
 	mu          sync.Mutex
 	chats       map[string][]anthropic.BetaMessageParam
@@ -53,16 +51,15 @@ type Client struct {
 
 func New(apiKey, model func() string) *Client {
 	return &Client{
-		apiKey:        apiKey,
-		model:         model,
-		provider:      func() string { return ProviderAnthropic },
-		keyFor:        func(string) string { return "" },
-		modelFor:      func(string) string { return "" },
-		googleProject: func() string { return "" },
-		chats:         map[string][]anthropic.BetaMessageParam{},
-		compatChats:   map[string][]openai.ChatCompletionMessageParamUnion{},
-		autoModel:     map[string]string{},
-		cancels:       map[string]context.CancelFunc{},
+		apiKey:      apiKey,
+		model:       model,
+		provider:    func() string { return ProviderAnthropic },
+		keyFor:      func(string) string { return "" },
+		modelFor:    func(string) string { return "" },
+		chats:       map[string][]anthropic.BetaMessageParam{},
+		compatChats: map[string][]openai.ChatCompletionMessageParamUnion{},
+		autoModel:   map[string]string{},
+		cancels:     map[string]context.CancelFunc{},
 	}
 }
 
@@ -71,9 +68,6 @@ func New(apiKey, model func() string) *Client {
 func (c *Client) Configure(provider func() string, keyFor, modelFor func(string) string) {
 	c.provider, c.keyFor, c.modelFor = provider, keyFor, modelFor
 }
-
-// ConfigureGoogle sets the Google Cloud project setting for Gemini.
-func (c *Client) ConfigureGoogle(project func() string) { c.googleProject = project }
 
 // userText is the question with the terminal context in front of it.
 func userText(req Request) string {
