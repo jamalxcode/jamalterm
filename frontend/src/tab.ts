@@ -5,7 +5,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { SearchAddon } from '@xterm/addon-search'
 
-import { Start, Write, Resize, CloseTab, OpenURL } from '../wailsjs/go/main/App'
+import { Start, Write, Resize, CloseTab, OpenURL, GitBranch } from '../wailsjs/go/main/App'
 import type { settings } from '../wailsjs/go/models'
 import type { Theme } from './themes'
 import { b64ToBytes, b64ToText, el, escapeHtml, toast, copyText, duration, relTime } from './util'
@@ -250,7 +250,50 @@ export class Tab {
   get prettyCwd(): string {
     const home = this.hooks.home()
     if (!this.cwd) return ''
-    return home && this.cwd.startsWith(home) ? '~' + this.cwd.slice(home.length) : this.cwd
+    if (home && this.cwd === home) return '~'
+    return home && this.cwd.startsWith(home + '/') ? '~' + this.cwd.slice(home.length) : this.cwd
+  }
+
+  /** The folder for a tab label: "~/code/app", or "~/…/src/app" when long. */
+  get shortCwd(): string {
+    const p = this.prettyCwd
+    if (p.length <= 28) return p
+    const parts = p.split('/')
+    const head = parts[0] === '~' ? '~' : ''
+    return `${head}/…/${parts.slice(-2).join('/')}`
+  }
+
+  /** Git branch of the current folder ("" if not a repo). */
+  branch = ''
+  private branchFor = ''
+
+  refreshBranch(force = false) {
+    const dir = this.cwd
+    if (!dir || (!force && dir === this.branchFor)) return
+    this.branchFor = dir
+    GitBranch(dir).then((b) => {
+      if (dir === this.cwd && b !== this.branch) {
+        this.branch = b
+        this.hooks.onChange(this)
+      }
+    })
+  }
+
+  /** What the tab shows: running, failed (last command), exited, or idle. */
+  get status(): 'running' | 'failed' | 'exited' | 'idle' {
+    if (this.exited) return 'exited'
+    if (this.runningBlock) return 'running'
+    const last = this.lastFinished
+    return last && last.exitCode !== 0 ? 'failed' : 'idle'
+  }
+
+  /** Name of the running program, e.g. "npm" for "npm run dev". */
+  get runningName(): string {
+    const cmd = this.runningBlock?.command.trim() ?? ''
+    if (!cmd) return ''
+    const words = cmd.split(/\s+/)
+    const first = words[0] === 'sudo' && words[1] ? words[1] : words[0]
+    return first.split('/').pop() ?? first
   }
 
   // ---- Shell integration ----------------------------------------------------
@@ -286,6 +329,7 @@ export class Tab {
           this.cwd = path
           this.hooks.onChange(this)
         }
+        this.refreshBranch()
       }
       return true
     })
@@ -330,6 +374,7 @@ export class Tab {
     b.end = this.term.registerMarker(0)
     b.exitCode = code ?? 0
     b.finishedAt = Date.now()
+    if (/\bgit\b/.test(b.command)) this.refreshBranch(true) // checkout, switch…
     this.hooks.onChange(this)
     this.scheduleOverlay()
   }
@@ -821,7 +866,8 @@ export class Tab {
       const line = this.dotLine(b)
       if (line < vy || line >= vy + rows) continue
       const state = !b.end ? 'run' : b.exitCode === 0 ? 'ok' : 'bad'
-      const dot = el('button', { class: `dot ${state}` })
+      // Shapes as well as colors: ring = OK, ✕ = failed, spinner = running.
+      const dot = el('button', { class: `dot ${state}` }, state === 'bad' ? '✕' : '')
       dot.style.top = `${y(line) + g.ch / 2 - 4}px`
       dot.style.left = `${Math.max(2, g.left - 12)}px`
       const took = b.finishedAt && b.startedAt ? ` · took ${duration(b.finishedAt - b.startedAt)}` : ''

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.0
+
+- Tabs are easier to tell apart, including with color blindness: the active tab is a bright outlined pill with bold text and an underline; background tabs are dimmed
+- Tabs show the folder (shortened like ~/…/src/app), the git branch, and the running program's name; hover for the full path and the last command's result
+- Status shapes instead of color alone: a spinner while running, ✕ when the last command failed, a ring for success (in the margin too)
+- The AI panel is its own tinted, rounded card, so it doesn't look like part of the terminal
+- Only real shell commands from Claude get Run / Insert; text and ASCII art get Copy
+
 ## 1.2.0
 
 - **Sign in with Anthropic**: connect Claude through your browser instead of pasting an API key (Settings → AI, or the AI panel). It uses Anthropic's `ant` CLI, which jamalterm installs with Homebrew if needed, and the sign-in refreshes itself

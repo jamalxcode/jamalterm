@@ -18,6 +18,8 @@ export function CloseTab(arg1:number):Promise<void>;
 
 export function GPUOff():Promise<boolean>;
 
+export function GitBranch(arg1:string):Promise<string>;
+
 export function HasAPIKey():Promise<boolean>;
 
 export function HasSavedAPIKey():Promise<boolean>;

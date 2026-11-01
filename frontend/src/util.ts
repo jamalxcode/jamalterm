@@ -78,7 +78,7 @@ export const SIGN_OUT_COMMAND = `ant auth logout`
 export const isMac = navigator.platform.toLowerCase().includes('mac') || navigator.userAgent.includes('Mac OS')
 
 /** Minimal, safe Markdown for AI answers: code blocks, inline code, bold, lists, paragraphs. */
-export function renderMarkdown(md: string, onCode: (code: string, pre: HTMLElement) => void): DocumentFragment {
+export function renderMarkdown(md: string, onCode: (code: string, pre: HTMLElement, lang: string) => void): DocumentFragment {
   const frag = document.createDocumentFragment()
   const parts = md.split(/```([^\n`]*)\n?([\s\S]*?)(?:```|$)/g)
   for (let i = 0; i < parts.length; i++) {
@@ -106,7 +106,7 @@ export function renderMarkdown(md: string, onCode: (code: string, pre: HTMLEleme
       const pre = el('pre')
       pre.append(el('code', { text: code }))
       frag.append(pre)
-      onCode(code, pre)
+      onCode(code, pre, parts[i - 1].trim().toLowerCase())
     }
   }
   return frag

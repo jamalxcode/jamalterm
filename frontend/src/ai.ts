@@ -47,7 +47,10 @@ export class AIPanel {
   constructor(private host: AIHost) {
     const newBtn = el('button', { class: 'ghost', title: 'Start a new conversation' }, 'New chat')
     const closeBtn = el('button', { class: 'ghost icon', title: 'Close (esc)' }, '✕')
-    const head = el('div', { class: 'ai-head' }, el('span', { class: 'ai-title' }, '✦ Claude'), this.modelLabel, el('span', { class: 'grow' }), newBtn, closeBtn)
+    const head = el('div', { class: 'ai-head' },
+      el('span', { class: 'ai-badge', text: '✦' }),
+      el('div', { class: 'ai-names' }, el('span', { class: 'ai-title', text: 'Claude' }), el('span', { class: 'ai-sub' }, 'AI assistant · ', this.modelLabel)),
+      el('span', { class: 'grow' }), newBtn, closeBtn)
     const form = el('div', { class: 'ai-input' }, this.input, this.sendBtn)
     this.root.append(head, this.list, form)
 
@@ -176,7 +179,7 @@ export class AIPanel {
     let acc = ''
     const render = () => {
       body.textContent = ''
-      body.append(renderMarkdown(acc, (code, pre) => this.codeActions(code, pre)))
+      body.append(renderMarkdown(acc, (code, pre, lang) => this.codeActions(code, pre, lang)))
       this.scroll()
     }
     this.streaming = ask(`tab-${tab.id}`, 'chat', prompt, context ?? tab.aiContext(), this.host.shellName(), {
@@ -211,10 +214,26 @@ export class AIPanel {
     this.scroll()
   }
 
-  private codeActions(code: string, pre: HTMLElement) {
+  private codeActions(code: string, pre: HTMLElement, lang: string) {
     const command = code.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n').trim()
-    if (!command) return
+    // Only shell blocks get Run / Insert; text, ASCII art and other
+    // languages just get Copy.
+    const shellLang = /^(sh|bash|zsh|shell|console|tcsh|csh|fish)$/.test(lang)
+    const looksLikeArt = /[|_\\/]{3,}|[█▀▄]/.test(code)
+    const isCommand = !!command && (shellLang || (lang === '' && !looksLikeArt && command.split('\n').length <= 3))
+    pre.classList.add(isCommand ? 'is-command' : 'is-text')
+    pre.prepend(el('div', { class: 'code-label', text: isCommand ? 'Suggested command' : lang && lang !== 'text' ? lang : 'Text' }))
     const bar = el('div', { class: 'code-actions' })
+    if (!isCommand) {
+      const b = el('button', { title: 'Copy' }, 'Copy')
+      b.addEventListener('click', () => {
+        copyText(code)
+        toast('Copied')
+      })
+      bar.append(b)
+      pre.append(bar)
+      return
+    }
     const mk = (label: string, title: string, fn: () => void) => {
       const b = el('button', { title }, label)
       b.addEventListener('click', fn)

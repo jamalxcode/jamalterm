@@ -30,6 +30,10 @@ export function GPUOff() {
   return window['go']['main']['App']['GPUOff']();
 }
 
+export function GitBranch(arg1) {
+  return window['go']['main']['App']['GitBranch'](arg1);
+}
+
 export function HasAPIKey() {
   return window['go']['main']['App']['HasAPIKey']();
 }

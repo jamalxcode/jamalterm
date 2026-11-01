@@ -162,6 +162,9 @@ func (a *App) ShellName() string {
 	return filepath.Base(shell.DefaultShell())
 }
 
+// GitBranch is the git branch for a folder ("" if none), shown on tabs.
+func (a *App) GitBranch(dir string) string { return shell.GitBranch(dir) }
+
 // HomeDir lets the frontend show "~" instead of the full path.
 func (a *App) HomeDir() string {
 	h, _ := os.UserHomeDir()

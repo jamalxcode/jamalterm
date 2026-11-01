@@ -129,14 +129,32 @@ function cycle(dir: number) {
   activate(tabs[(i + dir + tabs.length) % tabs.length])
 }
 
+const STATUS_TEXT = { running: 'running', failed: 'last command failed', exited: 'shell exited', idle: '' }
+
 function renderTabs() {
   tabsEl.textContent = ''
   tabs.forEach((t, i) => {
-    const label = el('span', { class: 'label', text: t.title })
+    const status = t.status
+    // Folder first; while something runs, its name leads.
+    const label = el('span', { class: 'label' })
+    const run = t.runningName
+    if (run) label.append(el('span', { class: 'cmd', text: run }), el('span', { class: 'sep', text: ' · ' }))
+    label.append(el('span', { class: 'path', text: t.shortCwd || t.title }))
+    if (t.branch) label.append(el('span', { class: 'branch' }, el('i', { class: 'nf', text: '\ue725' }), t.branch))
+    if (status === 'exited') label.append(el('span', { class: 'sep', text: ' (exited)' }))
+
+    const last = t.lastFinished
+    const tip = [
+      t.prettyCwd || t.title,
+      t.branch ? `Branch: ${t.branch}` : '',
+      t.runningBlock ? `Running: ${t.runningBlock.command}` : '',
+      !t.runningBlock && last ? `Last: ${last.command}  →  ${last.exitCode === 0 ? 'OK' : `failed (exit ${last.exitCode})`}` : '',
+      i < 9 ? `⌘${i + 1} to switch` : '',
+    ].filter(Boolean).join('\n')
+
     const close = el('button', { class: 'close', title: 'Close tab (⌘W)' }, '×')
-    const state = t.runningBlock ? 'running' : t.exited ? 'exited' : ''
-    const item = el('div', { class: `tab ${t === active ? 'active' : ''} ${state}`, title: t.prettyCwd || t.title }, el('i', { class: 'state' }), label, close)
-    if (i < 9) item.append(el('span', { class: 'num', text: `⌘${i + 1}` }))
+    const icon = el('i', { class: `state ${status}`, 'aria-label': STATUS_TEXT[status] }, status === 'failed' ? '✕' : '')
+    const item = el('div', { class: `tab ${t === active ? 'active' : ''} ${status}`, title: tip }, icon, label, close)
     item.addEventListener('mousedown', (e) => {
       if (e.button === 1) closeTab(t)
       else if (e.target !== close) activate(t)
