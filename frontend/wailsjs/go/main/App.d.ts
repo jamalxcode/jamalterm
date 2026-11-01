@@ -46,6 +46,12 @@ export function ListProviderModels(arg1:string):Promise<Array<string>>;
 
 export function LoadSession():Promise<string>;
 
+export function NewWindow(arg1:string):Promise<void>;
+
+export function Notify(arg1:string,arg2:string):Promise<void>;
+
+export function OpenPath(arg1:string):Promise<void>;
+
 export function OpenURL(arg1:string):Promise<void>;
 
 export function PreviousVersion():Promise<string>;
@@ -53,6 +59,8 @@ export function PreviousVersion():Promise<string>;
 export function Quit():Promise<void>;
 
 export function Resize(arg1:number,arg2:number,arg3:number):Promise<void>;
+
+export function ResolvePath(arg1:string,arg2:string):Promise<string>;
 
 export function RevertUpdate():Promise<void>;
 
@@ -75,6 +83,8 @@ export function ShellName():Promise<string>;
 export function SignInOpenRouter():Promise<void>;
 
 export function Start(arg1:number,arg2:number,arg3:number,arg4:string):Promise<void>;
+
+export function StartDir():Promise<string>;
 
 export function Version():Promise<string>;
 

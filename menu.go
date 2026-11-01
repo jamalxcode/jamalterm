@@ -42,6 +42,7 @@ func (a *App) buildMenu() *menu.Menu {
 
 	shellMenu := m.AddSubmenu("Shell")
 	shellMenu.AddText("New Tab", cmd("t"), a.menu("newTab"))
+	shellMenu.AddText("New Window", cmd("n"), a.menu("newWindow"))
 	shellMenu.AddText("Close Tab", cmd("w"), a.menu("closeTab"))
 	shellMenu.AddSeparator()
 	shellMenu.AddText("Clear", cmd("k"), a.menu("clear"))

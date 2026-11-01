@@ -86,6 +86,18 @@ export function LoadSession() {
   return window['go']['main']['App']['LoadSession']();
 }
 
+export function NewWindow(arg1) {
+  return window['go']['main']['App']['NewWindow'](arg1);
+}
+
+export function Notify(arg1, arg2) {
+  return window['go']['main']['App']['Notify'](arg1, arg2);
+}
+
+export function OpenPath(arg1) {
+  return window['go']['main']['App']['OpenPath'](arg1);
+}
+
 export function OpenURL(arg1) {
   return window['go']['main']['App']['OpenURL'](arg1);
 }
@@ -100,6 +112,10 @@ export function Quit() {
 
 export function Resize(arg1, arg2, arg3) {
   return window['go']['main']['App']['Resize'](arg1, arg2, arg3);
+}
+
+export function ResolvePath(arg1, arg2) {
+  return window['go']['main']['App']['ResolvePath'](arg1, arg2);
 }
 
 export function RevertUpdate() {
@@ -144,6 +160,10 @@ export function SignInOpenRouter() {
 
 export function Start(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['Start'](arg1, arg2, arg3, arg4);
+}
+
+export function StartDir() {
+  return window['go']['main']['App']['StartDir']();
 }
 
 export function Version() {

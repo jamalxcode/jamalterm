@@ -193,6 +193,11 @@ export class SettingsView {
       forgetRow,
       el('label', { class: 'check' }, check(s.confirmRerun, (v) => (s.confirmRerun = v)), ' Ask before re-running a command from browse mode'),
       el('label', { class: 'check' }, check(s.optionIsMeta, (v) => { s.optionIsMeta = v; live() }), ' Use Option as Meta (⌥B / ⌥F jump words)'),
+      el('div', { class: 'row', style: 'align-items:center' },
+        el('label', { class: 'check' }, check(s.notifyLongCommands, (v) => (s.notifyLongCommands = v)), ' Notify me when a command that takes longer than'),
+        number(s.notifyAfterSeconds, 1, 3600, 1, (v) => (s.notifyAfterSeconds = v)),
+        el('span', { text: 'seconds finishes while jamalterm is in the background' })),
+      el('label', { class: 'check' }, check(s.screenReader, (v) => { s.screenReader = v; live() }), ' Screen reader support (VoiceOver can read the terminal)'),
     )
 
     // Sign in with Anthropic (OAuth via the ant CLI) — no key to copy.

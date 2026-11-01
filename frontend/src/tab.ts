@@ -5,8 +5,10 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { SearchAddon } from '@xterm/addon-search'
 import { SerializeAddon } from '@xterm/addon-serialize'
+import { ClipboardAddon, type ClipboardSelectionType } from '@xterm/addon-clipboard'
+import { ImageAddon } from '@xterm/addon-image'
 
-import { Start, Write, Resize, CloseTab, OpenURL, GitBranch, Ack } from '../wailsjs/go/main/App'
+import { Start, Write, Resize, CloseTab, OpenURL, GitBranch, Ack, ResolvePath, OpenPath } from '../wailsjs/go/main/App'
 import type { settings } from '../wailsjs/go/models'
 import { type Theme, bgAt } from './themes'
 import { b64ToBytes, b64ToText, el, escapeHtml, toast, copyText, duration, relTime } from './util'
@@ -34,6 +36,7 @@ export interface Block {
 export interface TabHooks {
   onChange(tab: Tab): void // title or state changed
   onExplain(tab: Tab, block: Block): void // "ask AI about this block"
+  onCommandDone(tab: Tab, block: Block): void // for long-command notifications
   settings(): settings.Settings
   shellName(): string
   home(): string
@@ -111,7 +114,8 @@ export class Tab {
     const s = hooks.settings()
     this.term = new Terminal({
       allowProposedApi: true,
-      allowTransparency: true, // see-through window (Settings → Window opacity)
+      allowTransparency: true,
+      screenReaderMode: s.screenReader, // see-through window (Settings → Window opacity)
       fontFamily: fontStack(s.fontFamily),
       fontSize: s.fontSize,
       lineHeight: s.lineHeight,
@@ -127,6 +131,14 @@ export class Tab {
     this.term.loadAddon(this.fit)
     this.term.loadAddon(this.search)
     this.term.loadAddon(this.serializer)
+    // OSC 52: programs (also over SSH / tmux) may copy to the clipboard,
+    // but never read it.
+    this.term.loadAddon(new ClipboardAddon(undefined, {
+      readText: (_sel: ClipboardSelectionType) => '',
+      writeText: (_sel: ClipboardSelectionType, text: string) => copyText(text),
+    }))
+    // ⌘-click a file path in the output to open it.
+    this.term.registerLinkProvider({ provideLinks: (line, cb) => void this.pathLinks(line).then(cb) })
     this.term.loadAddon(new WebLinksAddon((e, url) => {
       if (e.metaKey || e.ctrlKey || !this.browse.active) OpenURL(url)
     }))
@@ -134,6 +146,12 @@ export class Tab {
     this.term.loadAddon(unicode)
     this.term.unicode.activeVersion = '11'
     this.term.open(this.host)
+    try {
+      // Pictures in the terminal (Sixel and iTerm2's image protocol).
+      this.term.loadAddon(new ImageAddon({ sixelSizeLimit: 25_000_000 }))
+    } catch {
+      /* not essential */
+    }
     if (!gpuOff) try {
       const webgl = new WebglAddon()
       webgl.onContextLoss(() => webgl.dispose())
@@ -164,6 +182,37 @@ export class Tab {
     this.setupMouse()
 
     new ResizeObserver(() => requestAnimationFrame(() => this.refit())).observe(this.host)
+  }
+
+  // ---- ⌘-click file paths --------------------------------------------------------
+
+  private static pathRe = /(?:~|\.{1,2})?\/?(?:[\w.@+-]+\/)+[\w.@+-]*|[\w@+-]+\.[A-Za-z][A-Za-z0-9]{0,7}\b/g
+
+  private async pathLinks(lineNumber: number) {
+    const line = this.term.buffer.active.getLine(lineNumber - 1)?.translateToString(true) ?? ''
+    if (!line.trim()) return undefined
+    const found: { start: number; text: string }[] = []
+    for (const m of line.matchAll(Tab.pathRe)) {
+      const before = line[m.index! - 1] ?? ''
+      if (before === ':' || before === '/' || m[0].length < 3) continue // URLs are handled elsewhere
+      found.push({ start: m.index!, text: m[0].replace(/[.,:;)]+$/, '') })
+      if (found.length >= 20) break
+    }
+    const links = []
+    for (const f of found) {
+      const resolved = await ResolvePath(this.cwd, f.text)
+      if (!resolved) continue
+      links.push({
+        range: { start: { x: f.start + 1, y: lineNumber }, end: { x: f.start + f.text.length, y: lineNumber } },
+        text: f.text,
+        decorations: { underline: true, pointerCursor: true },
+        activate: (e: MouseEvent) => {
+          if (e.metaKey || e.ctrlKey) void OpenPath(resolved)
+          else toast('⌘-click to open ' + f.text)
+        },
+      })
+    }
+    return links.length ? links : undefined
   }
 
   // ---- Session: saved across restarts ---------------------------------------
@@ -261,6 +310,7 @@ export class Tab {
     o.cursorStyle = s.cursorStyle as 'block' | 'bar' | 'underline'
     o.scrollback = s.scrollback
     o.macOptionIsMeta = s.optionIsMeta
+    o.screenReaderMode = s.screenReader
     this.refit()
     this.overlayKey = ''
     this.scheduleOverlay()
@@ -415,6 +465,7 @@ export class Tab {
     b.end = this.term.registerMarker(0)
     b.exitCode = code ?? 0
     b.finishedAt = Date.now()
+    this.hooks.onCommandDone(this, b)
     if (/\bgit\b/.test(b.command)) this.refreshBranch(true) // checkout, switch…
     this.hooks.onChange(this)
     this.scheduleOverlay()

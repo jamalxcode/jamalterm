@@ -3,7 +3,7 @@ import '@fontsource/jetbrains-mono/400.css'
 import '@fontsource/jetbrains-mono/700.css'
 import './style.css'
 
-import { Settings, ShellName, HomeDir, Quit, Version, GPUOff, SetWindowOpacity, SaveSession, LoadSession, IsPrimaryWindow } from '../wailsjs/go/main/App'
+import { Settings, ShellName, HomeDir, Quit, Version, GPUOff, SetWindowOpacity, SaveSession, LoadSession, IsPrimaryWindow, NewWindow, StartDir, Notify } from '../wailsjs/go/main/App'
 import { EventsOn, WindowSetTitle } from '../wailsjs/runtime/runtime'
 import type { settings } from '../wailsjs/go/models'
 import { Tab, setGpuOff, type SavedTab } from './tab'
@@ -11,7 +11,7 @@ import { themeById, applyChrome } from './themes'
 import { AIPanel, CommandBar } from './ai'
 import { SettingsView } from './settingsView'
 import { Updater } from './updater'
-import { el, isMac, toast } from './util'
+import { el, isMac, toast, duration } from './util'
 
 let cfg: settings.Settings
 let shellName = 'shell'
@@ -35,6 +35,14 @@ const hooks = {
     if (!aiReady()) return
     t.exitBrowse()
     void ai.explain(t, b)
+  },
+  onCommandDone: (t: Tab, b: Parameters<AIPanel['explain']>[1]) => {
+    // Tell the user when a long command finishes while they're elsewhere.
+    if (!cfg.notifyLongCommands || !b.startedAt || !b.finishedAt || !b.command) return
+    const took = b.finishedAt - b.startedAt
+    if (took < cfg.notifyAfterSeconds * 1000 || document.hasFocus()) return
+    const ok = b.exitCode === 0
+    void Notify(`${ok ? '✓ Finished' : `✕ Failed (exit ${b.exitCode})`}: ${b.command.slice(0, 60)}`, `${duration(took)} · ${t.prettyCwd || t.title}`)
   },
   settings: () => cfg,
   shellName: () => shellName,
@@ -312,6 +320,7 @@ function runMenu(cmd: string) {
     case 'revertUpdate': return void updater.offerRevert()
     case 'settings': return void settingsView.open()
     case 'newTab': return void newTab()
+    case 'newWindow': return void NewWindow(active?.cwd ?? '')
     case 'closeTab': return closeTab()
     case 'nextTab': return cycle(1)
     case 'prevTab': return cycle(-1)
@@ -354,7 +363,7 @@ EventsOn('menu', runMenu)
 // ⌘ shortcuts typed while the terminal has focus also arrive here, in case
 // the menu bar didn't take them (e.g. in development).
 const keyMap: Record<string, string> = {
-  t: 'newTab', w: 'closeTab', k: 'clear', f: 'find', ',': 'settings',
+  t: 'newTab', n: 'newWindow', w: 'closeTab', k: 'clear', f: 'find', ',': 'settings',
   i: 'aiPanel', j: 'aiCommand', '=': 'zoomIn', '+': 'zoomIn', '-': 'zoomOut', '0': 'zoomReset',
   ArrowUp: 'browse', '}': 'nextTab', '{': 'prevTab', ']': 'nextTab', '[': 'prevTab',
 }
@@ -400,7 +409,7 @@ async function boot() {
     document.fonts.load(`${cfg.fontSize}px "Symbols Nerd Font Mono"`, '\ue0b0\uf07b'),
   ]).catch(() => undefined)
   await document.fonts.ready
-  if (!(await restoreSession())) newTab('')
+  if (!(await restoreSession())) newTab(await StartDir())
   void updater.startAuto(() => cfg.autoUpdate)
 }
 

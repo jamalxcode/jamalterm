@@ -35,6 +35,12 @@ type Settings struct {
 	// RestoreSession reopens tabs (folder and recent output) after a
 	// restart or update.
 	RestoreSession bool `json:"restoreSession"`
+	// NotifyLongCommands: a notification when a command that ran at least
+	// NotifyAfterSeconds finishes while jamalterm is in the background.
+	NotifyLongCommands bool `json:"notifyLongCommands"`
+	NotifyAfterSeconds int  `json:"notifyAfterSeconds"`
+	// ScreenReader turns on VoiceOver support in the terminal.
+	ScreenReader bool `json:"screenReader"`
 	// ConfirmRerun asks before re-running a command from browse mode.
 	ConfirmRerun bool `json:"confirmRerun"`
 	OptionIsMeta bool `json:"optionIsMeta"`
@@ -59,25 +65,27 @@ type Settings struct {
 // Defaults are used for anything missing from the file.
 func Defaults() Settings {
 	return Settings{
-		Theme:            "jamal-night",
-		FontFamily:       `"JetBrains Mono", monospace`,
-		FontSize:         14,
-		LineHeight:       1.15,
-		CursorStyle:      "block",
-		Opacity:          100,
-		Blur:             true,
-		CursorBlink:      true,
-		Scrollback:       10000,
-		ShellIntegration: true,
-		ArrowBrowse:      true,
-		RestoreSession:   true,
-		ConfirmRerun:     false,
-		OptionIsMeta:     true,
-		AutoUpdate:       true,
-		AIEnabled:        true,
-		AIProvider:       "anthropic",
-		AIModel:          "claude-opus-5-5",
-		AIShareOutput:    true,
+		Theme:              "jamal-night",
+		FontFamily:         `"JetBrains Mono", monospace`,
+		FontSize:           14,
+		LineHeight:         1.15,
+		CursorStyle:        "block",
+		Opacity:            100,
+		Blur:               true,
+		CursorBlink:        true,
+		Scrollback:         10000,
+		ShellIntegration:   true,
+		ArrowBrowse:        true,
+		RestoreSession:     true,
+		NotifyLongCommands: true,
+		NotifyAfterSeconds: 10,
+		ConfirmRerun:       false,
+		OptionIsMeta:       true,
+		AutoUpdate:         true,
+		AIEnabled:          true,
+		AIProvider:         "anthropic",
+		AIModel:            "claude-opus-5-5",
+		AIShareOutput:      true,
 	}
 }
 
@@ -150,6 +158,9 @@ func (c Settings) normalized() Settings {
 	case "block", "bar", "underline":
 	default:
 		c.CursorStyle = d.CursorStyle
+	}
+	if c.NotifyAfterSeconds < 1 || c.NotifyAfterSeconds > 3600 {
+		c.NotifyAfterSeconds = d.NotifyAfterSeconds
 	}
 	if c.Opacity < 30 || c.Opacity > 100 {
 		c.Opacity = d.Opacity

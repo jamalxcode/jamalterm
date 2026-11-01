@@ -104,6 +104,9 @@ export namespace settings {
 	    shellIntegration: boolean;
 	    arrowBrowse: boolean;
 	    restoreSession: boolean;
+	    notifyLongCommands: boolean;
+	    notifyAfterSeconds: number;
+	    screenReader: boolean;
 	    confirmRerun: boolean;
 	    optionIsMeta: boolean;
 	    autoUpdate: boolean;
@@ -135,6 +138,9 @@ export namespace settings {
 	        this.shellIntegration = source["shellIntegration"];
 	        this.arrowBrowse = source["arrowBrowse"];
 	        this.restoreSession = source["restoreSession"];
+	        this.notifyLongCommands = source["notifyLongCommands"];
+	        this.notifyAfterSeconds = source["notifyAfterSeconds"];
+	        this.screenReader = source["screenReader"];
 	        this.confirmRerun = source["confirmRerun"];
 	        this.optionIsMeta = source["optionIsMeta"];
 	        this.autoUpdate = source["autoUpdate"];
