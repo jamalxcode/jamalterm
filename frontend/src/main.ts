@@ -51,6 +51,7 @@ const aiHost = {
     if (p === 'deepseek') return { id: p, name: 'DeepSeek', model: cfg.deepseekModel || 'deepseek-v4-flash' }
     if (p === 'xai') return { id: p, name: 'Grok', model: cfg.xaiModel || 'auto model' }
     if (p === 'openrouter') return { id: p, name: 'OpenRouter', model: cfg.openrouterModel || 'openrouter/auto' }
+    if (p === 'gemini') return { id: p, name: 'Gemini', model: cfg.geminiModel || 'auto model' }
     return { id: 'anthropic', name: 'Claude', model: cfg.aiModel.replace(/^claude-/, '') }
   },
   runInNewTab: (cmd: string) => void runInNewTab(cmd),
@@ -85,7 +86,7 @@ function aiReady(): boolean {
 
 // ---- Settings -------------------------------------------------------------------
 
-const PROVIDER_NAMES: Record<string, string> = { anthropic: 'Claude', openai: 'ChatGPT', deepseek: 'DeepSeek', xai: 'Grok', openrouter: 'OpenRouter' }
+const PROVIDER_NAMES: Record<string, string> = { anthropic: 'Claude', openai: 'ChatGPT', deepseek: 'DeepSeek', xai: 'Grok', openrouter: 'OpenRouter', gemini: 'Gemini' }
 
 function applySettings(s: settings.Settings) {
   const switched = cfg && cfg.aiProvider !== s.aiProvider

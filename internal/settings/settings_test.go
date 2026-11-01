@@ -53,7 +53,7 @@ func TestProviderKeysAreSeparate(t *testing.T) {
 	if s.KeyFor("openai") != "sk-oa" || s.KeyFor("deepseek") != "ds-env" || s.HasSavedKeyFor("deepseek") {
 		t.Fatal("keys mixed up")
 	}
-	if s.SetKeyFor("gemini", "x") == nil {
+	if s.SetKeyFor("mistral", "x") == nil {
 		t.Fatal("unknown provider accepted")
 	}
 	st := NewStore(filepath.Join(t.TempDir(), "s.json"))

@@ -46,6 +46,10 @@ export function GitBranch(arg1) {
   return window['go']['main']['App']['GitBranch'](arg1);
 }
 
+export function GoogleAccount() {
+  return window['go']['main']['App']['GoogleAccount']();
+}
+
 export function HasAPIKey() {
   return window['go']['main']['App']['HasAPIKey']();
 }

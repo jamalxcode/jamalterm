@@ -16,6 +16,20 @@ export namespace ai {
 	        this.workspace = source["workspace"];
 	    }
 	}
+	export class GoogleAccount {
+	    signedIn: boolean;
+	    project: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GoogleAccount(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.signedIn = source["signedIn"];
+	        this.project = source["project"];
+	    }
+	}
 	export class ProviderInfo {
 	    id: string;
 	    name: string;
@@ -113,6 +127,8 @@ export namespace settings {
 	    deepseekModel: string;
 	    xaiModel: string;
 	    openrouterModel: string;
+	    geminiModel: string;
+	    geminiProject: string;
 	    aiShareOutput: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -143,6 +159,8 @@ export namespace settings {
 	        this.deepseekModel = source["deepseekModel"];
 	        this.xaiModel = source["xaiModel"];
 	        this.openrouterModel = source["openrouterModel"];
+	        this.geminiModel = source["geminiModel"];
+	        this.geminiProject = source["geminiProject"];
 	        this.aiShareOutput = source["aiShareOutput"];
 	    }
 	}

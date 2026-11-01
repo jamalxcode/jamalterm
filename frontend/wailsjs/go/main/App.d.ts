@@ -26,6 +26,8 @@ export function GPUOff():Promise<boolean>;
 
 export function GitBranch(arg1:string):Promise<string>;
 
+export function GoogleAccount():Promise<ai.GoogleAccount>;
+
 export function HasAPIKey():Promise<boolean>;
 
 export function HasSavedAPIKey():Promise<boolean>;

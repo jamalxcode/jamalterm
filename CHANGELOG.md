@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.9.0
+
+- **Gemini** (Google) joins the assistants: AI menu → Use Gemini (⌥⌘6)
+- **API key**: a free key from aistudio.google.com works straight away
+- **Sign in with Google**: uses Google's own sign-in (gcloud) and runs Gemini on Vertex AI in your Google Cloud project; set the project in Settings and use **Turn on Vertex AI** once
+- The model is picked automatically from the ones you can use, or choose one
+
 ## 1.8.0
 
 - **OpenRouter** joins the assistants (AI menu → Use OpenRouter, ⌥⌘5): hundreds of models through one account

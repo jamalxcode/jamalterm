@@ -24,6 +24,7 @@ const (
 	ProviderXAI       = "xai"       // Grok by xAI (OpenAI-compatible API)
 	// OpenRouter: many models through one OpenAI-compatible API.
 	ProviderOpenRouter = "openrouter"
+	// ProviderGemini ("gemini") is in gemini.go.
 )
 
 // ProviderInfo describes a provider for the UI.
@@ -40,6 +41,7 @@ var Providers = []ProviderInfo{
 	{ProviderDeepSeek, "DeepSeek", "https://platform.deepseek.com/api_keys", "sk-…"},
 	{ProviderXAI, "Grok", "https://console.x.ai", "xai-…"},
 	{ProviderOpenRouter, "OpenRouter", "https://openrouter.ai/keys", "sk-or-…"},
+	{ProviderGemini, "Gemini", "https://aistudio.google.com/apikey", "AIza…"},
 }
 
 func providerName(id string) string {
@@ -54,6 +56,11 @@ func providerName(id string) string {
 // compatBase is the API address for an OpenAI-compatible provider.
 func compatBase(provider string) string {
 	switch provider {
+	case ProviderGemini:
+		if b := os.Getenv("JAMALTERM_GEMINI_BASE_URL"); b != "" {
+			return b
+		}
+		return "https://generativelanguage.googleapis.com/v1beta/openai/"
 	case ProviderOpenRouter:
 		if b := os.Getenv("JAMALTERM_OPENROUTER_BASE_URL"); b != "" {
 			return b
@@ -78,7 +85,11 @@ func compatBase(provider string) string {
 }
 
 func compatClient(provider, key string) openai.Client {
-	opts := []oaioption.RequestOption{oaioption.WithAPIKey(key), oaioption.WithBaseURL(compatBase(provider))}
+	return compatClientAt(provider, key, compatBase(provider))
+}
+
+func compatClientAt(provider, key, base string) openai.Client {
+	opts := []oaioption.RequestOption{oaioption.WithAPIKey(key), oaioption.WithBaseURL(base)}
 	if provider == ProviderOpenRouter {
 		// OpenRouter's (optional) app attribution headers.
 		opts = append(opts,
@@ -102,8 +113,9 @@ func ListModels(ctx context.Context, provider, key string) ([]string, error) {
 	var out []string
 	for {
 		for _, m := range page.Data {
-			if isChatModel(provider, m.ID) {
-				out = append(out, m.ID)
+			id := strings.TrimPrefix(m.ID, "models/") // Gemini lists "models/gemini-…"
+			if isChatModel(provider, id) {
+				out = append(out, id)
 			}
 		}
 		next, err := page.GetNextPage()
@@ -130,6 +142,9 @@ func isChatModel(provider, id string) bool {
 	}
 	if provider == ProviderXAI {
 		return strings.HasPrefix(id, "grok-")
+	}
+	if provider == ProviderGemini {
+		return strings.HasPrefix(id, "gemini-")
 	}
 	return true
 }
@@ -158,14 +173,61 @@ func rankModel(id string) float64 {
 	return score
 }
 
+// endpoint is where (and with which credential) a request goes.
+type endpoint struct {
+	key     string // API key, or a Google access token for Vertex AI
+	base    string
+	vertex  bool // Gemini through Google sign-in (Vertex AI)
+	project string
+}
+
+// endpointFor picks the credential: a saved API key, else (Gemini only)
+// the Google sign-in.
+func (c *Client) endpointFor(ctx context.Context, provider string) (endpoint, error) {
+	if key := c.keyFor(provider); key != "" {
+		return endpoint{key: key, base: compatBase(provider)}, nil
+	}
+	if provider == ProviderGemini {
+		token, project, err := googleAccess(ctx, c.googleProject())
+		if err == nil {
+			return endpoint{key: token, base: vertexBase(project), vertex: true, project: project}, nil
+		}
+		if !errors.Is(err, errNoGoogle) {
+			return endpoint{}, err
+		}
+		return endpoint{}, errors.New("sign in with Google or add a Gemini API key in Settings (⌘,) to use AI features")
+	}
+	return endpoint{}, errNoProviderKey(provider)
+}
+
+// ListModelsFor lists a provider's chat models with whatever credential
+// jamalterm would use (for Gemini: the key, else the Google sign-in).
+func (c *Client) ListModelsFor(ctx context.Context, provider string) ([]string, error) {
+	ep, err := c.endpointFor(ctx, provider)
+	if err != nil {
+		return nil, err
+	}
+	if ep.vertex {
+		return listVertexModels(ctx, ep.key, ep.project)
+	}
+	return ListModels(ctx, provider, ep.key)
+}
+
 // resolveModel picks the configured model, or for "auto" the newest
-// general chat model this key can use.
-func (c *Client) resolveModel(ctx context.Context, provider, key string) (string, error) {
+// general chat model this credential can use.
+func (c *Client) resolveModel(ctx context.Context, provider string, ep endpoint) (string, error) {
 	if m := strings.TrimSpace(c.modelFor(provider)); m != "" {
+		if provider == ProviderGemini {
+			return geminiModelFor(m, ep.vertex), nil
+		}
 		return m, nil
 	}
+	cacheKey := provider
+	if ep.vertex {
+		cacheKey += ":vertex"
+	}
 	c.mu.Lock()
-	cached := c.autoModel[provider]
+	cached := c.autoModel[cacheKey]
 	c.mu.Unlock()
 	if cached != "" {
 		return cached, nil
@@ -178,15 +240,21 @@ func (c *Client) resolveModel(ctx context.Context, provider, key string) (string
 		// OpenRouter's Auto Router picks a model for each request.
 		return "openrouter/auto", nil
 	}
-	models, err := ListModels(ctx, provider, key)
+	var models []string
+	var err error
+	if ep.vertex {
+		models, err = listVertexModels(ctx, ep.key, ep.project)
+	} else {
+		models, err = ListModels(ctx, provider, ep.key)
+	}
 	if err != nil {
 		return "", err
 	}
 	if len(models) == 0 {
-		return "", fmt.Errorf("%s offered no chat models to this API key; pick one in Settings", providerName(provider))
+		return "", fmt.Errorf("%s offered no chat models to you; pick one in Settings", providerName(provider))
 	}
 	c.mu.Lock()
-	c.autoModel[provider] = models[0]
+	c.autoModel[cacheKey] = models[0]
 	c.mu.Unlock()
 	return models[0], nil
 }
@@ -212,15 +280,15 @@ var compatTool = openai.ChatCompletionFunctionTool(shared.FunctionDefinitionPara
 // askCompat answers with an OpenAI-compatible provider (ChatGPT, DeepSeek),
 // with the same prompts and type_in_terminal tool as Claude.
 func (c *Client) askCompat(ctx context.Context, provider string, req Request, userText string, onDelta func(string), onTool ToolHandler) (string, error) {
-	key := c.keyFor(provider)
-	if key == "" {
-		return "", errNoProviderKey(provider)
-	}
-	model, err := c.resolveModel(ctx, provider, key)
+	ep, err := c.endpointFor(ctx, provider)
 	if err != nil {
 		return "", err
 	}
-	client := compatClient(provider, key)
+	model, err := c.resolveModel(ctx, provider, ep)
+	if err != nil {
+		return "", err
+	}
+	client := compatClientAt(provider, ep.key, ep.base)
 
 	chatKey := provider + ":" + req.Chat
 	var messages []openai.ChatCompletionMessageParamUnion

@@ -1,7 +1,7 @@
-import { SaveSettings, SetAPIKey, HasSavedAPIKey, AnthropicAccount, BlurActive, SetProviderKey, HasSavedProviderKey, ListProviderModels, SignInOpenRouter } from '../wailsjs/go/main/App'
+import { SaveSettings, SetAPIKey, HasSavedAPIKey, AnthropicAccount, BlurActive, SetProviderKey, HasSavedProviderKey, ListProviderModels, SignInOpenRouter, GoogleAccount } from '../wailsjs/go/main/App'
 import { settings } from '../wailsjs/go/models'
 import { themes } from './themes'
-import { el, toast, SIGN_IN_COMMAND, SIGN_OUT_COMMAND } from './util'
+import { el, toast, SIGN_IN_COMMAND, SIGN_OUT_COMMAND, GOOGLE_SIGN_IN_COMMAND, GOOGLE_SIGN_OUT_COMMAND, enableVertexCommand } from './util'
 
 const fonts = [
   ['"JetBrains Mono", monospace', 'JetBrains Mono (built in)'],
@@ -214,33 +214,36 @@ export class SettingsView {
 
     // ChatGPT and DeepSeek: an API key and a model (blank = automatic).
     const compatKeys: Record<string, HTMLInputElement> = {}
-    const compatBox = async (id: 'openai' | 'deepseek' | 'xai' | 'openrouter') => {
+    const compatBox = async (id: 'openai' | 'deepseek' | 'xai' | 'openrouter' | 'gemini') => {
       const info = {
         openai: { name: 'ChatGPT', company: 'OpenAI', url: 'platform.openai.com → API keys', bill: 'Billed to your OpenAI API account (separate from a ChatGPT Plus subscription).', auto: 'Automatic: the newest general GPT model your key can use' },
         deepseek: { name: 'DeepSeek', company: 'DeepSeek', url: 'platform.deepseek.com → API keys', bill: 'Billed to your DeepSeek API balance.', auto: 'Automatic: deepseek-v4-flash' },
         xai: { name: 'Grok', company: 'xAI', url: 'console.x.ai → API keys', bill: 'Billed to your xAI API account (separate from SuperGrok / X Premium).', auto: 'Automatic: the newest general Grok model your key can use' },
+        gemini: { name: 'Gemini', company: 'Gemini', url: 'aistudio.google.com → Get API key', bill: 'Billed to that key\u2019s Google project (Gemini API).', auto: 'Automatic: the newest general Gemini model you can use' },
         openrouter: { name: 'OpenRouter', company: 'OpenRouter', url: 'openrouter.ai/keys, or use Sign in with OpenRouter above', bill: 'Billed to your OpenRouter credits.', auto: 'Automatic: openrouter/auto (OpenRouter picks a model each time)' },
       }[id]
       const saved = await HasSavedProviderKey(id)
-      const key = el('input', { type: 'password', placeholder: saved ? '•••••••• saved in your Keychain' : 'sk-…', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement
+      const hint = { openai: 'sk-…', deepseek: 'sk-…', xai: 'xai-…', openrouter: 'sk-or-…', gemini: 'AIza…' }[id]
+      const key = el('input', { type: 'password', placeholder: saved ? '•••••••• saved in your Keychain' : hint, spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement
       compatKeys[id] = key
       const remove = el('button', { type: 'button', class: 'ghost small' }, 'Remove saved key')
       remove.hidden = !saved
       remove.addEventListener('click', async () => {
         await SetProviderKey(id, '')
-        key.placeholder = 'sk-…'
+        key.placeholder = hint
         remove.hidden = true
         toast(`${info.name} key removed`)
       })
       const listId = `models-${id}`
       const datalist = el('datalist', { id: listId })
       const modelInput = el('input', { type: 'text', list: listId, placeholder: info.auto, spellcheck: 'false' }) as HTMLInputElement
-      modelInput.value = { openai: s.openaiModel, deepseek: s.deepseekModel, xai: s.xaiModel, openrouter: s.openrouterModel }[id]
+      modelInput.value = { openai: s.openaiModel, deepseek: s.deepseekModel, xai: s.xaiModel, openrouter: s.openrouterModel, gemini: s.geminiModel }[id]
       modelInput.addEventListener('input', () => {
         const v = modelInput.value.trim()
         if (id === 'openai') s.openaiModel = v
         else if (id === 'deepseek') s.deepseekModel = v
         else if (id === 'xai') s.xaiModel = v
+        else if (id === 'gemini') s.geminiModel = v
         else s.openrouterModel = v
       })
       const load = el('button', { type: 'button', class: 'ghost small' }, 'Show available models')
@@ -279,14 +282,41 @@ export class SettingsView {
         })
         signIn.push(el('div', { class: 'field' }, el('span', { class: 'label', text: 'OpenRouter account' }), el('div', { class: 'keyrow' }, btn), note))
       }
+      // Gemini: Google sign-in (runs on Vertex AI in your Google Cloud project).
+      if (id === 'gemini') {
+        const g = await GoogleAccount()
+        const signInBtn = el('button', { type: 'button', class: 'primary small' }, g.signedIn ? 'Sign in again' : 'Sign in with Google')
+        signInBtn.addEventListener('click', () => { this.cancel(); this.host.runInNewTab(GOOGLE_SIGN_IN_COMMAND) })
+        const signOutBtn = el('button', { type: 'button', class: 'ghost small' }, 'Sign out')
+        signOutBtn.hidden = !g.signedIn
+        signOutBtn.addEventListener('click', () => { this.cancel(); this.host.runInNewTab(GOOGLE_SIGN_OUT_COMMAND) })
+        const project = el('input', { type: 'text', placeholder: g.project ? `${g.project} (found automatically)` : 'your-project-id', spellcheck: 'false' }) as HTMLInputElement
+        project.value = s.geminiProject
+        project.addEventListener('input', () => (s.geminiProject = project.value.trim()))
+        const enable = el('button', { type: 'button', class: 'ghost small' }, 'Turn on Vertex AI')
+        enable.addEventListener('click', () => {
+          const p = project.value.trim() || g.project
+          if (!p) { toast('Enter your Google Cloud project first', 'error'); return }
+          this.cancel()
+          this.host.runInNewTab(enableVertexCommand(p))
+        })
+        const status = g.signedIn
+          ? `✓ Signed in with Google${g.project ? ` · project ${g.project}` : ' — now set a Google Cloud project'}`
+          : 'Uses Google\u2019s own sign-in (gcloud) and runs Gemini on Vertex AI in your Google Cloud project, billed there. A free AI Studio key below is simpler if you don\u2019t use Google Cloud.'
+        signIn.push(
+          el('div', { class: 'field' }, el('span', { class: 'label', text: 'Google account' }), el('div', { class: 'keyrow' }, signInBtn, signOutBtn),
+            el('span', { class: 'help' + (g.signedIn ? ' ok' : ''), text: status })),
+          field('Google Cloud project', el('div', { class: 'keyrow' }, project, enable), 'Gemini on Vertex AI needs a project with billing and the Vertex AI API turned on (the button does that).'),
+        )
+      }
       return el('div', { class: 'provider-box' },
         ...signIn,
-        field(id === 'openrouter' ? 'Or paste an API key' : `${info.company} API key`, el('div', { class: 'keyrow' }, key, remove), `From ${info.url}. Stored in your macOS Keychain. ${info.bill}`),
+        field(id === 'openrouter' || id === 'gemini' ? 'Or paste an API key' : `${info.company} API key`, el('div', { class: 'keyrow' }, key, remove), `From ${info.url}. Stored in your macOS Keychain. ${info.bill}`),
         field('Model', el('div', { class: 'keyrow' }, modelInput, load, datalist)),
         modelHelp,
       )
     }
-    const boxes: Record<string, HTMLElement> = { anthropic: claudeBox, openai: await compatBox('openai'), deepseek: await compatBox('deepseek'), xai: await compatBox('xai'), openrouter: await compatBox('openrouter') }
+    const boxes: Record<string, HTMLElement> = { anthropic: claudeBox, openai: await compatBox('openai'), deepseek: await compatBox('deepseek'), xai: await compatBox('xai'), openrouter: await compatBox('openrouter'), gemini: await compatBox('gemini') }
     const showBox = () => Object.entries(boxes).forEach(([id, b]) => (b.hidden = id !== s.aiProvider))
     showBox()
 
@@ -294,8 +324,8 @@ export class SettingsView {
       'section', {},
       el('h3', { text: 'AI assistant' }),
       el('label', { class: 'check' }, check(s.aiEnabled, (v) => (s.aiEnabled = v)), ' Turn on AI features'),
-      field('Assistant', select([['anthropic', 'Claude (Anthropic)'], ['openai', 'ChatGPT (OpenAI)'], ['deepseek', 'DeepSeek'], ['xai', 'Grok (xAI)'], ['openrouter', 'OpenRouter (many models)']], s.aiProvider, (v) => { s.aiProvider = v; showBox() })),
-      claudeBox, boxes.openai, boxes.deepseek, boxes.xai, boxes.openrouter,
+      field('Assistant', select([['anthropic', 'Claude (Anthropic)'], ['openai', 'ChatGPT (OpenAI)'], ['deepseek', 'DeepSeek'], ['xai', 'Grok (xAI)'], ['openrouter', 'OpenRouter (many models)'], ['gemini', 'Gemini (Google)']], s.aiProvider, (v) => { s.aiProvider = v; showBox() })),
+      claudeBox, boxes.openai, boxes.deepseek, boxes.xai, boxes.openrouter, boxes.gemini,
       el('label', { class: 'check' }, check(s.aiShareOutput, (v) => (s.aiShareOutput = v)), ' Send recent command output with questions (otherwise only the commands)'),
     )
 

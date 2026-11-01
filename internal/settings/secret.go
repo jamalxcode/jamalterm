@@ -40,6 +40,7 @@ var envVar = map[string]string{
 	"deepseek":   "DEEPSEEK_API_KEY",
 	"xai":        "XAI_API_KEY",
 	"openrouter": "OPENROUTER_API_KEY",
+	"gemini":     "GEMINI_API_KEY",
 }
 
 // APIKey is the Claude key (saved, else $ANTHROPIC_API_KEY).
