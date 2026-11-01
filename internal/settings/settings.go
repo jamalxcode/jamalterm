@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -38,8 +39,14 @@ type Settings struct {
 	// AutoUpdate checks GitHub for new versions at launch and every 6 hours.
 	AutoUpdate bool `json:"autoUpdate"`
 
-	AIEnabled bool   `json:"aiEnabled"`
-	AIModel   string `json:"aiModel"`
+	AIEnabled bool `json:"aiEnabled"`
+	// AIProvider answers questions: "anthropic" (Claude), "openai"
+	// (ChatGPT) or "deepseek".
+	AIProvider string `json:"aiProvider"`
+	AIModel    string `json:"aiModel"` // Claude model
+	// OpenAIModel / DeepSeekModel: "" picks automatically.
+	OpenAIModel   string `json:"openaiModel"`
+	DeepSeekModel string `json:"deepseekModel"`
 	// AIShareOutput sends recent command output to Claude with questions.
 	AIShareOutput bool `json:"aiShareOutput"`
 }
@@ -62,6 +69,7 @@ func Defaults() Settings {
 		OptionIsMeta:     true,
 		AutoUpdate:       true,
 		AIEnabled:        true,
+		AIProvider:       "anthropic",
 		AIModel:          "claude-opus-5-5",
 		AIShareOutput:    true,
 	}
@@ -149,6 +157,13 @@ func (c Settings) normalized() Settings {
 	if c.FontFamily == "" {
 		c.FontFamily = d.FontFamily
 	}
+	switch c.AIProvider {
+	case "anthropic", "openai", "deepseek":
+	default:
+		c.AIProvider = d.AIProvider
+	}
+	c.OpenAIModel = strings.TrimSpace(c.OpenAIModel)
+	c.DeepSeekModel = strings.TrimSpace(c.DeepSeekModel)
 	if c.AIModel == "" {
 		c.AIModel = d.AIModel
 	}

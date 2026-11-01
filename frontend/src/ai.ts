@@ -34,7 +34,8 @@ export interface AIHost {
   activeTab(): Tab | undefined
   shellName(): string
   openSettings(): void
-  model(): string
+  /** The assistant answering: provider id, display name and model label. */
+  assistant(): { id: string; name: string; model: string }
   runInNewTab(command: string): void
 }
 
@@ -46,6 +47,7 @@ export class AIPanel {
   private input = el('textarea', { rows: '1', placeholder: 'Ask about your terminal…  (⏎ to send)' }) as HTMLTextAreaElement
   private sendBtn = el('button', { class: 'ai-send', title: 'Send' }, '↑')
   private modelLabel = el('span', { class: 'ai-model' })
+  private titleEl = el('span', { class: 'ai-title', text: 'Claude' })
   private streaming: string | null = null
   private chatOf = new Map<number, HTMLElement[]>() // per-tab conversation
   private shownTab = -1
@@ -55,7 +57,7 @@ export class AIPanel {
     const closeBtn = el('button', { class: 'ghost icon', title: 'Close (esc)' }, '✕')
     const head = el('div', { class: 'ai-head' },
       el('span', { class: 'ai-badge', text: '✦' }),
-      el('div', { class: 'ai-names' }, el('span', { class: 'ai-title', text: 'Claude' }), el('span', { class: 'ai-sub' }, 'AI assistant · ', this.modelLabel)),
+      el('div', { class: 'ai-names' }, this.titleEl, el('span', { class: 'ai-sub' }, 'AI assistant · ', this.modelLabel)),
       el('span', { class: 'grow' }), newBtn, closeBtn)
     const form = el('div', { class: 'ai-input' }, this.input, this.sendBtn)
     this.root.append(head, this.list, form)
@@ -82,7 +84,10 @@ export class AIPanel {
   async show(focus = true) {
     this.root.hidden = false
     document.body.classList.add('ai-open')
-    this.modelLabel.textContent = this.host.model().replace(/^claude-/, '')
+    const who = this.host.assistant()
+    if (this.titleEl.textContent !== who.name) this.list.querySelector('.ai-setup')?.remove()
+    this.titleEl.textContent = who.name
+    this.modelLabel.textContent = who.model
     this.syncTab()
     if (!(await HasAPIKey())) this.showSetup()
     if (focus) this.input.focus()
@@ -130,13 +135,24 @@ export class AIPanel {
 
   private welcome() {
     const card = el('div', { class: 'ai-welcome' })
-    card.innerHTML = `<p><strong>Ask Claude about anything in this tab.</strong> It sees your recent commands and their output.</p>
+    card.innerHTML = `<p><strong>Ask ${this.host.assistant().name} about anything in this tab.</strong> It sees your recent commands and their output.</p>
       <p class="dim">Try: “why did that fail?”, “undo my last git commit”, “what's using port 3000?”</p>`
     this.list.append(card)
   }
 
   private showSetup() {
     if (this.list.querySelector('.ai-setup')) return
+    const who = this.host.assistant()
+    if (who.id !== 'anthropic') {
+      const open = el('button', { class: 'primary' }, 'Open Settings')
+      open.addEventListener('click', () => this.host.openSettings())
+      const company = who.id === 'openai' ? 'OpenAI (platform.openai.com → API keys)' : 'DeepSeek (platform.deepseek.com → API keys)'
+      this.list.append(el('div', { class: 'ai-setup' },
+        el('p', {}, el('strong', { text: `Add your ${who.name} API key to turn on AI.` })),
+        el('p', { class: 'dim', text: `Create a key at ${company}, then paste it in Settings → AI assistant. It's stored in your macOS Keychain.` }),
+        open))
+      return
+    }
     const signIn = el('button', { class: 'primary' }, 'Sign in with Anthropic')
     signIn.addEventListener('click', () => this.host.runInNewTab(SIGN_IN_COMMAND))
     const useKey = el('button', { class: 'ghost' }, 'Use an API key')
@@ -237,7 +253,7 @@ export class AIPanel {
     }
     const cmd = el('code', { text: e.command })
     const status = el('div', { class: 'tool-status' })
-    const label = el('div', { class: 'code-label', text: e.run ? 'Claude wants to run' : 'Typed into your terminal' })
+    const label = el('div', { class: 'code-label', text: e.run ? `${this.host.assistant().name} wants to run` : 'Typed into your terminal' })
     const card = el('div', { class: 'tool-card' }, label, el('div', { class: 'tool-cmd' }, cmd), status)
 
     if (!e.run) {
@@ -360,7 +376,7 @@ export class CommandBar {
 
   async open() {
     if (!(await HasAPIKey())) {
-      toast('Add your Claude API key in Settings (⌘,) first', 'error')
+      toast(`Connect ${this.host.assistant().name} in Settings (⌘,) first`, 'error')
       this.host.openSettings()
       return
     }
@@ -427,7 +443,7 @@ export class CommandBar {
     if (!this.result) {
       this.preview.className = 'cmd-preview empty'
       this.preview.textContent = ''
-      this.help.innerHTML = '<kbd>⏎</kbd> ask Claude <kbd>esc</kbd> cancel'
+      this.help.innerHTML = `<kbd>⏎</kbd> ask ${this.host.assistant().name} <kbd>esc</kbd> cancel`
       return
     }
     const note = this.result.startsWith('#')

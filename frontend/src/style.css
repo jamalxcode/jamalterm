@@ -541,6 +541,8 @@ button.small { padding: 4px 10px; font-size: 12px; }
 .keyrow { display: flex; gap: 8px; }
 .keyrow input { flex: 1; }
 .field .help.ok { color: var(--green); }
+.provider-box { padding: 10px 12px 2px; margin: 4px 0 10px; border-radius: 10px; border: 1px solid var(--border); background: color-mix(in srgb, var(--fg) 3%, transparent); }
+.provider-box > .help { display: block; margin: -4px 0 10px; font-size: 11.5px; color: var(--muted); }
 .ai-setup .row { gap: 8px; align-items: center; }
 
 .slider-row { align-items: center; gap: 10px; }

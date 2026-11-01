@@ -16,6 +16,24 @@ export namespace ai {
 	        this.workspace = source["workspace"];
 	    }
 	}
+	export class ProviderInfo {
+	    id: string;
+	    name: string;
+	    keyUrl: string;
+	    keyHint: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProviderInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.keyUrl = source["keyUrl"];
+	        this.keyHint = source["keyHint"];
+	    }
+	}
 	export class Request {
 	    id: string;
 	    chat: string;
@@ -89,7 +107,10 @@ export namespace settings {
 	    optionIsMeta: boolean;
 	    autoUpdate: boolean;
 	    aiEnabled: boolean;
+	    aiProvider: string;
 	    aiModel: string;
+	    openaiModel: string;
+	    deepseekModel: string;
 	    aiShareOutput: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -114,7 +135,10 @@ export namespace settings {
 	        this.optionIsMeta = source["optionIsMeta"];
 	        this.autoUpdate = source["autoUpdate"];
 	        this.aiEnabled = source["aiEnabled"];
+	        this.aiProvider = source["aiProvider"];
 	        this.aiModel = source["aiModel"];
+	        this.openaiModel = source["openaiModel"];
+	        this.deepseekModel = source["deepseekModel"];
 	        this.aiShareOutput = source["aiShareOutput"];
 	    }
 	}

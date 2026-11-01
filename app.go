@@ -81,6 +81,18 @@ func NewApp() *App {
 	}
 	a.cfg, _ = store.Load()
 	a.ai = ai.New(a.secrets.APIKey, func() string { return a.Settings().AIModel })
+	a.ai.Configure(
+		func() string { return a.Settings().AIProvider },
+		a.secrets.KeyFor,
+		func(p string) string {
+			switch p {
+			case ai.ProviderOpenAI:
+				return a.Settings().OpenAIModel
+			case ai.ProviderDeepSeek:
+				return a.Settings().DeepSeekModel
+			}
+			return ""
+		})
 	return a
 }
 
@@ -239,7 +251,29 @@ func (a *App) SaveSettings(cfg settings.Settings) (settings.Settings, error) {
 
 // HasAPIKey reports whether AI features can be used: an API key, or a
 // sign-in with an Anthropic account.
-func (a *App) HasAPIKey() bool { return a.secrets.APIKey() != "" || ai.SignedInAccount().SignedIn }
+func (a *App) HasAPIKey() bool {
+	if p := a.Settings().AIProvider; p != ai.ProviderAnthropic {
+		return a.secrets.KeyFor(p) != ""
+	}
+	return a.secrets.APIKey() != "" || ai.SignedInAccount().SignedIn
+}
+
+// AIProviders lists the assistants to choose from (Claude, ChatGPT, DeepSeek).
+func (a *App) AIProviders() []ai.ProviderInfo { return ai.Providers }
+
+// HasSavedProviderKey reports whether a key for provider is saved in jamalterm.
+func (a *App) HasSavedProviderKey(provider string) bool { return a.secrets.HasSavedKeyFor(provider) }
+
+// SetProviderKey saves a provider's API key in the Keychain ("" removes it).
+func (a *App) SetProviderKey(provider, key string) error { return a.secrets.SetKeyFor(provider, key) }
+
+// ListProviderModels asks ChatGPT or DeepSeek which chat models the saved
+// key can use (newest first).
+func (a *App) ListProviderModels(provider string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
+	defer cancel()
+	return ai.ListModels(ctx, provider, a.secrets.KeyFor(provider))
+}
 
 // AnthropicAccount reports the `ant auth login` sign-in, if any.
 func (a *App) AnthropicAccount() ai.Account { return ai.SignedInAccount() }

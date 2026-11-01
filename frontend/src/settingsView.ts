@@ -1,4 +1,4 @@
-import { SaveSettings, SetAPIKey, HasSavedAPIKey, AnthropicAccount, BlurActive } from '../wailsjs/go/main/App'
+import { SaveSettings, SetAPIKey, HasSavedAPIKey, AnthropicAccount, BlurActive, SetProviderKey, HasSavedProviderKey, ListProviderModels } from '../wailsjs/go/main/App'
 import { settings } from '../wailsjs/go/models'
 import { themes } from './themes'
 import { el, toast, SIGN_IN_COMMAND, SIGN_OUT_COMMAND } from './util'
@@ -205,13 +205,68 @@ export class SettingsView {
       el('span', { class: 'help' + (account.signedIn ? ' ok' : ''), text: accountText }),
     )
 
-    const aiSec = el(
-      'section', {},
-      el('h3', { text: 'AI (Claude)' }),
-      el('label', { class: 'check' }, check(s.aiEnabled, (v) => (s.aiEnabled = v)), ' Turn on AI features'),
+    // Claude: sign-in or key, and a model.
+    const claudeBox = el('div', { class: 'provider-box' },
       accountRow,
       field('Or use an API key', el('div', { class: 'keyrow' }, keyInput, removeKey), 'From console.anthropic.com → API Keys. Stored in your macOS Keychain, never in a file. A saved key is used instead of the sign-in.'),
       field('Model', select(models, s.aiModel, (v) => (s.aiModel = v))),
+    )
+
+    // ChatGPT and DeepSeek: an API key and a model (blank = automatic).
+    const compatKeys: Record<string, HTMLInputElement> = {}
+    const compatBox = async (id: 'openai' | 'deepseek') => {
+      const info = id === 'openai'
+        ? { name: 'ChatGPT', company: 'OpenAI', url: 'platform.openai.com → API keys', bill: 'Billed to your OpenAI API account (separate from a ChatGPT Plus subscription).', auto: 'Automatic: the newest general GPT model your key can use' }
+        : { name: 'DeepSeek', company: 'DeepSeek', url: 'platform.deepseek.com → API keys', bill: 'Billed to your DeepSeek API balance.', auto: 'Automatic: deepseek-v4-flash' }
+      const saved = await HasSavedProviderKey(id)
+      const key = el('input', { type: 'password', placeholder: saved ? '•••••••• saved in your Keychain' : 'sk-…', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement
+      compatKeys[id] = key
+      const remove = el('button', { type: 'button', class: 'ghost small' }, 'Remove saved key')
+      remove.hidden = !saved
+      remove.addEventListener('click', async () => {
+        await SetProviderKey(id, '')
+        key.placeholder = 'sk-…'
+        remove.hidden = true
+        toast(`${info.name} key removed`)
+      })
+      const listId = `models-${id}`
+      const datalist = el('datalist', { id: listId })
+      const modelInput = el('input', { type: 'text', list: listId, placeholder: info.auto, spellcheck: 'false' }) as HTMLInputElement
+      modelInput.value = id === 'openai' ? s.openaiModel : s.deepseekModel
+      modelInput.addEventListener('input', () => {
+        if (id === 'openai') s.openaiModel = modelInput.value.trim()
+        else s.deepseekModel = modelInput.value.trim()
+      })
+      const load = el('button', { type: 'button', class: 'ghost small' }, 'Show available models')
+      const modelHelp = el('span', { class: 'help', text: 'Leave empty for automatic, or pick one your key can use.' })
+      load.addEventListener('click', async () => {
+        if (key.value.trim()) await SetProviderKey(id, key.value.trim()) // save first so the list can load
+        try {
+          const list = await ListProviderModels(id)
+          datalist.textContent = ''
+          for (const m of list) datalist.append(el('option', { value: m }))
+          modelHelp.textContent = list.length ? `${list.length} models available — click the field to choose (newest first): ${list.slice(0, 4).join(', ')}…` : 'No chat models found for this key.'
+          modelInput.focus()
+        } catch (err) {
+          modelHelp.textContent = String(err)
+        }
+      })
+      return el('div', { class: 'provider-box' },
+        field(`${info.company} API key`, el('div', { class: 'keyrow' }, key, remove), `From ${info.url}. Stored in your macOS Keychain. ${info.bill}`),
+        field('Model', el('div', { class: 'keyrow' }, modelInput, load, datalist)),
+        modelHelp,
+      )
+    }
+    const boxes: Record<string, HTMLElement> = { anthropic: claudeBox, openai: await compatBox('openai'), deepseek: await compatBox('deepseek') }
+    const showBox = () => Object.entries(boxes).forEach(([id, b]) => (b.hidden = id !== s.aiProvider))
+    showBox()
+
+    const aiSec = el(
+      'section', {},
+      el('h3', { text: 'AI assistant' }),
+      el('label', { class: 'check' }, check(s.aiEnabled, (v) => (s.aiEnabled = v)), ' Turn on AI features'),
+      field('Assistant', select([['anthropic', 'Claude (Anthropic)'], ['openai', 'ChatGPT (OpenAI)'], ['deepseek', 'DeepSeek']], s.aiProvider, (v) => { s.aiProvider = v; showBox() })),
+      claudeBox, boxes.openai, boxes.deepseek,
       el('label', { class: 'check' }, check(s.aiShareOutput, (v) => (s.aiShareOutput = v)), ' Send recent command output with questions (otherwise only the commands)'),
     )
 
@@ -244,6 +299,7 @@ export class SettingsView {
       e.preventDefault()
       try {
         if (keyInput.value.trim()) await SetAPIKey(keyInput.value.trim())
+        for (const [id, input] of Object.entries(compatKeys)) if (input.value.trim()) await SetProviderKey(id, input.value.trim())
         const saved = await SaveSettings(s)
         this.before = null
         this.close()

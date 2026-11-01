@@ -10,6 +10,10 @@ export function AICancel(arg1) {
   return window['go']['main']['App']['AICancel'](arg1);
 }
 
+export function AIProviders() {
+  return window['go']['main']['App']['AIProviders']();
+}
+
 export function AIReset(arg1) {
   return window['go']['main']['App']['AIReset'](arg1);
 }
@@ -50,12 +54,20 @@ export function HasSavedAPIKey() {
   return window['go']['main']['App']['HasSavedAPIKey']();
 }
 
+export function HasSavedProviderKey(arg1) {
+  return window['go']['main']['App']['HasSavedProviderKey'](arg1);
+}
+
 export function HomeDir() {
   return window['go']['main']['App']['HomeDir']();
 }
 
 export function InstallUpdate() {
   return window['go']['main']['App']['InstallUpdate']();
+}
+
+export function ListProviderModels(arg1) {
+  return window['go']['main']['App']['ListProviderModels'](arg1);
 }
 
 export function OpenURL(arg1) {
@@ -76,6 +88,10 @@ export function SaveSettings(arg1) {
 
 export function SetAPIKey(arg1) {
   return window['go']['main']['App']['SetAPIKey'](arg1);
+}
+
+export function SetProviderKey(arg1, arg2) {
+  return window['go']['main']['App']['SetProviderKey'](arg1, arg2);
 }
 
 export function SetWindowOpacity(arg1) {

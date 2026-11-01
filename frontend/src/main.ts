@@ -45,7 +45,12 @@ const aiHost = {
   activeTab: () => active,
   shellName: () => shellName,
   openSettings: () => void settingsView.open(),
-  model: () => cfg.aiModel,
+  assistant: () => {
+    const p = cfg.aiProvider
+    if (p === 'openai') return { id: p, name: 'ChatGPT', model: cfg.openaiModel || 'auto model' }
+    if (p === 'deepseek') return { id: p, name: 'DeepSeek', model: cfg.deepseekModel || 'deepseek-v4-flash' }
+    return { id: 'anthropic', name: 'Claude', model: cfg.aiModel.replace(/^claude-/, '') }
+  },
   runInNewTab: (cmd: string) => void runInNewTab(cmd),
 }
 const ai = new AIPanel(aiHost)

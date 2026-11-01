@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.0
+
+- Choose your AI assistant: **Claude**, **ChatGPT** (OpenAI) or **DeepSeek** in Settings → AI assistant
+- ChatGPT and DeepSeek use an API key from your account (stored in your Keychain); the model is picked automatically, or choose one from the list your key can use
+- Everything works with each assistant: the chat panel, typing and running commands (with your OK), the ⌘J command bar and explaining errors
+
 ## 1.5.0
 
 - See-through window: Settings → Appearance → **Window opacity** (30–100%) shows your desktop behind the terminal, with a live preview while you drag

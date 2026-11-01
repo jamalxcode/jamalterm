@@ -8,6 +8,8 @@ export function AIAsk(arg1:ai.Request):Promise<void>;
 
 export function AICancel(arg1:string):Promise<void>;
 
+export function AIProviders():Promise<Array<ai.ProviderInfo>>;
+
 export function AIReset(arg1:string):Promise<void>;
 
 export function AIToolResult(arg1:string,arg2:string,arg3:boolean):Promise<void>;
@@ -28,9 +30,13 @@ export function HasAPIKey():Promise<boolean>;
 
 export function HasSavedAPIKey():Promise<boolean>;
 
+export function HasSavedProviderKey(arg1:string):Promise<boolean>;
+
 export function HomeDir():Promise<string>;
 
 export function InstallUpdate():Promise<void>;
+
+export function ListProviderModels(arg1:string):Promise<Array<string>>;
 
 export function OpenURL(arg1:string):Promise<void>;
 
@@ -41,6 +47,8 @@ export function Resize(arg1:number,arg2:number,arg3:number):Promise<void>;
 export function SaveSettings(arg1:settings.Settings):Promise<settings.Settings>;
 
 export function SetAPIKey(arg1:string):Promise<void>;
+
+export function SetProviderKey(arg1:string,arg2:string):Promise<void>;
 
 export function SetWindowOpacity(arg1:number):Promise<void>;
 

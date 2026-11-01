@@ -43,6 +43,28 @@ func TestRoundTripAndDefaults(t *testing.T) {
 	}
 }
 
+func TestProviderKeysAreSeparate(t *testing.T) {
+	s := &Secrets{fileDir: t.TempDir()}
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("DEEPSEEK_API_KEY", "ds-env")
+	if err := s.SetKeyFor("openai", "sk-oa"); err != nil {
+		t.Fatal(err)
+	}
+	if s.KeyFor("openai") != "sk-oa" || s.KeyFor("deepseek") != "ds-env" || s.HasSavedKeyFor("deepseek") {
+		t.Fatal("keys mixed up")
+	}
+	if s.SetKeyFor("gemini", "x") == nil {
+		t.Fatal("unknown provider accepted")
+	}
+	st := NewStore(filepath.Join(t.TempDir(), "s.json"))
+	cfg := Defaults()
+	cfg.AIProvider = "bogus"
+	st.Save(cfg)
+	if got, _ := st.Load(); got.AIProvider != "anthropic" {
+		t.Fatalf("provider %q", got.AIProvider)
+	}
+}
+
 func TestSecretsFile(t *testing.T) {
 	dir := t.TempDir()
 	s := &Secrets{fileDir: dir}
