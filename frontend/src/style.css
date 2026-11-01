@@ -102,21 +102,35 @@ body.mac .new-tab, body.mac #ai-button { height: 22px; }
    The tab bar is darker than everything else so the active tab pops. */
 #titlebar { background: color-mix(in srgb, var(--bg) 62%, black); }
 :root[data-light="1"] #titlebar { background: color-mix(in srgb, var(--bg) 86%, black); }
-.tab { font-weight: 400; color: color-mix(in srgb, var(--fg) 50%, transparent); }
-.tab .state.failed, .tab .state.running { opacity: 1; } /* status stays readable on background tabs */
-.tab + .tab:not(.active)::before {
-  /* hairline between background tabs */
-  content: ""; position: absolute; left: -3px; top: 25%; bottom: 25%; width: 1px;
-  background: color-mix(in srgb, var(--fg) 25%, transparent);
+/* Background tabs: a visible filled pill with an outline and readable text. */
+.tab {
+  font-weight: 400;
+  color: color-mix(in srgb, var(--fg) 78%, transparent);
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 22%, transparent);
 }
-.tab:hover { background: color-mix(in srgb, var(--fg) 8%, transparent); color: color-mix(in srgb, var(--fg) 85%, transparent); }
+/* Tab number (⌘1–9), so tabs in the same folder can be told apart. */
+.tab .num {
+  display: inline-grid !important;
+  place-items: center;
+  min-width: 16px; height: 16px; padding: 0 3px;
+  border-radius: 4px;
+  font: 600 10px var(--ui);
+  color: var(--bg);
+  background: color-mix(in srgb, var(--fg) 55%, transparent);
+  flex: none;
+}
+.tab.active .num { background: var(--fg); }
+.tab .state.failed, .tab .state.running { opacity: 1; } /* status stays readable on background tabs */
+
+.tab:hover { background: color-mix(in srgb, var(--fg) 13%, transparent); color: var(--fg); }
 .tab.active {
-  background: color-mix(in srgb, var(--fg) 17%, var(--bg));
+  background: color-mix(in srgb, var(--fg) 24%, var(--bg));
   color: var(--fg);
   font-weight: 700;
-  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--fg) 60%, transparent), 0 2px 10px rgba(0, 0, 0, 0.35);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--fg) 80%, transparent), 0 2px 10px rgba(0, 0, 0, 0.35);
 }
-.tab.active + .tab::before, .tab.active::before { display: none; }
+
 .tab.active::after {
   content: "";
   position: absolute;
@@ -149,7 +163,7 @@ body.mac .new-tab, body.mac #ai-button { height: 22px; }
 }
 .tab:hover .close, .tab.active .close { opacity: 1; }
 .tab .close:hover { background: var(--border); color: var(--fg); }
-.tab .num { display: none; }
+
 
 .new-tab, #ai-button {
   --wails-draggable: no-drag;

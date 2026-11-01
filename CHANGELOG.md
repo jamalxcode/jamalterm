@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.1
+
+- Background tabs are easy to see: each is an outlined pill with readable text
+- Every tab shows its number (1–9, the same as ⌘1–⌘9), so tabs in the same folder can be told apart
+- The active tab is brighter, with a thicker outline, bold text and an underline
+
 ## 1.4.0
 
 - Claude can now type into your terminal: ask it to "paste" or "type" a command and it puts it on your prompt

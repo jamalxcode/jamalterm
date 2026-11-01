@@ -154,7 +154,8 @@ function renderTabs() {
 
     const close = el('button', { class: 'close', title: 'Close tab (⌘W)' }, '×')
     const icon = el('i', { class: `state ${status}`, 'aria-label': STATUS_TEXT[status] }, status === 'failed' ? '✕' : '')
-    const item = el('div', { class: `tab ${t === active ? 'active' : ''} ${status}`, title: tip }, icon, label, close)
+    const num = el('span', { class: 'num', text: String(i + 1) })
+    const item = el('div', { class: `tab ${t === active ? 'active' : ''} ${status}`, title: tip }, ...(i < 9 ? [num] : []), icon, label, close)
     item.addEventListener('mousedown', (e) => {
       if (e.button === 1) closeTab(t)
       else if (e.target !== close) activate(t)
