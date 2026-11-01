@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.1
+
+- Switch assistants on the fly from the **AI** menu: Use Claude (⌥⌘1), Use ChatGPT (⌥⌘2), Use DeepSeek (⌥⌘3), with a checkmark on the active one
+- Or click the assistant's name in the AI panel header to switch
+- A note in the chat shows where you switched; each assistant keeps its own conversation
+
 ## 1.6.0
 
 - Choose your AI assistant: **Claude**, **ChatGPT** (OpenAI) or **DeepSeek** in Settings → AI assistant

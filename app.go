@@ -13,6 +13,8 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"github.com/wailsapp/wails/v2/pkg/menu"
+
 	"jamalterm/internal/ai"
 	"jamalterm/internal/settings"
 	"jamalterm/internal/shell"
@@ -64,6 +66,8 @@ type App struct {
 	toolWait map[string]chan toolReply
 	// blurAtLaunch: the window was created translucent (blur behind).
 	blurAtLaunch bool
+	// providerItems are the AI menu's "Use Claude / ChatGPT / DeepSeek".
+	providerItems map[string]*menu.MenuItem
 }
 
 type toolReply struct {
@@ -78,6 +82,8 @@ func NewApp() *App {
 		secrets:  settings.NewSecrets(store.Path()),
 		sessions: map[int]*shell.Session{},
 		toolWait: map[string]chan toolReply{},
+
+		providerItems: map[string]*menu.MenuItem{},
 	}
 	a.cfg, _ = store.Load()
 	a.ai = ai.New(a.secrets.APIKey, func() string { return a.Settings().AIModel })
@@ -245,6 +251,7 @@ func (a *App) SaveSettings(cfg settings.Settings) (settings.Settings, error) {
 	a.cfg = saved
 	a.mu.Unlock()
 	a.applyWindowOpacity()
+	a.refreshProviderMenu()
 	runtime.EventsEmit(a.ctx, eventSettings, saved)
 	return saved, nil
 }
@@ -256,6 +263,29 @@ func (a *App) HasAPIKey() bool {
 		return a.secrets.KeyFor(p) != ""
 	}
 	return a.secrets.APIKey() != "" || ai.SignedInAccount().SignedIn
+}
+
+// SetAIProvider switches the assistant ("anthropic", "openai",
+// "deepseek") and saves it, from the AI menu or the panel header.
+func (a *App) SetAIProvider(id string) error {
+	cfg := a.Settings()
+	if cfg.AIProvider == id {
+		return nil
+	}
+	cfg.AIProvider = id
+	_, err := a.SaveSettings(cfg)
+	return err
+}
+
+// refreshProviderMenu moves the AI menu's checkmark to the active assistant.
+func (a *App) refreshProviderMenu() {
+	current := a.Settings().AIProvider
+	for id, item := range a.providerItems {
+		item.Checked = id == current
+	}
+	if a.ctx != nil {
+		runtime.MenuUpdateApplicationMenu(a.ctx)
+	}
 }
 
 // AIProviders lists the assistants to choose from (Claude, ChatGPT, DeepSeek).

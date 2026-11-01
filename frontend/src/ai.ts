@@ -1,4 +1,4 @@
-import { AIAsk, AICancel, AIReset, HasAPIKey, AIToolResult } from '../wailsjs/go/main/App'
+import { AIAsk, AICancel, AIReset, HasAPIKey, AIToolResult, SetAIProvider } from '../wailsjs/go/main/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 import type { Tab, Block } from './tab'
 import { el, renderMarkdown, copyText, toast, SIGN_IN_COMMAND } from './util'
@@ -47,7 +47,11 @@ export class AIPanel {
   private input = el('textarea', { rows: '1', placeholder: 'Ask about your terminal…  (⏎ to send)' }) as HTMLTextAreaElement
   private sendBtn = el('button', { class: 'ai-send', title: 'Send' }, '↑')
   private modelLabel = el('span', { class: 'ai-model' })
-  private titleEl = el('span', { class: 'ai-title', text: 'Claude' })
+  // The assistant's name is also a switcher (Claude / ChatGPT / DeepSeek).
+  private titleEl = el('select', { class: 'ai-title ai-switch', title: 'Switch assistant (⌥⌘1 / ⌥⌘2 / ⌥⌘3)' },
+    el('option', { value: 'anthropic', text: 'Claude' }),
+    el('option', { value: 'openai', text: 'ChatGPT' }),
+    el('option', { value: 'deepseek', text: 'DeepSeek' })) as HTMLSelectElement
   private streaming: string | null = null
   private chatOf = new Map<number, HTMLElement[]>() // per-tab conversation
   private shownTab = -1
@@ -63,6 +67,7 @@ export class AIPanel {
     this.root.append(head, this.list, form)
 
     newBtn.addEventListener('click', () => this.newChat())
+    this.titleEl.addEventListener('change', () => void SetAIProvider(this.titleEl.value))
     closeBtn.addEventListener('click', () => this.hide())
     this.sendBtn.addEventListener('click', () => (this.streaming ? AICancel(this.streaming) : this.send()))
     this.input.addEventListener('keydown', (e) => {
@@ -81,13 +86,26 @@ export class AIPanel {
     return !this.root.hidden
   }
 
+  /** Show the active assistant and model (after a switch from anywhere). */
+  async refreshHeader() {
+    const who = this.host.assistant()
+    if (this.titleEl.value !== who.id) {
+      this.titleEl.value = who.id
+      // The setup hint was for the previous assistant.
+      this.list.querySelector('.ai-setup')?.remove()
+      if (this.list.querySelector('.msg')) {
+        this.list.append(el('div', { class: 'ai-divider', text: `Switched to ${who.name} — it starts fresh and doesn't see the messages above` }))
+        this.scroll()
+      }
+      if (this.visible && !(await HasAPIKey())) this.showSetup()
+    }
+    this.modelLabel.textContent = who.model
+  }
+
   async show(focus = true) {
     this.root.hidden = false
     document.body.classList.add('ai-open')
-    const who = this.host.assistant()
-    if (this.titleEl.textContent !== who.name) this.list.querySelector('.ai-setup')?.remove()
-    this.titleEl.textContent = who.name
-    this.modelLabel.textContent = who.model
+    this.refreshHeader()
     this.syncTab()
     if (!(await HasAPIKey())) this.showSetup()
     if (focus) this.input.focus()

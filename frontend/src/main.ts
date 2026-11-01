@@ -83,8 +83,15 @@ function aiReady(): boolean {
 
 // ---- Settings -------------------------------------------------------------------
 
+const PROVIDER_NAMES: Record<string, string> = { anthropic: 'Claude', openai: 'ChatGPT', deepseek: 'DeepSeek' }
+
 function applySettings(s: settings.Settings) {
+  const switched = cfg && cfg.aiProvider !== s.aiProvider
   cfg = s
+  if (switched) {
+    toast(`Now using ${PROVIDER_NAMES[s.aiProvider] ?? s.aiProvider}`)
+    void ai.refreshHeader()
+  }
   const theme = themeById(s.theme)
   applyChrome(theme, s.opacity / 100)
   SetWindowOpacity(s.opacity) // also used for the live preview in Settings
@@ -260,6 +267,7 @@ function runMenu(cmd: string) {
   lastRun.set(cmd, now)
 
   const t = active
+  if (cmd.startsWith('toast:')) return toast(cmd.slice(6), 'error')
   switch (cmd) {
     case 'about': return void about()
     case 'checkUpdates': return void updater.check(true)

@@ -3,6 +3,8 @@ package main
 import (
 	goruntime "runtime"
 
+	"jamalterm/internal/ai"
+
 	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/menu/keys"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -56,9 +58,21 @@ func (a *App) buildMenu() *menu.Menu {
 	view.AddText("Actual Size", cmd("0"), a.menu("zoomReset"))
 
 	aiMenu := m.AddSubmenu("AI")
-	aiMenu.AddText("Ask Claude…", cmd("i"), a.menu("aiPanel"))
+	aiMenu.AddText("Ask AI…", cmd("i"), a.menu("aiPanel"))
 	aiMenu.AddText("Command from English…", cmd("j"), a.menu("aiCommand"))
 	aiMenu.AddText("Explain Last Error", cmdShift("e"), a.menu("aiExplainLast"))
+	aiMenu.AddSeparator()
+	// Switch assistants on the fly: ⌥⌘1 Claude, ⌥⌘2 ChatGPT, ⌥⌘3 DeepSeek.
+	current := a.Settings().AIProvider
+	for i, p := range ai.Providers {
+		id := p.ID
+		key := keys.Combo(string(rune('1'+i)), keys.CmdOrCtrlKey, keys.OptionOrAltKey)
+		a.providerItems[id] = aiMenu.AddRadio("Use "+p.Name, id == current, key, func(_ *menu.CallbackData) {
+			if err := a.SetAIProvider(id); err != nil {
+				runtime.EventsEmit(a.ctx, eventMenu, "toast:"+err.Error())
+			}
+		})
+	}
 
 	win := m.AddSubmenu("Window")
 	win.AddText("Next Tab", cmdShift("]"), a.menu("nextTab"))
