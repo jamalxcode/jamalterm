@@ -42,6 +42,10 @@ export function CloseTab(arg1) {
   return window['go']['main']['App']['CloseTab'](arg1);
 }
 
+export function ForgetSession() {
+  return window['go']['main']['App']['ForgetSession']();
+}
+
 export function GPUOff() {
   return window['go']['main']['App']['GPUOff']();
 }
@@ -66,16 +70,28 @@ export function HomeDir() {
   return window['go']['main']['App']['HomeDir']();
 }
 
-export function InstallUpdate() {
-  return window['go']['main']['App']['InstallUpdate']();
+export function InstallUpdate(arg1) {
+  return window['go']['main']['App']['InstallUpdate'](arg1);
+}
+
+export function IsPrimaryWindow() {
+  return window['go']['main']['App']['IsPrimaryWindow']();
 }
 
 export function ListProviderModels(arg1) {
   return window['go']['main']['App']['ListProviderModels'](arg1);
 }
 
+export function LoadSession() {
+  return window['go']['main']['App']['LoadSession']();
+}
+
 export function OpenURL(arg1) {
   return window['go']['main']['App']['OpenURL'](arg1);
+}
+
+export function PreviousVersion() {
+  return window['go']['main']['App']['PreviousVersion']();
 }
 
 export function Quit() {
@@ -84,6 +100,14 @@ export function Quit() {
 
 export function Resize(arg1, arg2, arg3) {
   return window['go']['main']['App']['Resize'](arg1, arg2, arg3);
+}
+
+export function RevertUpdate() {
+  return window['go']['main']['App']['RevertUpdate']();
+}
+
+export function SaveSession(arg1) {
+  return window['go']['main']['App']['SaveSession'](arg1);
 }
 
 export function SaveSettings(arg1) {

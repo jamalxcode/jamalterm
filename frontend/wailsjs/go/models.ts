@@ -103,6 +103,7 @@ export namespace settings {
 	    shell: string;
 	    shellIntegration: boolean;
 	    arrowBrowse: boolean;
+	    restoreSession: boolean;
 	    confirmRerun: boolean;
 	    optionIsMeta: boolean;
 	    autoUpdate: boolean;
@@ -133,6 +134,7 @@ export namespace settings {
 	        this.shell = source["shell"];
 	        this.shellIntegration = source["shellIntegration"];
 	        this.arrowBrowse = source["arrowBrowse"];
+	        this.restoreSession = source["restoreSession"];
 	        this.confirmRerun = source["confirmRerun"];
 	        this.optionIsMeta = source["optionIsMeta"];
 	        this.autoUpdate = source["autoUpdate"];

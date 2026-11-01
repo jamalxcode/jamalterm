@@ -3,10 +3,10 @@ import '@fontsource/jetbrains-mono/400.css'
 import '@fontsource/jetbrains-mono/700.css'
 import './style.css'
 
-import { Settings, ShellName, HomeDir, Quit, Version, GPUOff, SetWindowOpacity } from '../wailsjs/go/main/App'
+import { Settings, ShellName, HomeDir, Quit, Version, GPUOff, SetWindowOpacity, SaveSession, LoadSession, IsPrimaryWindow } from '../wailsjs/go/main/App'
 import { EventsOn, WindowSetTitle } from '../wailsjs/runtime/runtime'
 import type { settings } from '../wailsjs/go/models'
-import { Tab, setGpuOff } from './tab'
+import { Tab, setGpuOff, type SavedTab } from './tab'
 import { themeById, applyChrome } from './themes'
 import { AIPanel, CommandBar } from './ai'
 import { SettingsView } from './settingsView'
@@ -73,7 +73,7 @@ async function runInNewTab(command: string) {
   tab.sendCommand(command, true)
 }
 
-const updater = new Updater(() => tabs.length)
+const updater = new Updater(saveSessionNow)
 
 function aiReady(): boolean {
   if (!cfg.aiEnabled) {
@@ -103,12 +103,48 @@ function applySettings(s: settings.Settings) {
 
 // ---- Tabs -----------------------------------------------------------------------
 
-function newTab(cwd = active?.cwd ?? '') {
+function newTab(cwd = active?.cwd ?? '', saved?: SavedTab) {
   const tab = new Tab(nextId++, termsEl, cwd, hooks, themeById(cfg.theme))
+  if (saved) tab.restore(saved)
   tabs.push(tab)
   activate(tab)
   void tab.start()
+  sessionDirty = true
   return tab
+}
+
+// ---- Session: tabs come back after a restart or update ----------------------
+
+let sessionDirty = false
+
+async function saveSessionNow() {
+  sessionDirty = false
+  const data = { version: 1, active: active ? tabs.indexOf(active) : 0, tabs: tabs.map((t) => t.snapshot()) }
+  try {
+    await SaveSession(JSON.stringify(data))
+  } catch {
+    /* best effort */
+  }
+}
+
+setInterval(() => {
+  if (sessionDirty) void saveSessionNow()
+}, 3000)
+window.addEventListener('beforeunload', () => void saveSessionNow())
+
+async function restoreSession(): Promise<boolean> {
+  if (!cfg.restoreSession || !(await IsPrimaryWindow())) return false
+  let data: { active?: number; tabs?: SavedTab[] }
+  try {
+    data = JSON.parse((await LoadSession()) || '{}')
+  } catch {
+    return false
+  }
+  if (!data.tabs?.length) return false
+  for (const t of data.tabs) newTab(t.cwd || '', t)
+  const want = tabs[data.active ?? 0]
+  if (want) activate(want)
+  return true
 }
 
 function activate(tab: Tab) {
@@ -132,7 +168,7 @@ function closeTab(tab = active) {
   ai.forgetTab(tab.id)
   tab.close()
   if (!tabs.length) {
-    Quit()
+    void saveSessionNow().then(() => Quit()) // nothing to reopen next time
     return
   }
   activate(tabs[Math.min(i, tabs.length - 1)])
@@ -273,6 +309,7 @@ function runMenu(cmd: string) {
   switch (cmd) {
     case 'about': return void about()
     case 'checkUpdates': return void updater.check(true)
+    case 'revertUpdate': return void updater.offerRevert()
     case 'settings': return void settingsView.open()
     case 'newTab': return void newTab()
     case 'closeTab': return closeTab()
@@ -338,7 +375,10 @@ window.addEventListener('keydown', (e) => {
 
 // ---- Events from Go --------------------------------------------------------------
 
-EventsOn('pty:data', (e: { id: number; data: string }) => tabs.find((t) => t.id === e.id)?.write(e.data))
+EventsOn('pty:data', (e: { id: number; data: string }) => {
+  tabs.find((t) => t.id === e.id)?.write(e.data)
+  sessionDirty = true
+})
 EventsOn('pty:exit', (e: { id: number; code: number }) => tabs.find((t) => t.id === e.id)?.onExit(e.code))
 EventsOn('settings:changed', (s: settings.Settings) => applySettings(s))
 
@@ -360,7 +400,7 @@ async function boot() {
     document.fonts.load(`${cfg.fontSize}px "Symbols Nerd Font Mono"`, '\ue0b0\uf07b'),
   ]).catch(() => undefined)
   await document.fonts.ready
-  newTab('')
+  if (!(await restoreSession())) newTab('')
   void updater.startAuto(() => cfg.autoUpdate)
 }
 

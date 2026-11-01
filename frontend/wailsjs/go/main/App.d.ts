@@ -24,6 +24,8 @@ export function CheckForUpdate():Promise<main.UpdateInfo>;
 
 export function CloseTab(arg1:number):Promise<void>;
 
+export function ForgetSession():Promise<void>;
+
 export function GPUOff():Promise<boolean>;
 
 export function GitBranch(arg1:string):Promise<string>;
@@ -36,15 +38,25 @@ export function HasSavedProviderKey(arg1:string):Promise<boolean>;
 
 export function HomeDir():Promise<string>;
 
-export function InstallUpdate():Promise<void>;
+export function InstallUpdate(arg1:boolean):Promise<void>;
+
+export function IsPrimaryWindow():Promise<boolean>;
 
 export function ListProviderModels(arg1:string):Promise<Array<string>>;
 
+export function LoadSession():Promise<string>;
+
 export function OpenURL(arg1:string):Promise<void>;
+
+export function PreviousVersion():Promise<string>;
 
 export function Quit():Promise<void>;
 
 export function Resize(arg1:number,arg2:number,arg3:number):Promise<void>;
+
+export function RevertUpdate():Promise<void>;
+
+export function SaveSession(arg1:string):Promise<void>;
 
 export function SaveSettings(arg1:settings.Settings):Promise<settings.Settings>;
 

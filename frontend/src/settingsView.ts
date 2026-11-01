@@ -1,4 +1,4 @@
-import { SaveSettings, SetAPIKey, HasSavedAPIKey, AnthropicAccount, BlurActive, SetProviderKey, HasSavedProviderKey, ListProviderModels, SignInOpenRouter } from '../wailsjs/go/main/App'
+import { SaveSettings, SetAPIKey, HasSavedAPIKey, AnthropicAccount, BlurActive, ForgetSession, SetProviderKey, HasSavedProviderKey, ListProviderModels, SignInOpenRouter } from '../wailsjs/go/main/App'
 import { settings } from '../wailsjs/go/models'
 import { themes } from './themes'
 import { el, toast, SIGN_IN_COMMAND, SIGN_OUT_COMMAND } from './util'
@@ -173,6 +173,13 @@ export class SettingsView {
       opacityRow,
     )
 
+    const forget = el('button', { type: 'button', class: 'ghost small' }, 'Forget saved tabs and output')
+    forget.addEventListener('click', async () => {
+      await ForgetSession()
+      toast('Saved tabs and output deleted')
+    })
+    const forgetRow = el('div', { class: 'row', style: 'margin: -2px 0 6px 24px' }, forget)
+
     const shellSec = el(
       'section', {},
       el('h3', { text: 'Shell' }),
@@ -182,6 +189,8 @@ export class SettingsView {
       ),
       el('label', { class: 'check' }, check(s.shellIntegration, (v) => (s.shellIntegration = v)), ' Shell integration — lets jamalterm find each command (needed for browse mode and AI). zsh, bash and tcsh.'),
       el('label', { class: 'check' }, check(s.arrowBrowse, (v) => (s.arrowBrowse = v)), ' ↑ at an empty prompt moves the free-floating cursor (off: ↑ goes to shell history; ⌘↑ always browses)'),
+      el('label', { class: 'check' }, check(s.restoreSession, (v) => (s.restoreSession = v)), ' Reopen tabs and their recent output after a restart or update'),
+      forgetRow,
       el('label', { class: 'check' }, check(s.confirmRerun, (v) => (s.confirmRerun = v)), ' Ask before re-running a command from browse mode'),
       el('label', { class: 'check' }, check(s.optionIsMeta, (v) => { s.optionIsMeta = v; live() }), ' Use Option as Meta (⌥B / ⌥F jump words)'),
     )

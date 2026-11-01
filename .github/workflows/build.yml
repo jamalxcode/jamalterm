@@ -37,7 +37,10 @@ jobs:
           jq --arg v "$plistv" '.info.productVersion = $v' wails.json > wails.tmp && mv wails.tmp wails.json
 
       - name: Test (macOS zsh, bash 3.2, tcsh)
-        run: go test -race ./internal/...
+        run: |
+          go test -race ./internal/...
+          # Show whether the real-Keychain tests ran or were skipped.
+          go test -v -count=1 -run 'NativeKeychain|KeysMoveFromSecurityTool' ./internal/settings/
         env: { CGO_ENABLED: "1" }
 
       - name: Install Wails

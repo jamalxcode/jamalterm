@@ -4,11 +4,19 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { SearchAddon } from '@xterm/addon-search'
+import { SerializeAddon } from '@xterm/addon-serialize'
 
 import { Start, Write, Resize, CloseTab, OpenURL, GitBranch, Ack } from '../wailsjs/go/main/App'
 import type { settings } from '../wailsjs/go/models'
 import { type Theme, bgAt } from './themes'
 import { b64ToBytes, b64ToText, el, escapeHtml, toast, copyText, duration, relTime } from './util'
+
+/** A tab as saved in session.json. */
+export interface SavedTab {
+  cwd: string
+  shareOutput?: boolean
+  output?: string
+}
 
 /** One command the user ran, found through the shell integration marks. */
 export interface Block {
@@ -69,6 +77,7 @@ export class Tab {
   readonly term: Terminal
   readonly fit = new FitAddon()
   readonly search = new SearchAddon()
+  private readonly serializer = new SerializeAddon()
   readonly pane: HTMLDivElement
   readonly host: HTMLDivElement
   readonly overlay: HTMLDivElement
@@ -117,6 +126,7 @@ export class Tab {
     })
     this.term.loadAddon(this.fit)
     this.term.loadAddon(this.search)
+    this.term.loadAddon(this.serializer)
     this.term.loadAddon(new WebLinksAddon((e, url) => {
       if (e.metaKey || e.ctrlKey || !this.browse.active) OpenURL(url)
     }))
@@ -154,6 +164,29 @@ export class Tab {
     this.setupMouse()
 
     new ResizeObserver(() => requestAnimationFrame(() => this.refit())).observe(this.host)
+  }
+
+  // ---- Session: saved across restarts ---------------------------------------
+
+  /** What's saved for this tab: folder, sharing switch and recent output. */
+  snapshot(): SavedTab {
+    let output = ''
+    try {
+      output = this.serializer.serialize({ scrollback: 1000, excludeAltBuffer: true, excludeModes: true })
+      if (output.length > 400_000) output = this.serializer.serialize({ scrollback: 200, excludeAltBuffer: true, excludeModes: true })
+    } catch {
+      /* nothing to save */
+    }
+    return { cwd: this.cwd, shareOutput: this.shareOutput, output }
+  }
+
+  /** Shows a saved tab's output (dimmed divider after it) before the shell starts. */
+  restore(saved: SavedTab) {
+    this.shareOutput = saved.shareOutput ?? true
+    if (saved.output) {
+      this.term.write(saved.output)
+      this.term.write('\r\n\x1b[0m\x1b[2m──── restored from your last session ────\x1b[0m\r\n')
+    }
   }
 
   // ---- Process ---------------------------------------------------------------

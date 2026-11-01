@@ -175,11 +175,81 @@ func Install(ctx context.Context, rel Release, appPath string, progress Progress
 		}
 		return fmt.Errorf("couldn't move the new version in place: %w", err)
 	}
-	// The running process keeps its open files, so removing the old
-	// bundle (in the stage dir, deleted by the defer) is safe.
+	// Keep the old version so the user can switch back (Revert). The
+	// running process keeps its open files, so moving it is safe.
+	keepPrevious(backup)
 	if runtime.GOOS == "darwin" {
 		exec.Command("/usr/bin/xattr", "-dr", "com.apple.quarantine", appPath).Run()
 	}
+	return nil
+}
+
+// KeepPreviousIn is where the replaced version is kept ("" = don't keep).
+var KeepPreviousIn string
+
+func keepPrevious(app string) {
+	if KeepPreviousIn == "" {
+		return
+	}
+	dst := filepath.Join(KeepPreviousIn, "jamalterm.app")
+	os.RemoveAll(dst)
+	if os.MkdirAll(KeepPreviousIn, 0o755) == nil {
+		os.Rename(app, dst) // different disk: just don't keep it
+	}
+}
+
+// PreviousApp is the kept older version, or "".
+func PreviousApp() string {
+	if KeepPreviousIn == "" {
+		return ""
+	}
+	p := filepath.Join(KeepPreviousIn, "jamalterm.app")
+	if _, err := os.Stat(filepath.Join(p, "Contents", "MacOS", "jamalterm")); err != nil {
+		return ""
+	}
+	return p
+}
+
+// AppVersion reads an app bundle's version ("" if unknown).
+func AppVersion(app string) string {
+	if runtime.GOOS != "darwin" {
+		return ""
+	}
+	out, err := exec.Command("/usr/libexec/PlistBuddy", "-c", "Print :CFBundleShortVersionString", filepath.Join(app, "Contents", "Info.plist")).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// Revert swaps the kept older version back in. The version being replaced
+// is kept in turn, so reverting again goes forward.
+func Revert(appPath string) error {
+	prev := PreviousApp()
+	if prev == "" {
+		return errors.New("there's no earlier version to go back to")
+	}
+	if err := verify(prev); err != nil {
+		return err
+	}
+	stage, err := os.MkdirTemp(filepath.Dir(appPath), ".jamalterm-revert-")
+	if err != nil {
+		return fmt.Errorf("can't write to %s: %v", filepath.Dir(appPath), err)
+	}
+	defer os.RemoveAll(stage)
+	current := filepath.Join(stage, "current.app")
+	if err := os.Rename(appPath, current); err != nil {
+		return fmt.Errorf("couldn't move the current version aside: %w", err)
+	}
+	if err := os.Rename(prev, appPath); err != nil {
+		// Different disk: copy instead of rename.
+		if cerr := exec.Command("/usr/bin/ditto", prev, appPath).Run(); cerr != nil {
+			os.Rename(current, appPath)
+			return fmt.Errorf("couldn't put the earlier version in place: %w", err)
+		}
+		os.RemoveAll(prev)
+	}
+	keepPrevious(current)
 	return nil
 }
 

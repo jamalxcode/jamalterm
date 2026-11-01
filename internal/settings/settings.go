@@ -32,6 +32,9 @@ type Settings struct {
 	// ArrowBrowse makes ↑ at an empty prompt start browse mode (the
 	// free-floating cursor) instead of going to the shell's history.
 	ArrowBrowse bool `json:"arrowBrowse"`
+	// RestoreSession reopens tabs (folder and recent output) after a
+	// restart or update.
+	RestoreSession bool `json:"restoreSession"`
 	// ConfirmRerun asks before re-running a command from browse mode.
 	ConfirmRerun bool `json:"confirmRerun"`
 	OptionIsMeta bool `json:"optionIsMeta"`
@@ -67,6 +70,7 @@ func Defaults() Settings {
 		Scrollback:       10000,
 		ShellIntegration: true,
 		ArrowBrowse:      true,
+		RestoreSession:   true,
 		ConfirmRerun:     false,
 		OptionIsMeta:     true,
 		AutoUpdate:       true,

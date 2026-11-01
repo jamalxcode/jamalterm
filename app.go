@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -69,6 +70,10 @@ type App struct {
 	blurAtLaunch bool
 	// providerItems are the AI menu's "Use Claude / ChatGPT / DeepSeek".
 	providerItems map[string]*menu.MenuItem
+	// primary: the first jamalterm window, which restores and saves tabs
+	// (extra windows from ⌘N start fresh).
+	primary  bool
+	lockFile *os.File
 }
 
 type toolReply struct {
@@ -113,6 +118,8 @@ func NewApp() *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	a.primary = a.takeInstanceLock()
+	update.KeepPreviousIn = filepath.Join(a.configDir(), "previous")
 	a.applyWindowOpacity()
 }
 
@@ -419,6 +426,58 @@ func (a *App) AICancel(id string) { a.ai.Cancel(id) }
 // AIReset forgets a conversation (the panel's "New chat").
 func (a *App) AIReset(chat string) { a.ai.Reset(chat) }
 
+// ---- Session (tabs restored after a restart) ------------------------------
+
+func (a *App) configDir() string { return filepath.Dir(a.store.Path()) }
+
+func (a *App) sessionFile() string { return filepath.Join(a.configDir(), "session.json") }
+
+// takeInstanceLock makes the first window the one that owns the session.
+func (a *App) takeInstanceLock() bool {
+	os.MkdirAll(a.configDir(), 0o700)
+	f, err := os.OpenFile(filepath.Join(a.configDir(), "window.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return true
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		return false
+	}
+	a.lockFile = f // held until the app exits
+	return true
+}
+
+// IsPrimaryWindow: this window restores and saves tabs.
+func (a *App) IsPrimaryWindow() bool { return a.primary }
+
+// SaveSession stores the tabs (JSON from the window). Only the first
+// window saves. The file can contain terminal output, so it's 0600.
+func (a *App) SaveSession(data string) error {
+	if !a.primary {
+		return nil
+	}
+	tmp := a.sessionFile() + ".tmp"
+	if err := os.WriteFile(tmp, []byte(data), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, a.sessionFile())
+}
+
+// LoadSession returns the saved tabs ("" if none or not the first window).
+func (a *App) LoadSession() string {
+	if !a.primary || !a.Settings().RestoreSession {
+		return ""
+	}
+	data, err := os.ReadFile(a.sessionFile())
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+// ForgetSession deletes saved tabs and output (Settings → Shell).
+func (a *App) ForgetSession() { os.Remove(a.sessionFile()) }
+
 // ---- Updates ------------------------------------------------------------------
 
 // UpdateInfo tells the frontend whether a newer jamalterm exists.
@@ -457,8 +516,9 @@ func (a *App) CheckForUpdate() (UpdateInfo, error) {
 }
 
 // InstallUpdate downloads and installs the release found by
-// CheckForUpdate, then restarts jamalterm. Open tabs close.
-func (a *App) InstallUpdate() error {
+// CheckForUpdate. With relaunch it restarts jamalterm right away (tabs are
+// restored); without, the new version starts next time.
+func (a *App) InstallUpdate(relaunch bool) error {
 	a.mu.Lock()
 	rel := a.release
 	a.mu.Unlock()
@@ -475,8 +535,43 @@ func (a *App) InstallUpdate() error {
 	if err != nil {
 		return err
 	}
+	if !relaunch {
+		return nil
+	}
 	if err := update.Relaunch(app); err != nil {
 		return fmt.Errorf("updated to %s, but couldn't restart: %v. Quit and open jamalterm again", rel.Version, err)
+	}
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		runtime.Quit(a.ctx)
+	}()
+	return nil
+}
+
+// PreviousVersion is the version kept from before the last update ("" if
+// none) for "Go Back to Previous Version".
+func (a *App) PreviousVersion() string {
+	p := update.PreviousApp()
+	if p == "" {
+		return ""
+	}
+	if v := update.AppVersion(p); v != "" {
+		return v
+	}
+	return "previous"
+}
+
+// RevertUpdate goes back to the kept version and restarts.
+func (a *App) RevertUpdate() error {
+	app, err := update.AppBundle()
+	if err != nil {
+		return err
+	}
+	if err := update.Revert(app); err != nil {
+		return err
+	}
+	if err := update.Relaunch(app); err != nil {
+		return fmt.Errorf("went back, but couldn't restart: %v. Quit and open jamalterm again", err)
 	}
 	go func() {
 		time.Sleep(200 * time.Millisecond)

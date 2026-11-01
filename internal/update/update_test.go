@@ -161,3 +161,41 @@ func TestBadChecksumChangesNothing(t *testing.T) {
 		t.Fatalf("app was changed: %q", got)
 	}
 }
+
+func TestKeepAndRevert(t *testing.T) {
+	content := fakeRelease(t, appContent(t), false)
+	KeepPreviousIn = t.TempDir()
+	defer func() { KeepPreviousIn = "" }()
+	rel, err := Latest(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := installedApp(t)
+	if PreviousApp() != "" {
+		t.Fatal("nothing kept yet")
+	}
+	if err := Install(context.Background(), rel, app, nil); err != nil {
+		t.Fatal(err)
+	}
+	prev := PreviousApp()
+	if prev == "" {
+		t.Fatal("old version not kept")
+	}
+	if old, _ := os.ReadFile(filepath.Join(prev, "Contents", "MacOS", "jamalterm")); string(old) != "old" {
+		t.Fatalf("kept %q", old)
+	}
+	// Revert: the old one is back, the new one is kept.
+	if err := Revert(app); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(app, "Contents", "MacOS", "jamalterm")); string(got) != "old" {
+		t.Fatalf("after revert: %q", got)
+	}
+	if kept, _ := os.ReadFile(filepath.Join(PreviousApp(), "Contents", "MacOS", "jamalterm")); !bytes.Equal(kept, content) {
+		t.Fatal("new version not kept after revert")
+	}
+	entries, _ := os.ReadDir(filepath.Dir(app))
+	if len(entries) != 1 {
+		t.Fatalf("leftovers next to the app: %v", entries)
+	}
+}
