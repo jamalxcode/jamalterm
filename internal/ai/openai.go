@@ -21,6 +21,7 @@ const (
 	ProviderAnthropic = "anthropic" // Claude (default)
 	ProviderOpenAI    = "openai"    // ChatGPT models via the OpenAI API
 	ProviderDeepSeek  = "deepseek"  // DeepSeek (OpenAI-compatible API)
+	ProviderXAI       = "xai"       // Grok by xAI (OpenAI-compatible API)
 )
 
 // ProviderInfo describes a provider for the UI.
@@ -35,6 +36,7 @@ var Providers = []ProviderInfo{
 	{ProviderAnthropic, "Claude", "https://console.anthropic.com/settings/keys", "sk-ant-…"},
 	{ProviderOpenAI, "ChatGPT", "https://platform.openai.com/api-keys", "sk-…"},
 	{ProviderDeepSeek, "DeepSeek", "https://platform.deepseek.com/api_keys", "sk-…"},
+	{ProviderXAI, "Grok", "https://console.x.ai", "xai-…"},
 }
 
 func providerName(id string) string {
@@ -49,6 +51,11 @@ func providerName(id string) string {
 // compatBase is the API address for an OpenAI-compatible provider.
 func compatBase(provider string) string {
 	switch provider {
+	case ProviderXAI:
+		if b := os.Getenv("JAMALTERM_XAI_BASE_URL"); b != "" {
+			return b
+		}
+		return "https://api.x.ai/v1"
 	case ProviderDeepSeek:
 		if b := os.Getenv("JAMALTERM_DEEPSEEK_BASE_URL"); b != "" {
 			return b
@@ -103,6 +110,9 @@ func isChatModel(provider, id string) bool {
 	}
 	if provider == ProviderOpenAI {
 		return strings.HasPrefix(id, "gpt-") || strings.HasPrefix(id, "chatgpt-") || regexp.MustCompile(`^o\d`).MatchString(id)
+	}
+	if provider == ProviderXAI {
+		return strings.HasPrefix(id, "grok-")
 	}
 	return true
 }

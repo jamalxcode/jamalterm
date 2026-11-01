@@ -167,6 +167,39 @@ func TestCompatErrorsAndCommandMode(t *testing.T) {
 	}
 }
 
+// Grok: xAI's base URL, its own key, and the newest general grok model.
+type fakeXAI struct{ fakeCompat }
+
+func (f *fakeXAI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/models") {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"object":"list","data":[{"id":"grok-4.3","object":"model"},{"id":"grok-4.5","object":"model"},
+		  {"id":"grok-4.5-mini","object":"model"},{"id":"grok-imagine-image","object":"model"},{"id":"grok-build-0.1","object":"model"}]}`)
+		return
+	}
+	f.fakeCompat.ServeHTTP(w, r)
+}
+
+func TestGrok(t *testing.T) {
+	f := &fakeXAI{}
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+	t.Setenv("JAMALTERM_XAI_BASE_URL", srv.URL+"/v1")
+	c := New(func() string { return "" }, func() string { return "" })
+	c.Configure(func() string { return ProviderXAI }, func(p string) string { return "key-" + p }, func(string) string { return "" })
+	got, err := c.Ask(context.Background(), Request{ID: "1", Chat: "g", Mode: ModeChat, Prompt: "hi"}, func(string) {}, nil)
+	if err != nil || got != "Hello there." {
+		t.Fatalf("%q %v", got, err)
+	}
+	if f.bodies[0]["model"] != "grok-4.5" || f.auth[0] != "Bearer key-xai" {
+		t.Fatalf("model %v auth %q", f.bodies[0]["model"], f.auth[0])
+	}
+	models, _ := ListModels(context.Background(), ProviderXAI, "k")
+	if strings.Join(models, ",") != "grok-4.5,grok-4.3,grok-4.5-mini,grok-build-0.1" {
+		t.Fatalf("models %v", models)
+	}
+}
+
 func TestListModelsRanking(t *testing.T) {
 	f := &fakeCompat{}
 	compatSetup(t, f, ProviderOpenAI, "")

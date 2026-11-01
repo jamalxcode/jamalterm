@@ -96,6 +96,8 @@ func NewApp() *App {
 				return a.Settings().OpenAIModel
 			case ai.ProviderDeepSeek:
 				return a.Settings().DeepSeekModel
+			case ai.ProviderXAI:
+				return a.Settings().XAIModel
 			}
 			return ""
 		})

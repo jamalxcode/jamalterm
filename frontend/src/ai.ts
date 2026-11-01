@@ -48,10 +48,11 @@ export class AIPanel {
   private sendBtn = el('button', { class: 'ai-send', title: 'Send' }, '↑')
   private modelLabel = el('span', { class: 'ai-model' })
   // The assistant's name is also a switcher (Claude / ChatGPT / DeepSeek).
-  private titleEl = el('select', { class: 'ai-title ai-switch', title: 'Switch assistant (⌥⌘1 / ⌥⌘2 / ⌥⌘3)' },
+  private titleEl = el('select', { class: 'ai-title ai-switch', title: 'Switch assistant (⌥⌘1–⌥⌘4)' },
     el('option', { value: 'anthropic', text: 'Claude' }),
     el('option', { value: 'openai', text: 'ChatGPT' }),
-    el('option', { value: 'deepseek', text: 'DeepSeek' })) as HTMLSelectElement
+    el('option', { value: 'deepseek', text: 'DeepSeek' }),
+    el('option', { value: 'xai', text: 'Grok' })) as HTMLSelectElement
   private streaming: string | null = null
   private chatOf = new Map<number, HTMLElement[]>() // per-tab conversation
   private shownTab = -1
@@ -164,7 +165,7 @@ export class AIPanel {
     if (who.id !== 'anthropic') {
       const open = el('button', { class: 'primary' }, 'Open Settings')
       open.addEventListener('click', () => this.host.openSettings())
-      const company = who.id === 'openai' ? 'OpenAI (platform.openai.com → API keys)' : 'DeepSeek (platform.deepseek.com → API keys)'
+      const company = { openai: 'OpenAI (platform.openai.com → API keys)', deepseek: 'DeepSeek (platform.deepseek.com → API keys)', xai: 'xAI (console.x.ai → API keys)' }[who.id] ?? who.name
       this.list.append(el('div', { class: 'ai-setup' },
         el('p', {}, el('strong', { text: `Add your ${who.name} API key to turn on AI.` })),
         el('p', { class: 'dim', text: `Create a key at ${company}, then paste it in Settings → AI assistant. It's stored in your macOS Keychain.` }),

@@ -41,12 +41,13 @@ type Settings struct {
 
 	AIEnabled bool `json:"aiEnabled"`
 	// AIProvider answers questions: "anthropic" (Claude), "openai"
-	// (ChatGPT) or "deepseek".
+	// (ChatGPT), "deepseek" or "xai" (Grok).
 	AIProvider string `json:"aiProvider"`
 	AIModel    string `json:"aiModel"` // Claude model
 	// OpenAIModel / DeepSeekModel: "" picks automatically.
 	OpenAIModel   string `json:"openaiModel"`
 	DeepSeekModel string `json:"deepseekModel"`
+	XAIModel      string `json:"xaiModel"`
 	// AIShareOutput sends recent command output to Claude with questions.
 	AIShareOutput bool `json:"aiShareOutput"`
 }
@@ -158,12 +159,13 @@ func (c Settings) normalized() Settings {
 		c.FontFamily = d.FontFamily
 	}
 	switch c.AIProvider {
-	case "anthropic", "openai", "deepseek":
+	case "anthropic", "openai", "deepseek", "xai":
 	default:
 		c.AIProvider = d.AIProvider
 	}
 	c.OpenAIModel = strings.TrimSpace(c.OpenAIModel)
 	c.DeepSeekModel = strings.TrimSpace(c.DeepSeekModel)
+	c.XAIModel = strings.TrimSpace(c.XAIModel)
 	if c.AIModel == "" {
 		c.AIModel = d.AIModel
 	}

@@ -12,7 +12,7 @@ import (
 // API keys live in the macOS Keychain, never in settings.json. On other
 // systems (used for development) they are 0600 files next to it.
 //
-// Providers: "anthropic" (Claude), "openai" (ChatGPT), "deepseek".
+// Providers: "anthropic" (Claude), "openai" (ChatGPT), "deepseek", "xai" (Grok).
 
 // Secrets stores the API keys.
 type Secrets struct {
@@ -38,6 +38,7 @@ var envVar = map[string]string{
 	"anthropic": "ANTHROPIC_API_KEY",
 	"openai":    "OPENAI_API_KEY",
 	"deepseek":  "DEEPSEEK_API_KEY",
+	"xai":       "XAI_API_KEY",
 }
 
 // APIKey is the Claude key (saved, else $ANTHROPIC_API_KEY).

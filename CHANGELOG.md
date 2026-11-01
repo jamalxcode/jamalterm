@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.7.0
+
+- **Grok** (xAI) joins Claude, ChatGPT and DeepSeek: AI menu → Use Grok (⌥⌘4), or Settings → AI assistant
+- Uses an API key from console.x.ai (stored in your Keychain); the model is picked automatically from the ones your key can use, or choose one
+
 ## 1.6.1
 
 - Switch assistants on the fly from the **AI** menu: Use Claude (⌥⌘1), Use ChatGPT (⌥⌘2), Use DeepSeek (⌥⌘3), with a checkmark on the active one

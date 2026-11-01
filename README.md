@@ -37,9 +37,9 @@ You only install by hand once. After that, jamalterm checks GitHub at launch and
 
 Each command gets a dot in the margin: green for success, red for failure, and pulsing blue while it runs. Hover for how long it took. Click a red dot to ask Claude what went wrong.
 
-### AI assistant: Claude, ChatGPT or DeepSeek
+### AI assistant: Claude, ChatGPT, DeepSeek or Grok
 
-Pick the assistant in **Settings → AI assistant**, or switch on the fly from the **AI** menu (⌥⌘1 Claude, ⌥⌘2 ChatGPT, ⌥⌘3 DeepSeek) or the name at the top of the AI panel. Claude can use **Sign in with Anthropic** or an API key. ChatGPT and DeepSeek use an API key from [platform.openai.com](https://platform.openai.com/api-keys) or [platform.deepseek.com](https://platform.deepseek.com/api_keys), stored in your Keychain. The model is chosen automatically (the newest general model your key can use), or you can pick one with **Show available models**. Usage is billed to that provider's API account; a ChatGPT Plus subscription doesn't cover API use.
+Pick the assistant in **Settings → AI assistant**, or switch on the fly from the **AI** menu (⌥⌘1 Claude, ⌥⌘2 ChatGPT, ⌥⌘3 DeepSeek, ⌥⌘4 Grok) or the name at the top of the AI panel. Claude can use **Sign in with Anthropic** or an API key. ChatGPT, DeepSeek and Grok use an API key from [platform.openai.com](https://platform.openai.com/api-keys), [platform.deepseek.com](https://platform.deepseek.com/api_keys) or [console.x.ai](https://console.x.ai), stored in your Keychain. The model is chosen automatically (the newest general model your key can use), or you can pick one with **Show available models**. Usage is billed to that provider's API account; a ChatGPT Plus subscription doesn't cover API use.
 
 
 | Key | What it does |

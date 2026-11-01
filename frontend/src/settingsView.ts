@@ -214,10 +214,12 @@ export class SettingsView {
 
     // ChatGPT and DeepSeek: an API key and a model (blank = automatic).
     const compatKeys: Record<string, HTMLInputElement> = {}
-    const compatBox = async (id: 'openai' | 'deepseek') => {
-      const info = id === 'openai'
-        ? { name: 'ChatGPT', company: 'OpenAI', url: 'platform.openai.com → API keys', bill: 'Billed to your OpenAI API account (separate from a ChatGPT Plus subscription).', auto: 'Automatic: the newest general GPT model your key can use' }
-        : { name: 'DeepSeek', company: 'DeepSeek', url: 'platform.deepseek.com → API keys', bill: 'Billed to your DeepSeek API balance.', auto: 'Automatic: deepseek-v4-flash' }
+    const compatBox = async (id: 'openai' | 'deepseek' | 'xai') => {
+      const info = {
+        openai: { name: 'ChatGPT', company: 'OpenAI', url: 'platform.openai.com → API keys', bill: 'Billed to your OpenAI API account (separate from a ChatGPT Plus subscription).', auto: 'Automatic: the newest general GPT model your key can use' },
+        deepseek: { name: 'DeepSeek', company: 'DeepSeek', url: 'platform.deepseek.com → API keys', bill: 'Billed to your DeepSeek API balance.', auto: 'Automatic: deepseek-v4-flash' },
+        xai: { name: 'Grok', company: 'xAI', url: 'console.x.ai → API keys', bill: 'Billed to your xAI API account (separate from SuperGrok / X Premium).', auto: 'Automatic: the newest general Grok model your key can use' },
+      }[id]
       const saved = await HasSavedProviderKey(id)
       const key = el('input', { type: 'password', placeholder: saved ? '•••••••• saved in your Keychain' : 'sk-…', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement
       compatKeys[id] = key
@@ -232,10 +234,12 @@ export class SettingsView {
       const listId = `models-${id}`
       const datalist = el('datalist', { id: listId })
       const modelInput = el('input', { type: 'text', list: listId, placeholder: info.auto, spellcheck: 'false' }) as HTMLInputElement
-      modelInput.value = id === 'openai' ? s.openaiModel : s.deepseekModel
+      modelInput.value = { openai: s.openaiModel, deepseek: s.deepseekModel, xai: s.xaiModel }[id]
       modelInput.addEventListener('input', () => {
-        if (id === 'openai') s.openaiModel = modelInput.value.trim()
-        else s.deepseekModel = modelInput.value.trim()
+        const v = modelInput.value.trim()
+        if (id === 'openai') s.openaiModel = v
+        else if (id === 'deepseek') s.deepseekModel = v
+        else s.xaiModel = v
       })
       const load = el('button', { type: 'button', class: 'ghost small' }, 'Show available models')
       const modelHelp = el('span', { class: 'help', text: 'Leave empty for automatic, or pick one your key can use.' })
@@ -257,7 +261,7 @@ export class SettingsView {
         modelHelp,
       )
     }
-    const boxes: Record<string, HTMLElement> = { anthropic: claudeBox, openai: await compatBox('openai'), deepseek: await compatBox('deepseek') }
+    const boxes: Record<string, HTMLElement> = { anthropic: claudeBox, openai: await compatBox('openai'), deepseek: await compatBox('deepseek'), xai: await compatBox('xai') }
     const showBox = () => Object.entries(boxes).forEach(([id, b]) => (b.hidden = id !== s.aiProvider))
     showBox()
 
@@ -265,8 +269,8 @@ export class SettingsView {
       'section', {},
       el('h3', { text: 'AI assistant' }),
       el('label', { class: 'check' }, check(s.aiEnabled, (v) => (s.aiEnabled = v)), ' Turn on AI features'),
-      field('Assistant', select([['anthropic', 'Claude (Anthropic)'], ['openai', 'ChatGPT (OpenAI)'], ['deepseek', 'DeepSeek']], s.aiProvider, (v) => { s.aiProvider = v; showBox() })),
-      claudeBox, boxes.openai, boxes.deepseek,
+      field('Assistant', select([['anthropic', 'Claude (Anthropic)'], ['openai', 'ChatGPT (OpenAI)'], ['deepseek', 'DeepSeek'], ['xai', 'Grok (xAI)']], s.aiProvider, (v) => { s.aiProvider = v; showBox() })),
+      claudeBox, boxes.openai, boxes.deepseek, boxes.xai,
       el('label', { class: 'check' }, check(s.aiShareOutput, (v) => (s.aiShareOutput = v)), ' Send recent command output with questions (otherwise only the commands)'),
     )
 
