@@ -14,6 +14,10 @@ export function AIReset(arg1) {
   return window['go']['main']['App']['AIReset'](arg1);
 }
 
+export function CheckForUpdate() {
+  return window['go']['main']['App']['CheckForUpdate']();
+}
+
 export function CloseTab(arg1) {
   return window['go']['main']['App']['CloseTab'](arg1);
 }
@@ -32,6 +36,10 @@ export function HasSavedAPIKey() {
 
 export function HomeDir() {
   return window['go']['main']['App']['HomeDir']();
+}
+
+export function InstallUpdate() {
+  return window['go']['main']['App']['InstallUpdate']();
 }
 
 export function OpenURL(arg1) {

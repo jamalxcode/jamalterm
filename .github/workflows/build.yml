@@ -84,5 +84,10 @@ jobs:
         run: |
           # Creates the v-tag on this commit if it doesn't exist yet.
           TAG="v${{ steps.v.outputs.version }}"
+          # Notes = this version's CHANGELOG section, then the install steps.
+          V="${{ steps.v.outputs.version }}"
+          { echo "## What's new"; echo
+            awk -v v="## $V" '$0==v{on=1;next} /^## /{on=0} on' CHANGELOG.md
+            echo; cat .github/release-notes.md; } > notes.md
           gh release create "$TAG" jamalterm-*.dmg jamalterm-*.zip SHA256SUMS.txt \
-            --target "$GITHUB_SHA" --title "jamalterm $TAG" --notes-file .github/release-notes.md
+            --target "$GITHUB_SHA" --title "jamalterm $TAG" --notes-file notes.md

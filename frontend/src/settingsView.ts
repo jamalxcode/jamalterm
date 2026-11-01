@@ -23,6 +23,7 @@ export interface SettingsHost {
   preview(s: settings.Settings): void // live preview while the window is open
   saved(s: settings.Settings): void
   closed(): void
+  checkUpdates(): void
 }
 
 export class SettingsView {
@@ -166,11 +167,22 @@ export class SettingsView {
       el('label', { class: 'check' }, check(s.aiShareOutput, (v) => (s.aiShareOutput = v)), ' Send recent command output with questions (otherwise only the commands)'),
     )
 
+    const checkNow = el('button', { type: 'button', class: 'ghost small' }, 'Check now')
+    checkNow.addEventListener('click', () => this.host.checkUpdates())
+    const updates = el(
+      'section', {},
+      el('h3', { text: 'Updates' }),
+      el('div', { class: 'row' },
+        el('label', { class: 'check' }, check(s.autoUpdate, (v) => (s.autoUpdate = v)), ' Check for new versions automatically'),
+        checkNow,
+      ),
+    )
+
     const cancel = el('button', { type: 'button', class: 'ghost' }, 'Cancel')
     const save = el('button', { type: 'submit', class: 'primary' }, 'Save')
     const form = el('form', { class: 'dialog settings' },
       el('div', { class: 'dialog-head' }, el('h2', { text: 'Settings' })),
-      el('div', { class: 'dialog-body' }, appearance, shellSec, aiSec),
+      el('div', { class: 'dialog-body' }, appearance, shellSec, aiSec, updates),
       el('div', { class: 'dialog-foot' }, cancel, save),
     )
     cancel.addEventListener('click', () => this.cancel())

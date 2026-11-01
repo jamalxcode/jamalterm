@@ -16,6 +16,10 @@ xattr -dr com.apple.quarantine /Applications/jamalterm.app
 
 Or try to open it, then click **Open Anyway** in System Settings → Privacy & Security. Universal build: Apple silicon and Intel, macOS 10.15+.
 
+### Updating
+
+You only install by hand once. After that, jamalterm checks GitHub at launch and every 6 hours. When there's a new version, a card appears: click **Update & Restart**. The app downloads the new version, checks it against the release's SHA-256 checksums, its code signature and its bundle id, swaps itself in place, and restarts. Open tabs close. You can also use **jamalterm → Check for Updates…** at any time, and turn automatic checks off in Settings.
+
 ## Using it
 
 ### Browse mode: the free-floating cursor

@@ -454,6 +454,31 @@ button.small { padding: 4px 10px; font-size: 12px; }
 .about .keys { margin: 12px 0 16px; border-spacing: 8px 4px; text-align: left; font-size: 12px; }
 .about .keys td:first-child { text-align: right; white-space: nowrap; }
 
+/* ---- Update card ---- */
+#update {
+  position: fixed;
+  top: calc(var(--titlebar) + 10px);
+  right: 14px;
+  width: 330px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.45);
+  z-index: 40;
+}
+#update .up-head { display: flex; gap: 8px; align-items: center; }
+#update .spark { color: var(--accent); }
+#update ul { margin: 8px 0 4px; padding-left: 18px; font-size: 12px; color: var(--fg); }
+#update li { margin: 2px 0; }
+#update .up-status { font-size: 11.5px; margin-top: 6px; }
+#update .up-status.err { color: var(--red); }
+#update .progress { display: none; height: 4px; margin-top: 8px; border-radius: 2px; background: var(--panel-2); overflow: hidden; }
+#update.installing .progress { display: block; }
+#update .progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.15s; }
+#update .up-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 10px; }
+button:disabled { opacity: 0.5; }
+
 /* ---- Toast ---- */
 #toast {
   position: fixed;

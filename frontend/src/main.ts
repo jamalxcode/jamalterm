@@ -10,6 +10,7 @@ import { Tab, setGpuOff } from './tab'
 import { themeById, applyChrome } from './themes'
 import { AIPanel, CommandBar } from './ai'
 import { SettingsView } from './settingsView'
+import { Updater } from './updater'
 import { el, isMac, toast } from './util'
 
 let cfg: settings.Settings
@@ -53,7 +54,10 @@ const settingsView = new SettingsView({
   preview: (s) => applySettings(s),
   saved: (s) => applySettings(s),
   closed: () => active?.term.focus(),
+  checkUpdates: () => void updater.check(true),
 })
+
+const updater = new Updater(() => tabs.length)
 
 function aiReady(): boolean {
   if (!cfg.aiEnabled) {
@@ -224,6 +228,7 @@ function runMenu(cmd: string) {
   const t = active
   switch (cmd) {
     case 'about': return void about()
+    case 'checkUpdates': return void updater.check(true)
     case 'settings': return void settingsView.open()
     case 'newTab': return void newTab()
     case 'closeTab': return closeTab()
@@ -312,6 +317,7 @@ async function boot() {
   ]).catch(() => undefined)
   await document.fonts.ready
   newTab('')
+  void updater.startAuto(() => cfg.autoUpdate)
 }
 
 void boot()

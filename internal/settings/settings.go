@@ -30,6 +30,9 @@ type Settings struct {
 	ConfirmRerun bool `json:"confirmRerun"`
 	OptionIsMeta bool `json:"optionIsMeta"`
 
+	// AutoUpdate checks GitHub for new versions at launch and every 6 hours.
+	AutoUpdate bool `json:"autoUpdate"`
+
 	AIEnabled bool   `json:"aiEnabled"`
 	AIModel   string `json:"aiModel"`
 	// AIShareOutput sends recent command output to Claude with questions.
@@ -50,6 +53,7 @@ func Defaults() Settings {
 		ArrowBrowse:      true,
 		ConfirmRerun:     false,
 		OptionIsMeta:     true,
+		AutoUpdate:       true,
 		AIEnabled:        true,
 		AIModel:          "claude-opus-5-5",
 		AIShareOutput:    true,

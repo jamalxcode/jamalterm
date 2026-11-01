@@ -4,16 +4,19 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"jamalterm/internal/ai"
 	"jamalterm/internal/settings"
 	"jamalterm/internal/shell"
+	"jamalterm/internal/update"
 )
 
 // Events sent to the frontend.
@@ -25,6 +28,7 @@ const (
 	eventAIDelta  = "ai:delta"         // {id, text}
 	eventAIDone   = "ai:done"          // {id, text}
 	eventAIError  = "ai:error"         // {id, error}
+	eventProgress = "update:progress"  // {done, total}
 )
 
 type ptyData struct {
@@ -55,6 +59,7 @@ type App struct {
 	mu       sync.Mutex
 	cfg      settings.Settings
 	sessions map[int]*shell.Session
+	release  *update.Release // newest release seen by CheckForUpdate
 }
 
 func NewApp() *App {
@@ -229,6 +234,72 @@ func (a *App) AICancel(id string) { a.ai.Cancel(id) }
 
 // AIReset forgets a conversation (the panel's "New chat").
 func (a *App) AIReset(chat string) { a.ai.Reset(chat) }
+
+// ---- Updates ------------------------------------------------------------------
+
+// UpdateInfo tells the frontend whether a newer jamalterm exists.
+type UpdateInfo struct {
+	Available bool   `json:"available"`
+	Current   string `json:"current"`
+	Latest    string `json:"latest"`
+	Notes     string `json:"notes"`
+	URL       string `json:"url"`
+	// CanInstall is false when the app can't replace itself (e.g. a
+	// development build); Reason says why.
+	CanInstall bool   `json:"canInstall"`
+	Reason     string `json:"reason"`
+}
+
+// CheckForUpdate asks GitHub for the newest release.
+func (a *App) CheckForUpdate() (UpdateInfo, error) {
+	info := UpdateInfo{Current: version}
+	ctx, cancel := context.WithTimeout(a.ctx, 20*time.Second)
+	defer cancel()
+	rel, err := update.Latest(ctx)
+	if err != nil {
+		return info, err
+	}
+	info.Latest, info.Notes, info.URL = rel.Version, rel.Notes, rel.URL
+	info.Available = update.Newer(rel.Version, version)
+	if _, err := update.AppBundle(); err != nil {
+		info.Reason = err.Error()
+	} else {
+		info.CanInstall = true
+	}
+	a.mu.Lock()
+	a.release = &rel
+	a.mu.Unlock()
+	return info, nil
+}
+
+// InstallUpdate downloads and installs the release found by
+// CheckForUpdate, then restarts jamalterm. Open tabs close.
+func (a *App) InstallUpdate() error {
+	a.mu.Lock()
+	rel := a.release
+	a.mu.Unlock()
+	if rel == nil {
+		return errors.New("check for updates first")
+	}
+	app, err := update.AppBundle()
+	if err != nil {
+		return err
+	}
+	err = update.Install(a.ctx, *rel, app, func(done, total int64) {
+		runtime.EventsEmit(a.ctx, eventProgress, map[string]int64{"done": done, "total": total})
+	})
+	if err != nil {
+		return err
+	}
+	if err := update.Relaunch(app); err != nil {
+		return fmt.Errorf("updated to %s, but couldn't restart: %v. Quit and open jamalterm again", rel.Version, err)
+	}
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		runtime.Quit(a.ctx)
+	}()
+	return nil
+}
 
 // ---- Window -----------------------------------------------------------------
 

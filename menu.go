@@ -30,6 +30,7 @@ func (a *App) buildMenu() *menu.Menu {
 
 	appMenu := m.AddSubmenu("jamalterm")
 	appMenu.AddText("About jamalterm", nil, a.menu("about"))
+	appMenu.AddText("Check for Updates…", nil, a.menu("checkUpdates"))
 	appMenu.AddSeparator()
 	appMenu.AddText("Settings…", cmd(","), a.menu("settings"))
 	appMenu.AddSeparator()

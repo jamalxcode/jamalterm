@@ -25,6 +25,35 @@ export namespace ai {
 
 }
 
+export namespace main {
+	
+	export class UpdateInfo {
+	    available: boolean;
+	    current: string;
+	    latest: string;
+	    notes: string;
+	    url: string;
+	    canInstall: boolean;
+	    reason: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.available = source["available"];
+	        this.current = source["current"];
+	        this.latest = source["latest"];
+	        this.notes = source["notes"];
+	        this.url = source["url"];
+	        this.canInstall = source["canInstall"];
+	        this.reason = source["reason"];
+	    }
+	}
+
+}
+
 export namespace settings {
 	
 	export class Settings {
@@ -40,6 +69,7 @@ export namespace settings {
 	    arrowBrowse: boolean;
 	    confirmRerun: boolean;
 	    optionIsMeta: boolean;
+	    autoUpdate: boolean;
 	    aiEnabled: boolean;
 	    aiModel: string;
 	    aiShareOutput: boolean;
@@ -62,6 +92,7 @@ export namespace settings {
 	        this.arrowBrowse = source["arrowBrowse"];
 	        this.confirmRerun = source["confirmRerun"];
 	        this.optionIsMeta = source["optionIsMeta"];
+	        this.autoUpdate = source["autoUpdate"];
 	        this.aiEnabled = source["aiEnabled"];
 	        this.aiModel = source["aiModel"];
 	        this.aiShareOutput = source["aiShareOutput"];
