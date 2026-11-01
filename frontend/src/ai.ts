@@ -1,7 +1,7 @@
 import { AIAsk, AICancel, AIReset, HasAPIKey } from '../wailsjs/go/main/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 import type { Tab, Block } from './tab'
-import { el, renderMarkdown, copyText, toast } from './util'
+import { el, renderMarkdown, copyText, toast, SIGN_IN_COMMAND } from './util'
 
 type Handler = { delta(t: string): void; done(t: string): void; error(e: string): void }
 const handlers = new Map<string, Handler>()
@@ -29,6 +29,7 @@ export interface AIHost {
   shellName(): string
   openSettings(): void
   model(): string
+  runInNewTab(command: string): void
 }
 
 // ---- Side panel (⌘I) ------------------------------------------------------------
@@ -127,14 +128,16 @@ export class AIPanel {
 
   private showSetup() {
     if (this.list.querySelector('.ai-setup')) return
-    const btn = el('button', { class: 'primary' }, 'Open Settings')
-    btn.addEventListener('click', () => this.host.openSettings())
+    const signIn = el('button', { class: 'primary' }, 'Sign in with Anthropic')
+    signIn.addEventListener('click', () => this.host.runInNewTab(SIGN_IN_COMMAND))
+    const useKey = el('button', { class: 'ghost' }, 'Use an API key')
+    useKey.addEventListener('click', () => this.host.openSettings())
     const card = el(
       'div',
       { class: 'ai-setup' },
-      el('p', {}, el('strong', { text: 'Add your Claude API key to turn on AI.' })),
-      el('p', { class: 'dim', text: 'Create one at console.anthropic.com → API Keys, then paste it in Settings. It is stored in your macOS Keychain.' }),
-      btn,
+      el('p', {}, el('strong', { text: 'Connect Claude to turn on AI.' })),
+      el('p', { class: 'dim', text: 'Sign in with your Anthropic Console account in the browser — no key to copy. Or paste an API key in Settings.' }),
+      el('div', { class: 'row' }, signIn, useKey),
     )
     this.list.append(card)
   }

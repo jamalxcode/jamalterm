@@ -10,6 +10,8 @@ export function AICancel(arg1:string):Promise<void>;
 
 export function AIReset(arg1:string):Promise<void>;
 
+export function AnthropicAccount():Promise<ai.Account>;
+
 export function CheckForUpdate():Promise<main.UpdateInfo>;
 
 export function CloseTab(arg1:number):Promise<void>;

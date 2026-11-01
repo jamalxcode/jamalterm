@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0
+
+- **Sign in with Anthropic**: connect Claude through your browser instead of pasting an API key (Settings → AI, or the AI panel). It uses Anthropic's `ant` CLI, which jamalterm installs with Homebrew if needed, and the sign-in refreshes itself
+- Sign out from Settings; a saved API key still works and takes priority
+- The update card shows only what's new
+
 ## 1.1.0
 
 - Update from inside the app: jamalterm checks for new versions and shows a card. **Update & Restart** downloads, verifies and installs the new version (jamalterm → Check for Updates…)

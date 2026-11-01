@@ -52,7 +52,9 @@ export class Updater {
   private show() {
     const info = this.info!
     this.root.textContent = ''
-    const notes = (info.notes || '')
+    // Only the "What's new" part of the release notes (up to the next heading).
+    const whatsNewPart = (info.notes || '').split(/^## (?!What)/m)[0]
+    const notes = whatsNewPart
       .split('\n')
       .filter((l) => /^\s*[-*] /.test(l))
       .slice(0, 4)

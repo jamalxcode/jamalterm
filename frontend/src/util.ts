@@ -67,6 +67,14 @@ export function duration(ms: number): string {
   return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`
 }
 
+/** Typed into a new tab: installs Anthropic's `ant` CLI if needed, then signs in in the browser. */
+export const SIGN_IN_COMMAND =
+  `sh -c 'command -v ant >/dev/null 2>&1 || { command -v brew >/dev/null 2>&1 && echo "Installing the Anthropic ant CLI with Homebrew..." && brew install anthropics/tap/ant; }; ` +
+  `command -v ant >/dev/null 2>&1 || { echo "Install the ant CLI first: brew install anthropics/tap/ant  (or see github.com/anthropics/anthropic-cli)"; exit 1; }; ` +
+  `ant auth login && echo && echo "Signed in. AI features in jamalterm now use your Anthropic account."'`
+
+export const SIGN_OUT_COMMAND = `ant auth logout`
+
 export const isMac = navigator.platform.toLowerCase().includes('mac') || navigator.userAgent.includes('Mac OS')
 
 /** Minimal, safe Markdown for AI answers: code blocks, inline code, bold, lists, paragraphs. */

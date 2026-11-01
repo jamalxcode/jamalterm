@@ -425,6 +425,8 @@ button.small { padding: 4px 10px; font-size: 12px; }
 .check { display: flex; align-items: center; gap: 6px; margin: 6px 0; }
 .keyrow { display: flex; gap: 8px; }
 .keyrow input { flex: 1; }
+.field .help.ok { color: var(--green); }
+.ai-setup .row { gap: 8px; align-items: center; }
 
 .swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 14px; }
 .swatch {

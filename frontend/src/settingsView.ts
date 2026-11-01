@@ -1,7 +1,7 @@
-import { SaveSettings, SetAPIKey, HasSavedAPIKey, HasAPIKey } from '../wailsjs/go/main/App'
+import { SaveSettings, SetAPIKey, HasSavedAPIKey, AnthropicAccount } from '../wailsjs/go/main/App'
 import { settings } from '../wailsjs/go/models'
 import { themes } from './themes'
-import { el, toast } from './util'
+import { el, toast, SIGN_IN_COMMAND, SIGN_OUT_COMMAND } from './util'
 
 const fonts = [
   ['"JetBrains Mono", monospace', 'JetBrains Mono (built in)'],
@@ -24,6 +24,7 @@ export interface SettingsHost {
   saved(s: settings.Settings): void
   closed(): void
   checkUpdates(): void
+  runInNewTab(command: string): void
 }
 
 export class SettingsView {
@@ -44,8 +45,8 @@ export class SettingsView {
     if (this.visible) return
     const s = settings.Settings.createFrom(this.host.current())
     this.before = settings.Settings.createFrom(s)
+    const account = await AnthropicAccount()
     const savedKey = await HasSavedAPIKey()
-    const anyKey = await HasAPIKey()
     this.root.textContent = ''
 
     const field = (label: string, control: HTMLElement, help = '') =>
@@ -117,7 +118,7 @@ export class SettingsView {
 
     const keyInput = el('input', {
       type: 'password',
-      placeholder: savedKey ? '•••••••• saved in your Keychain' : anyKey ? 'Using ANTHROPIC_API_KEY from your environment' : 'sk-ant-…',
+      placeholder: savedKey ? '•••••••• saved in your Keychain' : 'sk-ant-…  (optional if you signed in)',
       spellcheck: 'false',
       autocomplete: 'off',
     }) as HTMLInputElement
@@ -158,11 +159,31 @@ export class SettingsView {
       el('label', { class: 'check' }, check(s.optionIsMeta, (v) => { s.optionIsMeta = v; live() }), ' Use Option as Meta (⌥B / ⌥F jump words)'),
     )
 
+    // Sign in with Anthropic (OAuth via the ant CLI) — no key to copy.
+    const runAndClose = (cmd: string) => {
+      this.cancel()
+      this.host.runInNewTab(cmd)
+    }
+    const signInBtn = el('button', { type: 'button', class: 'primary small' }, account.signedIn ? 'Sign in again' : 'Sign in with Anthropic')
+    signInBtn.addEventListener('click', () => runAndClose(SIGN_IN_COMMAND))
+    const signOutBtn = el('button', { type: 'button', class: 'ghost small' }, 'Sign out')
+    signOutBtn.hidden = !account.signedIn
+    signOutBtn.addEventListener('click', () => runAndClose(SIGN_OUT_COMMAND))
+    const accountText = account.signedIn
+      ? `✓ Signed in with your Anthropic account (profile “${account.profile}”${account.workspace ? `, workspace ${account.workspace}` : ''})`
+      : 'Not signed in. Opens your browser to sign in to your Anthropic Console account; usage is billed to that account.'
+    const accountRow = el('div', { class: 'field' },
+      el('span', { class: 'label', text: 'Anthropic account' }),
+      el('div', { class: 'keyrow' }, signInBtn, signOutBtn),
+      el('span', { class: 'help' + (account.signedIn ? ' ok' : ''), text: accountText }),
+    )
+
     const aiSec = el(
       'section', {},
       el('h3', { text: 'AI (Claude)' }),
       el('label', { class: 'check' }, check(s.aiEnabled, (v) => (s.aiEnabled = v)), ' Turn on AI features'),
-      field('Claude API key', el('div', { class: 'keyrow' }, keyInput, removeKey), 'Get one at console.anthropic.com → API Keys. Stored in your macOS Keychain, never in a file.'),
+      accountRow,
+      field('Or use an API key', el('div', { class: 'keyrow' }, keyInput, removeKey), 'From console.anthropic.com → API Keys. Stored in your macOS Keychain, never in a file. A saved key is used instead of the sign-in.'),
       field('Model', select(models, s.aiModel, (v) => (s.aiModel = v))),
       el('label', { class: 'check' }, check(s.aiShareOutput, (v) => (s.aiShareOutput = v)), ' Send recent command output with questions (otherwise only the commands)'),
     )

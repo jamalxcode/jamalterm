@@ -1,5 +1,21 @@
 export namespace ai {
 	
+	export class Account {
+	    signedIn: boolean;
+	    profile: string;
+	    workspace: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Account(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.signedIn = source["signedIn"];
+	        this.profile = source["profile"];
+	        this.workspace = source["workspace"];
+	    }
+	}
 	export class Request {
 	    id: string;
 	    chat: string;

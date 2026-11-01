@@ -291,7 +291,19 @@ export class Tab {
     })
   }
 
+  private promptWaiters: (() => void)[] = []
+
+  /** Resolves once the shell shows its first prompt (or after 4 seconds). */
+  whenReady(): Promise<void> {
+    if (this.pending || this.blocks.length) return Promise.resolve()
+    return new Promise((resolve) => {
+      this.promptWaiters.push(resolve)
+      setTimeout(resolve, 4000)
+    })
+  }
+
   private markPrompt() {
+    for (const w of this.promptWaiters.splice(0)) setTimeout(w, 50)
     if (this.pending) this.pending.prompt.dispose() // empty Enter or Ctrl+C at the prompt
     const marker = this.term.registerMarker(0)
     this.typedSincePrompt = false

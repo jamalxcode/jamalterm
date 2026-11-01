@@ -45,7 +45,7 @@ Each command gets a dot in the margin: green for success, red for failure, and p
 | **⌘J** | Command bar: type "find big files in Downloads", get the command, press ⏎ to put it on the prompt (⌘⏎ runs it). |
 | ⇧⌘E | Explain the last error |
 
-Add your API key from [console.anthropic.com](https://console.anthropic.com) in **Settings (⌘,)**. It's stored in your macOS Keychain. The default model is Claude Opus 5.5; Sonnet and Haiku are faster and cheaper options. You can turn off sending command output, or turn AI off completely.
+To connect Claude, click **Sign in with Anthropic** in Settings (⌘,) or the AI panel. A tab opens, installs Anthropic's `ant` command-line tool with Homebrew if you don't have it, and signs you in with your browser (`ant auth login`). There's no key to copy, and the sign-in refreshes itself. Usage is billed to the Anthropic Console account you sign in with. You can also paste an API key from [console.anthropic.com](https://console.anthropic.com) instead. It's stored in your macOS Keychain, and a saved key takes priority over the sign-in. The default model is Claude Opus 5.5; Sonnet and Haiku are faster and cheaper options. You can turn off sending command output, or turn AI off completely.
 
 ### Everything else
 

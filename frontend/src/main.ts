@@ -46,6 +46,7 @@ const aiHost = {
   shellName: () => shellName,
   openSettings: () => void settingsView.open(),
   model: () => cfg.aiModel,
+  runInNewTab: (cmd: string) => void runInNewTab(cmd),
 }
 const ai = new AIPanel(aiHost)
 const commandBar = new CommandBar(aiHost)
@@ -55,7 +56,15 @@ const settingsView = new SettingsView({
   saved: (s) => applySettings(s),
   closed: () => active?.term.focus(),
   checkUpdates: () => void updater.check(true),
+  runInNewTab: (cmd) => void runInNewTab(cmd),
 })
+
+/** Opens a tab and runs a command in it once the shell is ready. */
+async function runInNewTab(command: string) {
+  const tab = newTab()
+  await tab.whenReady()
+  tab.sendCommand(command, true)
+}
 
 const updater = new Updater(() => tabs.length)
 

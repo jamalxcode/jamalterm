@@ -201,8 +201,12 @@ func (a *App) SaveSettings(cfg settings.Settings) (settings.Settings, error) {
 	return saved, nil
 }
 
-// HasAPIKey reports whether AI features can be used.
-func (a *App) HasAPIKey() bool { return a.secrets.APIKey() != "" }
+// HasAPIKey reports whether AI features can be used: an API key, or a
+// sign-in with an Anthropic account.
+func (a *App) HasAPIKey() bool { return a.secrets.APIKey() != "" || ai.SignedInAccount().SignedIn }
+
+// AnthropicAccount reports the `ant auth login` sign-in, if any.
+func (a *App) AnthropicAccount() ai.Account { return ai.SignedInAccount() }
 
 // HasSavedAPIKey reports whether a key is saved in jamalterm (vs. the env).
 func (a *App) HasSavedAPIKey() bool { return a.secrets.HasSavedKey() }

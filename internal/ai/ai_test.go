@@ -7,9 +7,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // fakeAPI answers like the Messages API's streaming endpoint.
@@ -129,6 +132,7 @@ func TestCommandModeIsOneShotAndLowEffort(t *testing.T) {
 }
 
 func TestErrors(t *testing.T) {
+	t.Setenv("ANTHROPIC_CONFIG_DIR", t.TempDir()) // not signed in
 	c := New(func() string { return "" }, func() string { return "claude-opus-5-5" })
 	if _, err := c.Ask(context.Background(), Request{Prompt: "x"}, func(string) {}); err != ErrNoKey {
 		t.Fatalf("no key: %v", err)
@@ -136,7 +140,67 @@ func TestErrors(t *testing.T) {
 	f := &fakeAPI{status: 401}
 	c = setup(t, f, "claude-opus-5-5")
 	_, err := c.Ask(context.Background(), Request{ID: "1", Prompt: "x"}, func(string) {})
-	if err == nil || !strings.Contains(err.Error(), "API key was rejected") {
+	if err == nil || !strings.Contains(err.Error(), "didn't accept your API key") {
 		t.Fatalf("401: %v", err)
+	}
+}
+
+// writeProfile fakes what `ant auth login` leaves on disk.
+func writeProfile(t *testing.T, token string) {
+	dir := t.TempDir()
+	t.Setenv("ANTHROPIC_CONFIG_DIR", dir)
+	os.MkdirAll(filepath.Join(dir, "configs"), 0o700)
+	os.MkdirAll(filepath.Join(dir, "credentials"), 0o700)
+	os.WriteFile(filepath.Join(dir, "configs", "default.json"), []byte(`{"authentication":{"type":"user_oauth"},"workspace_id":"wrkspc_test"}`), 0o600)
+	os.WriteFile(filepath.Join(dir, "credentials", "default.json"),
+		[]byte(fmt.Sprintf(`{"type":"oauth_token","access_token":%q,"expires_at":%d}`, token, time.Now().Add(time.Hour).Unix())), 0o600)
+}
+
+func TestSignInWithAnthropic(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	os.Unsetenv("ANTHROPIC_API_KEY")
+	os.Unsetenv("ANTHROPIC_AUTH_TOKEN")
+	os.Unsetenv("ANTHROPIC_PROFILE")
+
+	// Not signed in, no key: a clear message, no request.
+	t.Setenv("ANTHROPIC_CONFIG_DIR", t.TempDir())
+	if SignedInAccount().SignedIn {
+		t.Fatal("empty config dir reported as signed in")
+	}
+	c := New(func() string { return "" }, func() string { return "claude-opus-5-5" })
+	if _, err := c.Ask(context.Background(), Request{Prompt: "x"}, func(string) {}); err != ErrNoKey {
+		t.Fatalf("want ErrNoKey, got %v", err)
+	}
+
+	// Signed in: the request carries the OAuth token, the oauth beta
+	// header and the workspace, and no API key.
+	writeProfile(t, "oauth-tok-123")
+	acct := SignedInAccount()
+	if !acct.SignedIn || acct.Profile != "default" || acct.Workspace != "wrkspc_test" {
+		t.Fatalf("account: %+v", acct)
+	}
+	f := &fakeAPI{reply: []string{"hi"}}
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+	t.Setenv("JAMALTERM_ANTHROPIC_BASE_URL", srv.URL)
+	if _, err := c.Ask(context.Background(), Request{ID: "1", Chat: "c", Mode: ModeChat, Prompt: "hi"}, func(string) {}); err != nil {
+		t.Fatal(err)
+	}
+	h := f.header[0]
+	if h.Get("Authorization") != "Bearer oauth-tok-123" {
+		t.Fatalf("Authorization = %q", h.Get("Authorization"))
+	}
+	if !strings.Contains(h.Get("Anthropic-Beta"), "oauth-2025-04-20") || !strings.Contains(h.Get("Anthropic-Beta"), "server-side-fallback") {
+		t.Fatalf("anthropic-beta = %q", h.Get("Anthropic-Beta"))
+	}
+	if h.Get("X-Api-Key") != "" {
+		t.Fatal("sent an API key")
+	}
+
+	// A saved API key still wins over the sign-in.
+	c2 := New(func() string { return "sk-saved" }, func() string { return "claude-opus-5-5" })
+	c2.Ask(context.Background(), Request{ID: "2", Chat: "c", Mode: ModeChat, Prompt: "hi"}, func(string) {})
+	if got := f.header[1].Get("Authorization"); got != "Bearer sk-saved" {
+		t.Fatalf("key should win, got %q", got)
 	}
 }

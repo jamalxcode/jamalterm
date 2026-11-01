@@ -14,6 +14,10 @@ export function AIReset(arg1) {
   return window['go']['main']['App']['AIReset'](arg1);
 }
 
+export function AnthropicAccount() {
+  return window['go']['main']['App']['AnthropicAccount']();
+}
+
 export function CheckForUpdate() {
   return window['go']['main']['App']['CheckForUpdate']();
 }
