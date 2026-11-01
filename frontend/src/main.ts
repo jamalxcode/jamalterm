@@ -3,7 +3,7 @@ import '@fontsource/jetbrains-mono/400.css'
 import '@fontsource/jetbrains-mono/700.css'
 import './style.css'
 
-import { Settings, ShellName, HomeDir, Quit, Version, GPUOff } from '../wailsjs/go/main/App'
+import { Settings, ShellName, HomeDir, Quit, Version, GPUOff, SetWindowOpacity } from '../wailsjs/go/main/App'
 import { EventsOn, WindowSetTitle } from '../wailsjs/runtime/runtime'
 import type { settings } from '../wailsjs/go/models'
 import { Tab, setGpuOff } from './tab'
@@ -81,7 +81,8 @@ function aiReady(): boolean {
 function applySettings(s: settings.Settings) {
   cfg = s
   const theme = themeById(s.theme)
-  applyChrome(theme)
+  applyChrome(theme, s.opacity / 100)
+  SetWindowOpacity(s.opacity) // also used for the live preview in Settings
   for (const t of tabs) t.applySettings(s, theme)
   document.body.classList.toggle('no-ai', !s.aiEnabled)
 }

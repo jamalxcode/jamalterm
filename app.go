@@ -62,6 +62,8 @@ type App struct {
 	sessions map[int]*shell.Session
 	release  *update.Release // newest release seen by CheckForUpdate
 	toolWait map[string]chan toolReply
+	// blurAtLaunch: the window was created translucent (blur behind).
+	blurAtLaunch bool
 }
 
 type toolReply struct {
@@ -82,7 +84,29 @@ func NewApp() *App {
 	return a
 }
 
-func (a *App) startup(ctx context.Context) { a.ctx = ctx }
+func (a *App) startup(ctx context.Context) {
+	a.ctx = ctx
+	a.applyWindowOpacity()
+}
+
+// applyWindowOpacity makes the window itself see-through when the
+// opacity setting is below 100; the page then draws its own
+// semi-transparent background.
+func (a *App) applyWindowOpacity() { a.SetWindowOpacity(a.Settings().Opacity) }
+
+// SetWindowOpacity switches the window between solid and see-through
+// (live preview from Settings; nothing is saved).
+func (a *App) SetWindowOpacity(percent int) {
+	if percent < 100 {
+		runtime.WindowSetBackgroundColour(a.ctx, 0, 0, 0, 0)
+	} else {
+		runtime.WindowSetBackgroundColour(a.ctx, 21, 22, 30, 255)
+	}
+}
+
+// BlurActive reports whether the window was started with background blur
+// (it can only change at launch).
+func (a *App) BlurActive() bool { return a.blurAtLaunch }
 
 func (a *App) shutdown(ctx context.Context) {
 	a.mu.Lock()
@@ -208,6 +232,7 @@ func (a *App) SaveSettings(cfg settings.Settings) (settings.Settings, error) {
 	a.mu.Lock()
 	a.cfg = saved
 	a.mu.Unlock()
+	a.applyWindowOpacity()
 	runtime.EventsEmit(a.ctx, eventSettings, saved)
 	return saved, nil
 }

@@ -1,4 +1,4 @@
-import { SaveSettings, SetAPIKey, HasSavedAPIKey, AnthropicAccount } from '../wailsjs/go/main/App'
+import { SaveSettings, SetAPIKey, HasSavedAPIKey, AnthropicAccount, BlurActive } from '../wailsjs/go/main/App'
 import { settings } from '../wailsjs/go/models'
 import { themes } from './themes'
 import { el, toast, SIGN_IN_COMMAND, SIGN_OUT_COMMAND } from './util'
@@ -131,6 +131,32 @@ export class SettingsView {
       toast('API key removed')
     })
 
+    // Window opacity: see the desktop through the window.
+    const blurNow = await BlurActive()
+    const pct = el('span', { class: 'pct', text: `${s.opacity}%` })
+    const slider = el('input', { type: 'range', min: '30', max: '100', step: '1', class: 'slider' }) as HTMLInputElement
+    slider.value = String(s.opacity)
+    const blurNote = el('span', { class: 'help' })
+    const updateBlurNote = () => {
+      const want = s.blur && s.opacity < 100
+      blurNote.textContent = want === blurNow ? '' : 'Blur changes after you restart jamalterm (⌘Q, then open it again).'
+    }
+    slider.addEventListener('input', () => {
+      s.opacity = parseInt(slider.value, 10)
+      pct.textContent = `${s.opacity}%`
+      this.root.classList.toggle('peek', true) // lighten the dialog backdrop to show the effect
+      live()
+      updateBlurNote()
+    })
+    slider.addEventListener('change', () => this.root.classList.remove('peek'))
+    const opacityRow = el('div', { class: 'field' },
+      el('span', { class: 'label', text: 'Window opacity' }),
+      el('div', { class: 'row slider-row' }, el('span', { class: 'dim', text: 'See-through' }), slider, el('span', { class: 'dim', text: 'Solid' }), pct),
+      el('label', { class: 'check' }, check(s.blur, (v) => { s.blur = v; updateBlurNote() }), ' Blur what’s behind the window'),
+      blurNote,
+    )
+    updateBlurNote()
+
     const appearance = el(
       'section', {},
       el('h3', { text: 'Appearance' }),
@@ -144,6 +170,7 @@ export class SettingsView {
         field('Cursor', select([['block', 'Block ▇'], ['bar', 'Bar ▏'], ['underline', 'Underline ▁']], s.cursorStyle, (v) => { s.cursorStyle = v; live() })),
         el('label', { class: 'check' }, check(s.cursorBlink, (v) => { s.cursorBlink = v; live() }), ' Blinking cursor'),
       ),
+      opacityRow,
     )
 
     const shellSec = el(

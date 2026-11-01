@@ -22,6 +22,10 @@ export function AnthropicAccount() {
   return window['go']['main']['App']['AnthropicAccount']();
 }
 
+export function BlurActive() {
+  return window['go']['main']['App']['BlurActive']();
+}
+
 export function CheckForUpdate() {
   return window['go']['main']['App']['CheckForUpdate']();
 }
@@ -72,6 +76,10 @@ export function SaveSettings(arg1) {
 
 export function SetAPIKey(arg1) {
   return window['go']['main']['App']['SetAPIKey'](arg1);
+}
+
+export function SetWindowOpacity(arg1) {
+  return window['go']['main']['App']['SetWindowOpacity'](arg1);
 }
 
 export function Settings() {

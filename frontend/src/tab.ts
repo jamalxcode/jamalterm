@@ -7,7 +7,7 @@ import { SearchAddon } from '@xterm/addon-search'
 
 import { Start, Write, Resize, CloseTab, OpenURL, GitBranch } from '../wailsjs/go/main/App'
 import type { settings } from '../wailsjs/go/models'
-import type { Theme } from './themes'
+import { type Theme, bgAt } from './themes'
 import { b64ToBytes, b64ToText, el, escapeHtml, toast, copyText, duration, relTime } from './util'
 
 /** One command the user ran, found through the shell integration marks. */
@@ -40,9 +40,12 @@ export function fontStack(family: string): string {
   return [...parts, sym, generic].join(', ')
 }
 
-function termTheme(theme: Theme) {
+function termTheme(theme: Theme, opacity = 100) {
   return {
     ...theme.colors,
+    // See-through: the terminal draws no background of its own (the area
+    // behind it is tinted once); alpha 0 keeps the RGB for reverse video.
+    background: opacity < 100 ? bgAt(theme, 0.0) : theme.colors.background,
     scrollbarSliderBackground: theme.light ? '#00000022' : '#ffffff22',
     scrollbarSliderHoverBackground: theme.light ? '#00000044' : '#ffffff44',
     scrollbarSliderActiveBackground: theme.light ? '#00000055' : '#ffffff55',
@@ -97,10 +100,11 @@ export class Tab {
     const s = hooks.settings()
     this.term = new Terminal({
       allowProposedApi: true,
+      allowTransparency: true, // see-through window (Settings → Window opacity)
       fontFamily: fontStack(s.fontFamily),
       fontSize: s.fontSize,
       lineHeight: s.lineHeight,
-      theme: termTheme(theme),
+      theme: termTheme(theme, s.opacity),
       cursorBlink: s.cursorBlink,
       cursorStyle: s.cursorStyle as 'block' | 'bar' | 'underline',
       cursorInactiveStyle: 'outline',
@@ -212,7 +216,7 @@ export class Tab {
 
   applySettings(s: settings.Settings, theme: Theme) {
     const o = this.term.options
-    o.theme = termTheme(theme)
+    o.theme = termTheme(theme, s.opacity)
     o.fontFamily = fontStack(s.fontFamily)
     o.fontSize = s.fontSize
     o.lineHeight = s.lineHeight

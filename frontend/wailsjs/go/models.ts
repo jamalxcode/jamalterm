@@ -78,6 +78,8 @@ export namespace settings {
 	    fontSize: number;
 	    lineHeight: number;
 	    cursorStyle: string;
+	    opacity: number;
+	    blur: boolean;
 	    cursorBlink: boolean;
 	    scrollback: number;
 	    shell: string;
@@ -101,6 +103,8 @@ export namespace settings {
 	        this.fontSize = source["fontSize"];
 	        this.lineHeight = source["lineHeight"];
 	        this.cursorStyle = source["cursorStyle"];
+	        this.opacity = source["opacity"];
+	        this.blur = source["blur"];
 	        this.cursorBlink = source["cursorBlink"];
 	        this.scrollback = source["scrollback"];
 	        this.shell = source["shell"];

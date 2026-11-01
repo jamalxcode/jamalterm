@@ -31,7 +31,7 @@ html, body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: var(--bg);
+  background: var(--bg-a, var(--bg));
   color: var(--fg);
   font: 13px/1.45 var(--ui);
   -webkit-user-select: none;
@@ -100,8 +100,7 @@ body.mac .new-tab, body.mac #ai-button { height: 22px; }
 /* Active vs background tabs differ in brightness, fill, outline, weight
    and a thick underline, never by hue alone (color-blind friendly).
    The tab bar is darker than everything else so the active tab pops. */
-#titlebar { background: color-mix(in srgb, var(--bg) 62%, black); }
-:root[data-light="1"] #titlebar { background: color-mix(in srgb, var(--bg) 86%, black); }
+#titlebar { background: var(--titlebar-bg, color-mix(in srgb, var(--bg) 62%, black)); }
 /* Background tabs: a visible filled pill with an outline and readable text. */
 .tab {
   font-weight: 400;
@@ -196,7 +195,7 @@ body.browsing #main { bottom: 30px; }
 .pane.active { visibility: visible; }
 
 .term-host { position: absolute; inset: 0; padding: 6px 6px 6px 22px; }
-.xterm, .xterm .xterm-viewport { background-color: var(--bg) !important; }
+.xterm, .xterm .xterm-viewport { background-color: transparent !important; }
 .xterm .xterm-viewport::-webkit-scrollbar { width: 10px; }
 .xterm .xterm-viewport::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--fg) 18%, transparent);
@@ -327,8 +326,11 @@ button.small { padding: 4px 10px; font-size: 12px; }
 /* ---- AI panel ----
    A separate floating card with its own tint, rounded corners, a gap and a
    sans-serif look, so it never reads as part of the terminal. */
-#main { background: var(--panel); }
-#terminals { background: var(--bg); }
+#main { background: var(--panel-a, var(--panel)); }
+#terminals { background: var(--bg-a, var(--bg)); }
+/* See-through window: exactly one tinted layer per area, or the tints
+   stack up and the window looks solid. */
+:root.see-through, :root.see-through body, :root.see-through #main { background: transparent; }
 #ai-panel {
   --ai: color-mix(in srgb, var(--magenta) 9%, var(--panel));
   --ai-2: color-mix(in srgb, var(--magenta) 14%, var(--panel));
@@ -541,6 +543,11 @@ button.small { padding: 4px 10px; font-size: 12px; }
 .field .help.ok { color: var(--green); }
 .ai-setup .row { gap: 8px; align-items: center; }
 
+.slider-row { align-items: center; gap: 10px; }
+.slider { flex: 1; accent-color: var(--accent); }
+.pct { min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+.modal.peek { background: transparent; }
+.modal.peek .dialog { opacity: 0.35; transition: opacity 0.15s; }
 .swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 14px; }
 .swatch {
   height: 54px;

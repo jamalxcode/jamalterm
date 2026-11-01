@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.0
+
+- See-through window: Settings → Appearance → **Window opacity** (30–100%) shows your desktop behind the terminal, with a live preview while you drag
+- **Blur what's behind the window** (on by default) gives the frosted macOS look; turning blur on or off applies after a restart
+- Reverse-video text (vim's status bar, selections) stays readable when see-through
+
 ## 1.4.1
 
 - Background tabs are easy to see: each is an outlined pill with readable text

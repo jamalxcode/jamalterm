@@ -52,6 +52,7 @@ To connect Claude, click **Sign in with Anthropic** in Settings (⌘,) or the AI
 - Tabs: ⌘T, ⌘W, ⌘1–9, ⇧⌘[ / ⇧⌘]. New tabs open in the current folder.
 - ⌘F find, ⌘K clear, ⌘= / ⌘- / ⌘0 font size.
 - 10 themes (Jamal Night, Catppuccin, Dracula, Tokyo Night, One Dark, Nord, Gruvbox, Solarized dark and light, GitHub Light), with a font, cursor style and blink setting.
+- See-through window: Settings → Window opacity (30–100%), with optional blur of what's behind.
 - Option works as Meta (⌥B / ⌥F jump words). Turn it off in Settings.
 - Nerd Font icons (Powerlevel10k, eza, starship…) show up with any font. The icon set is built in.
 - If you'd rather ↑ go to shell history at an empty prompt, turn that off in Settings. ⌘↑ always starts browse mode.

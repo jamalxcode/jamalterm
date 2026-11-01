@@ -6,6 +6,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/linux"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
 )
 
@@ -20,6 +21,15 @@ func (a *App) Version() string { return version }
 
 func main() {
 	app := NewApp()
+	cfg := app.Settings()
+	// See-through window: the window is transparent and the page draws a
+	// semi-transparent background. Blur ("vibrancy") can only be chosen
+	// when the window is created.
+	app.blurAtLaunch = cfg.Blur && cfg.Opacity < 100
+	bg := &options.RGBA{R: 21, G: 22, B: 30, A: 255}
+	if cfg.Opacity < 100 {
+		bg.A = 0
+	}
 
 	err := wails.Run(&options.App{
 		Title:     "jamalterm",
@@ -31,16 +41,19 @@ func main() {
 			Assets: assets,
 		},
 		// Same as the default theme background, so there's no flash on launch.
-		BackgroundColour: &options.RGBA{R: 21, G: 22, B: 30, A: 255},
+		BackgroundColour: bg,
 		Menu:             app.buildMenu(),
 		OnStartup:        app.startup,
 		OnShutdown:       app.shutdown,
 		Bind:             []interface{}{app},
+		// Lets the see-through window work in Linux development builds too.
+		Linux: &linux.Options{WindowIsTranslucent: cfg.Opacity < 100},
 		Mac: &mac.Options{
 			// Tabs sit in a transparent, standard-height title bar, centred
 			// on the window buttons (style.css: body.mac --titlebar).
 			TitleBar:             mac.TitleBarHidden(),
 			WebviewIsTransparent: true,
+			WindowIsTranslucent:  app.blurAtLaunch,
 			About: &mac.AboutInfo{
 				Title:   "jamalterm",
 				Message: "A terminal with a free-floating cursor.",

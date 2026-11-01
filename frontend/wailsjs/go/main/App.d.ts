@@ -14,6 +14,8 @@ export function AIToolResult(arg1:string,arg2:string,arg3:boolean):Promise<void>
 
 export function AnthropicAccount():Promise<ai.Account>;
 
+export function BlurActive():Promise<boolean>;
+
 export function CheckForUpdate():Promise<main.UpdateInfo>;
 
 export function CloseTab(arg1:number):Promise<void>;
@@ -39,6 +41,8 @@ export function Resize(arg1:number,arg2:number,arg3:number):Promise<void>;
 export function SaveSettings(arg1:settings.Settings):Promise<settings.Settings>;
 
 export function SetAPIKey(arg1:string):Promise<void>;
+
+export function SetWindowOpacity(arg1:number):Promise<void>;
 
 export function Settings():Promise<settings.Settings>;
 

@@ -17,9 +17,14 @@ type Settings struct {
 	FontSize    int     `json:"fontSize"`
 	LineHeight  float64 `json:"lineHeight"`
 	CursorStyle string  `json:"cursorStyle"` // block, bar, underline
-	CursorBlink bool    `json:"cursorBlink"`
-	Scrollback  int     `json:"scrollback"`
-	Shell       string  `json:"shell"` // empty = your login shell
+	// Opacity of the window in percent (30–100). Below 100 the desktop
+	// shows through.
+	Opacity int `json:"opacity"`
+	// Blur what's behind a see-through window (macOS; applies on restart).
+	Blur        bool   `json:"blur"`
+	CursorBlink bool   `json:"cursorBlink"`
+	Scrollback  int    `json:"scrollback"`
+	Shell       string `json:"shell"` // empty = your login shell
 	// ShellIntegration lets jamalterm know where commands start and end.
 	// Browse mode and the AI features need it.
 	ShellIntegration bool `json:"shellIntegration"`
@@ -47,6 +52,8 @@ func Defaults() Settings {
 		FontSize:         14,
 		LineHeight:       1.15,
 		CursorStyle:      "block",
+		Opacity:          100,
+		Blur:             true,
 		CursorBlink:      true,
 		Scrollback:       10000,
 		ShellIntegration: true,
@@ -129,6 +136,9 @@ func (c Settings) normalized() Settings {
 	case "block", "bar", "underline":
 	default:
 		c.CursorStyle = d.CursorStyle
+	}
+	if c.Opacity < 30 || c.Opacity > 100 {
+		c.Opacity = d.Opacity
 	}
 	if c.Scrollback < 1000 || c.Scrollback > 200000 {
 		c.Scrollback = d.Scrollback

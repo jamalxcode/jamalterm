@@ -111,11 +111,30 @@ function mix(a: string, b: string, amount: number): string {
   return `rgb(${m(r1, r2)}, ${m(g1, g2)}, ${m(b1, b2)})`
 }
 
-/** Sets CSS variables so the tabs, panels and dialogs match the theme. */
-export function applyChrome(theme: Theme) {
+function rgba(color: string, alpha: number): string {
+  const m = /^rgb\((\d+), (\d+), (\d+)\)$/.exec(color)
+  const [r, g, b] = m ? [+m[1], +m[2], +m[3]] : hex(color)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+/** The terminal background at the chosen window opacity (0.3–1). */
+export function bgAt(theme: Theme, alpha: number): string {
+  return alpha >= 1 ? theme.colors.background! : rgba(theme.colors.background!, Math.max(0, alpha))
+}
+
+/** Sets CSS variables so the tabs, panels and dialogs match the theme.
+ *  opacity < 1 makes the window see-through (the desktop shows behind). */
+export function applyChrome(theme: Theme, opacity = 1) {
   const c = theme.colors
   const bg = c.background!, fg = c.foreground!
   const s = document.documentElement.style
+  const a = Math.max(0.3, Math.min(1, opacity))
+  // The tab bar and side areas stay a little more solid than the terminal.
+  const barA = Math.min(1, a + 0.12)
+  s.setProperty('--bg-a', bgAt(theme, a))
+  s.setProperty('--panel-a', rgba(mix(bg, fg, theme.light ? 0.04 : 0.05), barA))
+  s.setProperty('--titlebar-bg', rgba(mix(bg, '#000000', theme.light ? 0.14 : 0.38), barA))
+  document.documentElement.classList.toggle('see-through', a < 1)
   s.setProperty('--bg', bg)
   s.setProperty('--fg', fg)
   s.setProperty('--muted', mix(fg, bg, 0.45))
