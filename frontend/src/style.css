@@ -484,6 +484,8 @@ select.ai-switch:hover { background-color: color-mix(in srgb, var(--fg) 10%, tra
 }
 .share-toggle { display: flex; align-items: center; gap: 4px; cursor: pointer; }
 .share-toggle.off { color: var(--yellow); }
+.msg-meta { margin-top: 8px; font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+#hint .hint-cmd.warn { color: var(--yellow); }
 .redacted-note { margin-top: 8px; font-size: 11px; color: var(--muted); }
 .ai-send {
   width: 30px; height: 30px; flex: none;

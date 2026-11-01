@@ -76,6 +76,10 @@ func withIntegration(shellPath string, args []string, env []string, home string)
 		}
 		return append([]string{"--rcfile", filepath.Join(dir, "bash", "rc.bash"), "-i"}, args...), env
 
+	case "fish":
+		// fish runs -C commands after its own config.
+		return append(args, "-C", "source "+shellQuote(filepath.Join(dir, "fish", "integration.fish"))), env
+
 	case "tcsh", "csh":
 		// tcsh has no --rcfile; point HOME at our .tcshrc for a moment.
 		env = append(env, "HOME="+filepath.Join(dir, "tcsh"), "JAMALTERM_HOME="+home)
@@ -83,3 +87,5 @@ func withIntegration(shellPath string, args []string, env []string, home string)
 	}
 	return args, env
 }
+
+func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

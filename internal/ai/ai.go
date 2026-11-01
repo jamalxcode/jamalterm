@@ -43,6 +43,8 @@ type Client struct {
 	modelFor func(provider string) string
 	// onRedact hears how many secrets were hidden from a request.
 	onRedact func(id string, n int)
+	// usage hears which model answered and the token counts.
+	usage func(id string, u Usage)
 
 	mu          sync.Mutex
 	chats       map[string][]anthropic.BetaMessageParam
@@ -59,6 +61,7 @@ func New(apiKey, model func() string) *Client {
 		keyFor:      func(string) string { return "" },
 		modelFor:    func(string) string { return "" },
 		onRedact:    func(string, int) {},
+		usage:       func(string, Usage) {},
 		chats:       map[string][]anthropic.BetaMessageParam{},
 		compatChats: map[string][]openai.ChatCompletionMessageParamUnion{},
 		autoModel:   map[string]string{},
@@ -70,6 +73,22 @@ func New(apiKey, model func() string) *Client {
 // non-Claude providers ("" model = pick automatically).
 func (c *Client) Configure(provider func() string, keyFor, modelFor func(string) string) {
 	c.provider, c.keyFor, c.modelFor = provider, keyFor, modelFor
+}
+
+// Usage is what one model call cost: the model that answered and tokens.
+type Usage struct {
+	Model  string `json:"model"`
+	Input  int    `json:"input"`
+	Output int    `json:"output"`
+}
+
+// OnUsage sets a callback told the model and token counts of each call.
+func (c *Client) OnUsage(f func(id string, u Usage)) { c.usage = f }
+
+func (c *Client) onUsage(id string, u Usage) {
+	if u.Model != "" || u.Input > 0 || u.Output > 0 {
+		c.usage(id, u)
+	}
 }
 
 // OnRedact sets a callback told how many secrets were hidden from the
@@ -264,6 +283,9 @@ func (c *Client) Ask(ctx context.Context, req Request, onDelta func(string), onT
 			answer.WriteString("\n\n")
 		}
 		msg, err := streamOnce(ctx, client, params, onDelta)
+		if err == nil {
+			c.onUsage(req.ID, Usage{Model: string(msg.Model), Input: int(msg.Usage.InputTokens + msg.Usage.CacheReadInputTokens + msg.Usage.CacheCreationInputTokens), Output: int(msg.Usage.OutputTokens)})
+		}
 		if err != nil {
 			return answer.String(), err
 		}

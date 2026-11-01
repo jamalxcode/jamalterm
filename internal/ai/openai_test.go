@@ -68,6 +68,7 @@ func (f *fakeCompat) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		send(`{"content":"there."}`, "")
 		send(`{}`, "stop")
 	}
+	fmt.Fprint(w, "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"m-used\",\"choices\":[],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":7,\"total_tokens\":19}}\n\n")
 	fmt.Fprint(w, "data: [DONE]\n\n")
 }
 
@@ -209,5 +210,28 @@ func TestListModelsRanking(t *testing.T) {
 	}
 	if strings.Join(got, ",") != "gpt-6.1-sol,gpt-6.1-sol-2026-09-01,gpt-6-luna,gpt-4o-mini" {
 		t.Fatalf("models %v", got)
+	}
+}
+
+func TestUsageIsReported(t *testing.T) {
+	f := &fakeCompat{}
+	c := compatSetup(t, f, ProviderOpenAI, "gpt-6.1-sol")
+	var got []Usage
+	c.OnUsage(func(id string, u Usage) { got = append(got, u) })
+	c.Ask(context.Background(), Request{ID: "1", Chat: "u", Mode: ModeChat, Prompt: "hi"}, func(string) {}, nil)
+	if len(got) != 1 || got[0].Input != 12 || got[0].Output != 7 || got[0].Model == "" {
+		t.Fatalf("compat usage %+v", got)
+	}
+	if f.bodies[0]["stream_options"] == nil {
+		t.Fatal("didn't ask for usage")
+	}
+
+	fa := &fakeAPI{reply: []string{"ok"}}
+	ca := setup(t, fa, "claude-opus-5-5")
+	got = nil
+	ca.OnUsage(func(id string, u Usage) { got = append(got, u) })
+	ca.Ask(context.Background(), Request{ID: "2", Chat: "u", Mode: ModeChat, Prompt: "hi"}, func(string) {}, nil)
+	if len(got) != 1 || got[0].Model != "claude-opus-5-5" || got[0].Input != 10 || got[0].Output != 5 {
+		t.Fatalf("claude usage %+v", got)
 	}
 }

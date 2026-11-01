@@ -11,6 +11,7 @@ import { themeById, applyChrome } from './themes'
 import { AIPanel, CommandBar } from './ai'
 import { SettingsView } from './settingsView'
 import { Updater } from './updater'
+import { loadProviders, providerInfo, modelOf } from './providers'
 import { el, isMac, toast, duration } from './util'
 
 let cfg: settings.Settings
@@ -54,12 +55,10 @@ const aiHost = {
   shellName: () => shellName,
   openSettings: () => void settingsView.open(),
   assistant: () => {
-    const p = cfg.aiProvider
-    if (p === 'openai') return { id: p, name: 'ChatGPT', model: cfg.openaiModel || 'auto model' }
-    if (p === 'deepseek') return { id: p, name: 'DeepSeek', model: cfg.deepseekModel || 'deepseek-v4-flash' }
-    if (p === 'xai') return { id: p, name: 'Grok', model: cfg.xaiModel || 'auto model' }
-    if (p === 'openrouter') return { id: p, name: 'OpenRouter', model: cfg.openrouterModel || 'openrouter/auto' }
-    return { id: 'anthropic', name: 'Claude', model: cfg.aiModel.replace(/^claude-/, '') }
+    const info = providerInfo(cfg.aiProvider) ?? providerInfo('anthropic')
+    const id = info?.id ?? 'anthropic'
+    const model = modelOf(cfg, id)
+    return { id, name: info?.name ?? 'Claude', model: model ? model.replace(/^claude-/, '') : 'auto model' }
   },
   runInNewTab: (cmd: string) => void runInNewTab(cmd),
 }
@@ -93,13 +92,12 @@ function aiReady(): boolean {
 
 // ---- Settings -------------------------------------------------------------------
 
-const PROVIDER_NAMES: Record<string, string> = { anthropic: 'Claude', openai: 'ChatGPT', deepseek: 'DeepSeek', xai: 'Grok', openrouter: 'OpenRouter' }
 
 function applySettings(s: settings.Settings) {
   const switched = cfg && cfg.aiProvider !== s.aiProvider
   cfg = s
   if (switched) {
-    toast(`Now using ${PROVIDER_NAMES[s.aiProvider] ?? s.aiProvider}`)
+    toast(`Now using ${providerInfo(s.aiProvider)?.name ?? s.aiProvider}`)
     void ai.refreshHeader()
   }
   const theme = themeById(s.theme)
@@ -397,6 +395,7 @@ document.getElementById('ai-button')!.addEventListener('click', () => runMenu('a
 // ---- Start --------------------------------------------------------------------
 
 async function boot() {
+  await loadProviders()
   cfg = await Settings()
   applySettings(cfg)
   ;[shellName, home] = await Promise.all([ShellName(), HomeDir()])

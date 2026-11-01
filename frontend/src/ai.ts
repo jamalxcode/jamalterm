@@ -1,14 +1,17 @@
 import { AIAsk, AICancel, AIReset, HasAPIKey, AIToolResult, SetAIProvider, SignInOpenRouter } from '../wailsjs/go/main/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 import type { Tab, Block } from './tab'
+import { providers, providerInfo } from './providers'
 import { el, renderMarkdown, copyText, toast, SIGN_IN_COMMAND } from './util'
 
 type ToolEvent = { id: string; toolId: string; command: string; run: boolean }
-type Handler = { delta(t: string): void; done(t: string): void; error(e: string): void; tool?(e: ToolEvent): void; redacted?(n: number): void }
+type Usage = { id: string; model: string; input: number; output: number }
+type Handler = { delta(t: string): void; done(t: string): void; error(e: string): void; tool?(e: ToolEvent): void; redacted?(n: number): void; usage?(u: Usage): void }
 const handlers = new Map<string, Handler>()
 let seq = 0
 
 EventsOn('ai:delta', (e: { id: string; text: string }) => handlers.get(e.id)?.delta(e.text))
+EventsOn('ai:usage', (u: Usage) => handlers.get(u.id)?.usage?.(u))
 EventsOn('ai:redacted', (e: { id: string; count: number }) => handlers.get(e.id)?.redacted?.(e.count))
 EventsOn('ai:tool', (e: ToolEvent) => {
   const h = handlers.get(e.id)
@@ -40,6 +43,10 @@ export interface AIHost {
   runInNewTab(command: string): void
 }
 
+function fmtTokens(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n)
+}
+
 // ---- Side panel (⌘I) ------------------------------------------------------------
 
 export class AIPanel {
@@ -51,12 +58,7 @@ export class AIPanel {
   // The assistant's name is also a switcher (Claude / ChatGPT / DeepSeek).
   private shareBox = el('input', { type: 'checkbox' }) as HTMLInputElement
   private shareLabel = el('label', { class: 'share-toggle', title: 'When off, only the commands are sent with questions — not their output' })
-  private titleEl = el('select', { class: 'ai-title ai-switch', title: 'Switch assistant (⌥⌘1–⌥⌘5)' },
-    el('option', { value: 'anthropic', text: 'Claude' }),
-    el('option', { value: 'openai', text: 'ChatGPT' }),
-    el('option', { value: 'deepseek', text: 'DeepSeek' }),
-    el('option', { value: 'xai', text: 'Grok' }),
-    el('option', { value: 'openrouter', text: 'OpenRouter' })) as HTMLSelectElement
+  private titleEl = el('select', { class: 'ai-title ai-switch', title: 'Switch assistant (⌥⌘1, ⌥⌘2, …)' }) as HTMLSelectElement
   private streaming: string | null = null
   private chatOf = new Map<number, HTMLElement[]>() // per-tab conversation
   private shownTab = -1
@@ -100,6 +102,9 @@ export class AIPanel {
 
   /** Show the active assistant and model (after a switch from anywhere). */
   async refreshHeader() {
+    if (!this.titleEl.options.length) {
+      for (const p of providers) this.titleEl.append(el('option', { value: p.id, text: p.name }))
+    }
     const who = this.host.assistant()
     if (this.titleEl.value !== who.id) {
       this.titleEl.value = who.id
@@ -203,7 +208,8 @@ export class AIPanel {
     if (who.id !== 'anthropic') {
       const open = el('button', { class: 'primary' }, 'Open Settings')
       open.addEventListener('click', () => this.host.openSettings())
-      const company = { openai: 'OpenAI (platform.openai.com → API keys)', deepseek: 'DeepSeek (platform.deepseek.com → API keys)', xai: 'xAI (console.x.ai → API keys)' }[who.id] ?? who.name
+      const info = providerInfo(who.id)
+      const company = info ? `${info.company} (${info.keyWhere})` : who.name
       this.list.append(el('div', { class: 'ai-setup' },
         el('p', {}, el('strong', { text: `Add your ${who.name} API key to turn on AI.` })),
         el('p', { class: 'dim', text: `Create a key at ${company}, then paste it in Settings → AI assistant. It's stored in your macOS Keychain.` }),
@@ -257,6 +263,8 @@ export class AIPanel {
 
     // The answer is a list of parts: text, then a tool card, then more text…
     let acc = ''
+    let totalIn = 0, totalOut = 0, usedModel = ''
+    const meta = el('div', { class: 'msg-meta' })
     let part: HTMLElement | null = null
     let sawText = false
     const render = () => {
@@ -275,6 +283,15 @@ export class AIPanel {
         acc += t
         sawText = true
         render()
+      },
+      usage: (u) => {
+        // Which model answered, and what it cost in tokens (summed over tool rounds).
+        totalIn += u.input
+        totalOut += u.output
+        usedModel = u.model || usedModel
+        meta.textContent = `${usedModel}${totalIn || totalOut ? ` · ${fmtTokens(totalIn)} in · ${fmtTokens(totalOut)} out` : ''}`
+        if (!msg.contains(meta)) msg.append(meta)
+        if (this.host.assistant().model === 'auto model' && usedModel) this.modelLabel.textContent = `auto → ${usedModel}`
       },
       redacted: (n) => {
         msg.append(el('div', { class: 'redacted-note', text: `🔒 Hid ${n} secret${n === 1 ? '' : 's'} from the terminal text sent` }))

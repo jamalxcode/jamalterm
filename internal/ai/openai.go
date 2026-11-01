@@ -27,19 +27,44 @@ const (
 )
 
 // ProviderInfo describes a provider for the UI.
+// This list is the only place assistants are described: the menu, the
+// panel switcher, Settings and the setup hints are all built from it.
 type ProviderInfo struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`    // "ChatGPT"
-	KeyURL  string `json:"keyUrl"`  // where to create an API key
-	KeyHint string `json:"keyHint"` // what keys look like
+	ID       string `json:"id"`
+	Name     string `json:"name"`     // "ChatGPT"
+	Label    string `json:"label"`    // for the Settings list, "ChatGPT (OpenAI)"
+	Company  string `json:"company"`  // "OpenAI"
+	KeyURL   string `json:"keyUrl"`   // where to create an API key
+	KeyWhere string `json:"keyWhere"` // the same, in words
+	KeyHint  string `json:"keyHint"`  // what keys look like
+	Billing  string `json:"billing"`  // who charges for use
+	// ModelField is the settings field holding the chosen model; AutoModel
+	// describes what "automatic" picks.
+	ModelField string `json:"modelField"`
+	AutoModel  string `json:"autoModel"`
+	// SignIn: "anthropic" or "openrouter" when a browser sign-in exists.
+	SignIn string `json:"signIn"`
 }
 
 var Providers = []ProviderInfo{
-	{ProviderAnthropic, "Claude", "https://console.anthropic.com/settings/keys", "sk-ant-…"},
-	{ProviderOpenAI, "ChatGPT", "https://platform.openai.com/api-keys", "sk-…"},
-	{ProviderDeepSeek, "DeepSeek", "https://platform.deepseek.com/api_keys", "sk-…"},
-	{ProviderXAI, "Grok", "https://console.x.ai", "xai-…"},
-	{ProviderOpenRouter, "OpenRouter", "https://openrouter.ai/keys", "sk-or-…"},
+	{ID: ProviderAnthropic, Name: "Claude", Label: "Claude (Anthropic)", Company: "Anthropic",
+		KeyURL: "https://console.anthropic.com/settings/keys", KeyWhere: "console.anthropic.com → API Keys", KeyHint: "sk-ant-…",
+		Billing: "Billed to your Anthropic Console account.", ModelField: "aiModel", AutoModel: "claude-opus-5-5", SignIn: "anthropic"},
+	{ID: ProviderOpenAI, Name: "ChatGPT", Label: "ChatGPT (OpenAI)", Company: "OpenAI",
+		KeyURL: "https://platform.openai.com/api-keys", KeyWhere: "platform.openai.com → API keys", KeyHint: "sk-…",
+		Billing: "Billed to your OpenAI API account (separate from a ChatGPT Plus subscription).", ModelField: "openaiModel",
+		AutoModel: "the newest general GPT model your key can use"},
+	{ID: ProviderDeepSeek, Name: "DeepSeek", Label: "DeepSeek", Company: "DeepSeek",
+		KeyURL: "https://platform.deepseek.com/api_keys", KeyWhere: "platform.deepseek.com → API keys", KeyHint: "sk-…",
+		Billing: "Billed to your DeepSeek API balance.", ModelField: "deepseekModel", AutoModel: "deepseek-v4-flash"},
+	{ID: ProviderXAI, Name: "Grok", Label: "Grok (xAI)", Company: "xAI",
+		KeyURL: "https://console.x.ai", KeyWhere: "console.x.ai → API keys", KeyHint: "xai-…",
+		Billing: "Billed to your xAI API account (separate from SuperGrok / X Premium).", ModelField: "xaiModel",
+		AutoModel: "the newest general Grok model your key can use"},
+	{ID: ProviderOpenRouter, Name: "OpenRouter", Label: "OpenRouter (many models)", Company: "OpenRouter",
+		KeyURL: "https://openrouter.ai/keys", KeyWhere: "openrouter.ai/keys", KeyHint: "sk-or-…",
+		Billing: "Billed to your OpenRouter credits.", ModelField: "openrouterModel",
+		AutoModel: "openrouter/auto (OpenRouter picks a model each time)", SignIn: "openrouter"},
 }
 
 func providerName(id string) string {
@@ -247,7 +272,12 @@ func (c *Client) askCompat(ctx context.Context, provider string, req Request, us
 			answer.WriteString("\n\n")
 		}
 		params.Messages = messages
-		msg, reasoning, finish, err := compatStream(ctx, client, params, onDelta)
+		if provider != ProviderXAI {
+			// Ask for token counts in the stream (not every server accepts it).
+			params.StreamOptions = openai.ChatCompletionStreamOptionsParam{IncludeUsage: openai.Bool(true)}
+		}
+		msg, reasoning, finish, usage, err := compatStream(ctx, client, params, onDelta)
+		c.onUsage(req.ID, usage)
 		if err != nil {
 			return answer.String(), compatError(provider, err)
 		}
@@ -293,7 +323,7 @@ func (c *Client) askCompat(ctx context.Context, provider string, req Request, us
 }
 
 // compatStream runs one streamed chat completion.
-func compatStream(ctx context.Context, client openai.Client, params openai.ChatCompletionNewParams, onDelta func(string)) (openai.ChatCompletionMessage, string, string, error) {
+func compatStream(ctx context.Context, client openai.Client, params openai.ChatCompletionNewParams, onDelta func(string)) (openai.ChatCompletionMessage, string, string, Usage, error) {
 	stream := client.Chat.Completions.NewStreaming(ctx, params)
 	acc := openai.ChatCompletionAccumulator{}
 	var reasoning strings.Builder
@@ -317,15 +347,19 @@ func compatStream(ctx context.Context, client openai.Client, params openai.ChatC
 	}
 	if err := stream.Err(); err != nil {
 		if ctx.Err() != nil {
-			return openai.ChatCompletionMessage{}, "", "", context.Canceled
+			return openai.ChatCompletionMessage{}, "", "", Usage{}, context.Canceled
 		}
-		return openai.ChatCompletionMessage{}, "", "", err
+		return openai.ChatCompletionMessage{}, "", "", Usage{}, err
 	}
 	if len(acc.Choices) == 0 {
-		return openai.ChatCompletionMessage{}, "", "", errors.New("empty answer")
+		return openai.ChatCompletionMessage{}, "", "", Usage{}, errors.New("empty answer")
 	}
 	ch := acc.Choices[0]
-	return ch.Message, reasoning.String(), string(ch.FinishReason), nil
+	usage := Usage{Model: acc.Model, Input: int(acc.Usage.PromptTokens), Output: int(acc.Usage.CompletionTokens)}
+	if usage.Model == "" {
+		usage.Model = string(params.Model)
+	}
+	return ch.Message, reasoning.String(), string(ch.FinishReason), usage, nil
 }
 
 func compatError(provider string, err error) error {

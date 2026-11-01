@@ -41,6 +41,9 @@ type Settings struct {
 	NotifyAfterSeconds int  `json:"notifyAfterSeconds"`
 	// ScreenReader turns on VoiceOver support in the terminal.
 	ScreenReader bool `json:"screenReader"`
+	// PromptKeys is how the shell's line editor is set up: "emacs" (the
+	// default) or "vi". jamalterm clears the prompt line differently.
+	PromptKeys string `json:"promptKeys"`
 	// ConfirmRerun asks before re-running a command from browse mode.
 	ConfirmRerun bool `json:"confirmRerun"`
 	OptionIsMeta bool `json:"optionIsMeta"`
@@ -77,6 +80,7 @@ func Defaults() Settings {
 		ShellIntegration:   true,
 		ArrowBrowse:        true,
 		RestoreSession:     true,
+		PromptKeys:         "emacs",
 		NotifyLongCommands: true,
 		NotifyAfterSeconds: 10,
 		ConfirmRerun:       false,
@@ -173,6 +177,9 @@ func (c Settings) normalized() Settings {
 	}
 	if c.FontFamily == "" {
 		c.FontFamily = d.FontFamily
+	}
+	if c.PromptKeys != "vi" {
+		c.PromptKeys = "emacs"
 	}
 	switch c.AIProvider {
 	case "anthropic", "openai", "deepseek", "xai", "openrouter":

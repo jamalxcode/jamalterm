@@ -30,6 +30,7 @@ func TestIntegration(t *testing.T) {
 		{"bash", []string{}, ".bashrc", "export JT_USER_RC=bashrc-loaded\n"},
 		{"tcsh", nil, ".tcshrc", "setenv JT_USER_RC tcshrc-loaded\n"},
 		{"tcsh", []string{}, ".cshrc", "setenv JT_USER_RC cshrc-loaded\n"},
+		{"fish", nil, ".config/fish/config.fish", "set -gx JT_USER_RC fish-config-loaded\n"},
 	}
 	for _, tc := range cases {
 		name := tc.shell + "/login"
@@ -45,10 +46,12 @@ func TestIntegration(t *testing.T) {
 			t.Setenv("HOME", home)
 			t.Setenv("XDG_CACHE_HOME", t.TempDir())
 			os.Unsetenv("ZDOTDIR")
+			os.MkdirAll(filepath.Dir(filepath.Join(home, tc.rcFile)), 0o755)
 			if err := os.WriteFile(filepath.Join(home, tc.rcFile), []byte(tc.rc), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			want := strings.Fields(strings.ReplaceAll(tc.rc, "=", " "))[2]
+			words := strings.Fields(strings.ReplaceAll(tc.rc, "=", " "))
+			want := words[len(words)-1]
 
 			c := &capture{}
 			exited := make(chan error, 1)
@@ -116,4 +119,36 @@ func lastCwd(out string) string {
 		return ""
 	}
 	return m[len(m)-1][1]
+}
+
+// Your own tcsh precmd/postcmd aliases still run.
+func TestTcshKeepsUserAliases(t *testing.T) {
+	path, err := exec.LookPath("tcsh")
+	if err != nil {
+		t.Skip("tcsh not installed")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	os.WriteFile(filepath.Join(home, ".tcshrc"), []byte("alias precmd 'echo USER-PRECMD'\nalias postcmd 'echo USER-POSTCMD'\n"), 0o644)
+	c := &capture{}
+	exited := make(chan error, 1)
+	s, err := Start(Options{Shell: path, Args: []string{}, Dir: home, Integration: true, Cols: 100, Rows: 30,
+		OnOutput: c.write, OnExit: func(err error) { exited <- err }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	waitFor(t, c, "\x1b]133;A\x07")
+	s.Write([]byte("echo hi-there\n"))
+	waitFor(t, c, "USER-POSTCMD")
+	waitFor(t, c, "hi-there")
+	waitFor(t, c, "\x1b]133;D;0\x07")
+	out := c.String()
+	if strings.Count(out, "USER-PRECMD") < 2 {
+		t.Fatalf("user precmd didn't run at each prompt:\n%q", out)
+	}
+	if !strings.Contains(out, "\x1b]133;C\x07") {
+		t.Fatal("our marks are missing")
+	}
 }

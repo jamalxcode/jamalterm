@@ -13,6 +13,21 @@ import type { settings } from '../wailsjs/go/models'
 import { type Theme, bgAt } from './themes'
 import { b64ToBytes, b64ToText, el, escapeHtml, toast, copyText, duration, relTime } from './util'
 
+function shellQuote(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`
+}
+
+/** True the first time it's called for a key (remembered per Mac). */
+function once(key: string): boolean {
+  try {
+    if (localStorage.getItem(key)) return false
+    localStorage.setItem(key, '1')
+  } catch {
+    /* private mode: show it */
+  }
+  return true
+}
+
 /** A tab as saved in session.json. */
 export interface SavedTab {
   cwd: string
@@ -338,6 +353,12 @@ export class Tab {
     return this.oscTitle || this.hooks.shellName()
   }
 
+  shortPath(p: string): string {
+    const home = this.hooks.home()
+    if (home && p === home) return '~'
+    return home && p.startsWith(home + '/') ? '~' + p.slice(home.length) : p
+  }
+
   get prettyCwd(): string {
     const home = this.hooks.home()
     if (!this.cwd) return ''
@@ -447,6 +468,7 @@ export class Tab {
   }
 
   private markStart() {
+    if (!this.pending && this.runningBlock) return // already started (shells like fish 4 mark it too)
     if (!this.pending) this.markPrompt()
     const b = this.pending
     if (!b) return
@@ -593,7 +615,10 @@ export class Tab {
       payload = this.term.modes.bracketedPasteMode ? `\x1b[200~${text}\x1b[201~` : text.replace(/\n/g, ' ')
     }
     // Ctrl+E Ctrl+U: go to the end of the line and clear it (zsh, bash, tcsh).
-    Write(this.id, '\x05\x15' + payload + (run ? '\r' : ''))
+    // Clear what's on the prompt first: Ctrl+E Ctrl+U (emacs keys, the
+    // default in zsh, bash, tcsh) or Esc + cc (vi keys).
+    const clear = this.hooks.settings().promptKeys === 'vi' ? '\x1bcc' : '\x05\x15'
+    Write(this.id, clear + payload + (run ? '\r' : ''))
     this.term.scrollToBottom()
     this.term.focus()
     return true
@@ -717,7 +742,7 @@ export class Tab {
         this.moveTo(b.row, Math.max(0, this.lineText(b.row).trimEnd().length - 1))
         return true
       case 'Enter':
-        this.activate(e.shiftKey ? 'edit' : 'run')
+        this.activate(e.shiftKey ? 'edit' : e.altKey ? 'there' : 'run')
         return true
       case 'Escape':
         this.exitBrowse()
@@ -770,7 +795,7 @@ export class Tab {
     return true
   }
 
-  private activate(how: 'run' | 'edit') {
+  private activate(how: 'run' | 'edit' | 'there') {
     const block = this.blockAt(this.browse.row)
     if (!block || !block.command) {
       if (how === 'edit') {
@@ -781,12 +806,20 @@ export class Tab {
       }
       return
     }
-    if (how === 'run' && this.hooks.settings().confirmRerun && this.browse.confirm !== block) {
+    // A command run again from another folder can do something different
+    // (rm, git reset…): say so and let the user choose where.
+    const elsewhere = !!block.cwd && !!this.cwd && block.cwd !== this.cwd
+    if (how === 'there' && elsewhere) {
+      if (this.sendCommand(`cd ${shellQuote(block.cwd)} && ${block.command}`, true)) this.exitBrowse()
+      return
+    }
+    const mustConfirm = elsewhere || this.hooks.settings().confirmRerun
+    if (how !== 'edit' && mustConfirm && this.browse.confirm !== block) {
       this.browse.confirm = block
       this.updateBrowse()
       return
     }
-    if (this.sendCommand(block.command, how === 'run')) this.exitBrowse()
+    if (this.sendCommand(block.command, how !== 'edit')) this.exitBrowse()
   }
 
   private updateBrowse() {
@@ -803,7 +836,13 @@ export class Tab {
       '<kbd>↑</kbd><kbd>↓</kbd> move <kbd>⌥↑</kbd><kbd>⌥↓</kbd> commands <kbd>⏎</kbd> run <kbd>⇧⏎</kbd> edit ' +
       '<kbd>C</kbd> copy <kbd>O</kbd> output <kbd>A</kbd> ask AI <kbd>esc</kbd> back'
     if (this.browse.confirm) {
-      return `<span class="hint-cmd">Run <code>${escapeHtml(this.browse.confirm.command)}</code> again?</span> <kbd>⏎</kbd> yes <kbd>esc</kbd> no`
+      const b = this.browse.confirm
+      if (b.cwd && this.cwd && b.cwd !== this.cwd) {
+        const there = this.shortPath(b.cwd), here = this.prettyCwd
+        return `<span class="hint-cmd warn">⚠ <code>${escapeHtml(b.command)}</code> ran in <b>${escapeHtml(there)}</b>, you're in <b>${escapeHtml(here)}</b></span>` +
+          `<kbd>⏎</kbd> run here <kbd>⌥⏎</kbd> run in ${escapeHtml(there)} <kbd>esc</kbd> cancel`
+      }
+      return `<span class="hint-cmd">Run <code>${escapeHtml(b.command)}</code> again?</span> <kbd>⏎</kbd> yes <kbd>esc</kbd> no`
     }
     if (block?.command) {
       const status = !block.end
@@ -840,6 +879,7 @@ export class Tab {
       this.keyConsumed = true
       e.preventDefault()
       this.enterBrowse(buf.baseY + buf.cursorY - 1, buf.cursorX)
+      if (once('jt-up-tip')) toast('↑ browses earlier commands (Esc to go back). Ctrl+R still searches history; you can turn this off in Settings.')
       return false
     }
     return true

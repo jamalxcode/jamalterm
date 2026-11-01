@@ -19,8 +19,15 @@ export namespace ai {
 	export class ProviderInfo {
 	    id: string;
 	    name: string;
+	    label: string;
+	    company: string;
 	    keyUrl: string;
+	    keyWhere: string;
 	    keyHint: string;
+	    billing: string;
+	    modelField: string;
+	    autoModel: string;
+	    signIn: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ProviderInfo(source);
@@ -30,8 +37,15 @@ export namespace ai {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.name = source["name"];
+	        this.label = source["label"];
+	        this.company = source["company"];
 	        this.keyUrl = source["keyUrl"];
+	        this.keyWhere = source["keyWhere"];
 	        this.keyHint = source["keyHint"];
+	        this.billing = source["billing"];
+	        this.modelField = source["modelField"];
+	        this.autoModel = source["autoModel"];
+	        this.signIn = source["signIn"];
 	    }
 	}
 	export class Request {
@@ -107,6 +121,7 @@ export namespace settings {
 	    notifyLongCommands: boolean;
 	    notifyAfterSeconds: number;
 	    screenReader: boolean;
+	    promptKeys: string;
 	    confirmRerun: boolean;
 	    optionIsMeta: boolean;
 	    autoUpdate: boolean;
@@ -141,6 +156,7 @@ export namespace settings {
 	        this.notifyLongCommands = source["notifyLongCommands"];
 	        this.notifyAfterSeconds = source["notifyAfterSeconds"];
 	        this.screenReader = source["screenReader"];
+	        this.promptKeys = source["promptKeys"];
 	        this.confirmRerun = source["confirmRerun"];
 	        this.optionIsMeta = source["optionIsMeta"];
 	        this.autoUpdate = source["autoUpdate"];
