@@ -1,4 +1,4 @@
-import { SaveSettings, SetAPIKey, HasSavedAPIKey, AnthropicAccount, BlurActive, ForgetSession, SetProviderKey, HasSavedProviderKey, ListProviderModels, SignInOpenRouter } from '../wailsjs/go/main/App'
+import { SaveSettings, SetAPIKey, HasSavedAPIKey, AnthropicAccount, BlurActive, ForgetSession, SetProviderKey, HasSavedProviderKey, ListProviderModels, SignInOpenRouter, ShowProblemLog } from '../wailsjs/go/main/App'
 import { settings } from '../wailsjs/go/models'
 import { themes } from './themes'
 import { providers, providerInfo, modelOf, setModelOf } from './providers'
@@ -26,11 +26,23 @@ export interface SettingsHost {
   closed(): void
   checkUpdates(): void
   runInNewTab(command: string): void
+  diagnostics(): void
 }
+
+/** The Settings pages, in sidebar order. */
+export const settingsPages = [
+  ['appearance', 'Appearance', '🎨'],
+  ['shell', 'Shell', '⌨'],
+  ['ai', 'AI', '✦'],
+  ['privacy', 'Privacy', '🔒'],
+  ['updates', 'Updates', '↻'],
+] as const
+export type SettingsPage = (typeof settingsPages)[number][0]
 
 export class SettingsView {
   private root = document.getElementById('settings')!
   private before: settings.Settings | null = null
+  private page: SettingsPage = 'appearance'
 
   constructor(private host: SettingsHost) {
     this.root.addEventListener('mousedown', (e) => {
@@ -42,8 +54,14 @@ export class SettingsView {
     return !this.root.hidden
   }
 
-  async open() {
-    if (this.visible) return
+  /** Opens Settings on a page; find highlights the setting whose label
+   * contains that text (used by the command palette). */
+  async open(page?: SettingsPage, find?: string) {
+    if (this.visible) {
+      if (page) this.show(page, find)
+      return
+    }
+    if (page) this.page = page
     const s = settings.Settings.createFrom(this.host.current())
     this.before = settings.Settings.createFrom(s)
     const account = await AnthropicAccount()
@@ -159,7 +177,7 @@ export class SettingsView {
     updateBlurNote()
 
     const appearance = el(
-      'section', {},
+      'section', { 'data-page': 'appearance' },
       el('h3', { text: 'Appearance' }),
       swatches,
       el('div', { class: 'row' },
@@ -179,10 +197,9 @@ export class SettingsView {
       await ForgetSession()
       toast('Saved tabs and output deleted')
     })
-    const forgetRow = el('div', { class: 'row', style: 'margin: -2px 0 6px 24px' }, forget)
 
     const shellSec = el(
-      'section', {},
+      'section', { 'data-page': 'shell' },
       el('h3', { text: 'Shell' }),
       field('Shell', text(s.shell, 'Your login shell (leave empty)', (v) => (s.shell = v.trim())), 'For example /bin/zsh, /bin/bash, /bin/tcsh or /opt/homebrew/bin/fish. Applies to new tabs.'),
       el('div', { class: 'row' },
@@ -191,7 +208,6 @@ export class SettingsView {
       el('label', { class: 'check' }, check(s.shellIntegration, (v) => (s.shellIntegration = v)), ' Shell integration — lets jamalterm find each command (needed for browse mode and AI). zsh, bash and tcsh.'),
       el('label', { class: 'check' }, check(s.arrowBrowse, (v) => (s.arrowBrowse = v)), ' ↑ at an empty prompt moves the free-floating cursor (off: ↑ goes to shell history; ⌘↑ always browses)'),
       el('label', { class: 'check' }, check(s.restoreSession, (v) => (s.restoreSession = v)), ' Reopen tabs and their recent output after a restart or update'),
-      forgetRow,
       el('label', { class: 'check' }, check(s.confirmRerun, (v) => (s.confirmRerun = v)), ' Ask before re-running a command from browse mode (always asked when it ran in a different folder)'),
       el('div', { class: 'row' }, field('Prompt editing keys', select([['emacs', 'Emacs (default: Ctrl+A, Ctrl+E…)'], ['vi', 'Vi (bindkey -v / set -o vi)']], s.promptKeys, (v) => (s.promptKeys = v)), 'How jamalterm clears your prompt line before typing a command into it.')),
       el('label', { class: 'check' }, check(s.optionIsMeta, (v) => { s.optionIsMeta = v; live() }), ' Use Option as Meta (⌥B / ⌥F jump words)'),
@@ -298,18 +314,18 @@ export class SettingsView {
     showBox()
 
     const aiSec = el(
-      'section', {},
+      'section', { 'data-page': 'ai' },
       el('h3', { text: 'AI assistant' }),
       el('label', { class: 'check' }, check(s.aiEnabled, (v) => (s.aiEnabled = v)), ' Turn on AI features'),
       field('Assistant', select(providers.map((p) => [p.id, p.label]), s.aiProvider, (v) => { s.aiProvider = v; showBox() })),
       ...Object.values(boxes),
-      el('label', { class: 'check' }, check(s.aiShareOutput, (v) => (s.aiShareOutput = v)), ' Send recent command output with questions (otherwise only the commands)'),
+      el('p', { class: 'help', text: 'What gets sent with questions is under Privacy.' }),
     )
 
     const checkNow = el('button', { type: 'button', class: 'ghost small' }, 'Check now')
     checkNow.addEventListener('click', () => this.host.checkUpdates())
     const updates = el(
-      'section', {},
+      'section', { 'data-page': 'updates' },
       el('h3', { text: 'Updates' }),
       el('div', { class: 'row' },
         el('label', { class: 'check' }, check(s.autoUpdate, (v) => (s.autoUpdate = v)), ' Check for new versions automatically'),
@@ -317,11 +333,39 @@ export class SettingsView {
       ),
     )
 
+    // Privacy: what stays on this Mac, and what you can delete.
+    const showLog = el('button', { type: 'button', class: 'ghost small' }, 'Show problem log')
+    showLog.addEventListener('click', () => ShowProblemLog())
+    const diag = el('button', { type: 'button', class: 'ghost small' }, 'Copy diagnostics…')
+    diag.addEventListener('click', () => {
+      this.cancel()
+      this.host.diagnostics()
+    })
+    const privacy = el(
+      'section', { 'data-page': 'privacy' },
+      el('h3', { text: 'Privacy' }),
+      el('p', { class: 'help', text: 'jamalterm sends nothing anywhere on its own. AI questions go only to the assistant you choose, with secrets hidden first. Your keys stay in the macOS Keychain.' }),
+      el('label', { class: 'check' }, check(s.keepProblemLog, (v) => (s.keepProblemLog = v)), ' Keep a private problem log on this Mac (errors only: no commands, output or questions; turning it off deletes it)'),
+      el('div', { class: 'row', style: 'margin: 0 0 10px 24px' }, showLog, diag),
+      el('label', { class: 'check' }, check(s.aiShareOutput, (v) => (s.aiShareOutput = v)), ' Send recent command output with AI questions (otherwise only the commands)'),
+      el('div', { class: 'field' },
+        el('span', { class: 'label', text: 'Saved tabs' }),
+        el('div', { class: 'keyrow' }, forget),
+        el('span', { class: 'help', text: 'To reopen tabs after a restart, jamalterm keeps their recent output in a private file on this Mac (Shell → Reopen tabs).' })),
+    )
+
+    const nav = el('nav', { class: 'settings-nav', role: 'tablist' })
+    for (const [id, label, icon] of settingsPages) {
+      const b = el('button', { type: 'button', role: 'tab', 'data-page': id }, el('span', { class: 'icon', text: icon }), label)
+      b.addEventListener('click', () => this.show(id))
+      nav.append(b)
+    }
+
     const cancel = el('button', { type: 'button', class: 'ghost' }, 'Cancel')
     const save = el('button', { type: 'submit', class: 'primary' }, 'Save')
     const form = el('form', { class: 'dialog settings' },
       el('div', { class: 'dialog-head' }, el('h2', { text: 'Settings' })),
-      el('div', { class: 'dialog-body' }, appearance, shellSec, aiSec, updates),
+      el('div', { class: 'settings-main' }, nav, el('div', { class: 'dialog-body settings-pages' }, appearance, shellSec, aiSec, privacy, updates)),
       el('div', { class: 'dialog-foot' }, cancel, save),
     )
     cancel.addEventListener('click', () => this.cancel())
@@ -347,7 +391,32 @@ export class SettingsView {
     })
     this.root.append(form)
     this.root.hidden = false
-    ;(swatches.querySelector('.on') as HTMLElement | null)?.focus()
+    this.show(this.page, find)
+    if (this.page === 'appearance' && !find) (swatches.querySelector('.on') as HTMLElement | null)?.focus()
+  }
+
+  /** Shows one page; find scrolls to and highlights a setting. */
+  show(page: SettingsPage, find?: string) {
+    this.page = page
+    this.root.querySelectorAll<HTMLElement>('.settings-pages > section').forEach((sec) => (sec.hidden = sec.dataset.page !== page))
+    this.root.querySelectorAll<HTMLElement>('.settings-nav button').forEach((b) => {
+      const on = b.dataset.page === page
+      b.classList.toggle('on', on)
+      b.setAttribute('aria-selected', String(on))
+    })
+    if (!find) return
+    const want = find.toLowerCase()
+    const sec = this.root.querySelector<HTMLElement>(`.settings-pages > section[data-page="${page}"]`)
+    const hit = Array.from(sec?.querySelectorAll<HTMLElement>('.field, .check') ?? []).find((n: HTMLElement) => {
+      const label = n.classList.contains('field') ? n.querySelector('.label')?.textContent : n.textContent
+      return (label ?? '').toLowerCase().includes(want)
+    })
+    if (!hit) return
+    hit.scrollIntoView({ block: 'center' })
+    hit.classList.remove('flash')
+    void hit.offsetWidth
+    hit.classList.add('flash')
+    hit.querySelector<HTMLElement>('input, select, button')?.focus()
   }
 
   cancel() {

@@ -11,7 +11,7 @@
       theme: 'jamal-night', fontFamily: 'monospace', fontSize: 14, lineHeight: 1.15, cursorStyle: 'block', cursorBlink: false,
       opacity: 100, blur: true, scrollback: 10000, shell: '', shellIntegration: true, arrowBrowse: true, restoreSession: true,
       promptKeys: 'emacs', notifyLongCommands: true, notifyAfterSeconds: 10, screenReader: false, confirmRerun: false,
-      optionIsMeta: true, autoUpdate: false, aiEnabled: true, aiProvider: 'anthropic', aiModel: 'claude-opus-5-5',
+      optionIsMeta: true, autoUpdate: false, keepProblemLog: true, aiEnabled: true, aiProvider: 'anthropic', aiModel: 'claude-opus-5-5',
       openaiModel: '', deepseekModel: '', xaiModel: '', openrouterModel: '', aiShareOutput: true,
     }, window.__settings || {}),
     session: window.__session || '',

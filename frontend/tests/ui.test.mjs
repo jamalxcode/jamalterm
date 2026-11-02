@@ -211,3 +211,47 @@ test('script errors in the window go to the problem log', async () => {
   assert.match(logged[0][2], /boom here/)
   await page.close()
 })
+
+test('command palette finds and runs actions and flips settings', async () => {
+  const page = await open()
+  await page.evaluate(() => window.__emit('menu', 'palette'))
+  await page.waitForSelector('#palette:not([hidden]) input')
+  await page.keyboard.type('blink')
+  assert.match(await page.locator('#palette li.on .title').innerText(), /Turn on: Blinking cursor/)
+  await page.keyboard.press('Enter')
+  await page.waitForTimeout(100)
+  const saved = await page.evaluate(() => window.__calls.filter((c) => c[0] === 'SaveSettings').pop()?.[1])
+  assert.equal(saved.cursorBlink, true)
+  assert.equal(await page.locator('#palette').isHidden(), true)
+
+  // An action: new tab.
+  await page.waitForTimeout(200)
+  await page.evaluate(() => window.__emit('menu', 'palette'))
+  await page.keyboard.type('new tab')
+  await page.keyboard.press('Enter')
+  await page.waitForTimeout(200)
+  assert.equal(await page.locator('.tab').count(), 2)
+
+  // A setting without a switch opens Settings on its page.
+  await page.waitForTimeout(200)
+  await page.evaluate(() => window.__emit('menu', 'palette'))
+  await page.keyboard.type('scrollback')
+  await page.keyboard.press('Enter')
+  await page.waitForSelector('#settings:not([hidden]) .settings-nav button.on')
+  assert.match(await page.locator('.settings-nav button.on').innerText(), /Shell/)
+  assert.equal(await page.locator('.settings-pages section[data-page="shell"] .flash').count(), 1)
+  await page.close()
+})
+
+test('Settings has a sidebar with pages', async () => {
+  const page = await open()
+  await page.evaluate(() => window.__emit('menu', 'settings'))
+  await page.waitForSelector('#settings:not([hidden]) .settings-nav')
+  const pages = await page.locator('.settings-nav button').allInnerTexts()
+  assert.deepEqual(pages.map((p) => p.replace(/^\S+\s*/, '').trim()), ['Appearance', 'Shell', 'AI', 'Privacy', 'Updates'])
+  assert.equal(await page.locator('section[data-page="appearance"]').isVisible(), true)
+  await page.click('.settings-nav button[data-page="privacy"]')
+  assert.equal(await page.locator('section[data-page="appearance"]').isVisible(), false)
+  assert.equal(await page.getByText('Keep a private problem log').isVisible(), true)
+  await page.close()
+})

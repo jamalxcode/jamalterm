@@ -8,8 +8,8 @@ export async function showDiagnostics(onClose: () => void) {
   const text = el('textarea', { class: 'diag-text', readonly: '', spellcheck: 'false', 'aria-label': 'Diagnostics report' })
   text.value = await Diagnostics()
   const copy = el('button', { class: 'primary', text: 'Copy' })
-  const show = el('button', { text: 'Show Problem Log' })
-  const cancel = el('button', { text: 'Close' })
+  const show = el('button', { class: 'ghost', text: 'Show Problem Log' })
+  const cancel = el('button', { class: 'ghost', text: 'Close' })
   box.append(el('div', { class: 'dialog' },
     el('div', { class: 'dialog-head' },
       el('h2', { text: 'Diagnostics' }),

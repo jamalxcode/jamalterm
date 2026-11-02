@@ -3,7 +3,7 @@ import '@fontsource/jetbrains-mono/400.css'
 import '@fontsource/jetbrains-mono/700.css'
 import './style.css'
 
-import { Settings, ShellName, HomeDir, Quit, Version, GPUOff, SetWindowOpacity, SaveSession, LoadSession, IsPrimaryWindow, NewWindow, StartDir, Notify } from '../wailsjs/go/main/App'
+import { Settings, SaveSettings, ShowProblemLog, ShellName, HomeDir, Quit, Version, GPUOff, SetWindowOpacity, SaveSession, LoadSession, IsPrimaryWindow, NewWindow, StartDir, Notify } from '../wailsjs/go/main/App'
 import { EventsOn, WindowSetTitle } from '../wailsjs/runtime/runtime'
 import type { settings } from '../wailsjs/go/models'
 import { Tab, setGpuOff, type SavedTab } from './tab'
@@ -12,6 +12,7 @@ import { AIPanel, CommandBar } from './ai'
 import { SettingsView } from './settingsView'
 import { Updater } from './updater'
 import { showDiagnostics, logWindowErrors } from './diagnostics'
+import { Palette } from './palette'
 import { loadProviders, providerInfo, modelOf } from './providers'
 import { el, isMac, toast, duration } from './util'
 
@@ -72,6 +73,22 @@ const settingsView = new SettingsView({
   closed: () => active?.term.focus(),
   checkUpdates: () => void updater.check(true),
   runInNewTab: (cmd) => void runInNewTab(cmd),
+  diagnostics: () => void showDiagnostics(() => active?.term.focus()),
+})
+
+const palette = new Palette({
+  run: (cmd) => runMenu(cmd),
+  settings: () => cfg,
+  save: async (s) => {
+    try {
+      applySettings(await SaveSettings(s))
+    } catch (err) {
+      toast(String(err), 'error')
+    }
+  },
+  openSettings: (page, find) => void settingsView.open(page, find),
+  tabs: () => tabs.map((t) => ({ title: t.title, detail: t.prettyCwd, go: () => activate(t) })),
+  focus: () => active?.term.focus(),
 })
 
 /** Opens a tab and runs a command in it once the shell is ready. */
@@ -315,6 +332,8 @@ function runMenu(cmd: string) {
   if (cmd.startsWith('toast:')) return toast(cmd.slice(6), 'error')
   switch (cmd) {
     case 'about': return void about()
+    case 'palette': return palette.open()
+    case 'showLog': return void ShowProblemLog()
     case 'diagnostics': return void showDiagnostics(() => active?.term.focus())
     case 'checkUpdates': return void updater.check(true)
     case 'revertUpdate': return void updater.offerRevert()
@@ -375,6 +394,7 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowUp' && e.shiftKey) cmd = 'prevCommand'
   if (e.key === 'ArrowDown' && e.shiftKey) cmd = 'nextCommand'
   if (e.key === 'e' && e.shiftKey) cmd = 'aiExplainLast'
+  if (e.key.toLowerCase() === 'p' && e.shiftKey) cmd = 'palette'
   if (cmd) {
     e.preventDefault()
     e.stopPropagation() // xterm.js must not handle it a second time
