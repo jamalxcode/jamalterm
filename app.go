@@ -19,6 +19,7 @@ import (
 	"jamalterm/internal/settings"
 	"jamalterm/internal/shell"
 	"jamalterm/internal/update"
+	"jamalterm/internal/winstate"
 )
 
 // Events sent to the frontend.
@@ -79,13 +80,13 @@ type App struct {
 
 	// Windows (windows.go): which window owns each tab and AI question,
 	// each window's saved tabs, and what new windows start with.
-	nextWin     int
-	owner       map[int]string    // tab id → window name
-	aiOwner     map[string]string // AI request id → window name
-	winSessions map[string]string // window name → its tabs (JSON)
-	restoreFor  map[string]string // window name → tabs to reopen
-	startDirs   map[string]string // window name → first tab's folder
-	quitting    bool
+	nextWin    int
+	owner      map[int]string     // tab id → window name
+	aiOwner    map[string]string  // AI request id → window name
+	saved      *winstate.Sessions // each window's saved tabs
+	restoreFor map[string]string  // window name → tabs to reopen
+	startDirs  map[string]string  // window name → first tab's folder
+	quitting   bool
 
 	// Safety (safety.go).
 	quitOK     bool            // you agreed to quit with programs running
@@ -113,7 +114,7 @@ func NewApp() *App {
 		providerItems: map[string]*application.MenuItem{},
 		owner:         map[int]string{},
 		aiOwner:       map[string]string{},
-		winSessions:   map[string]string{},
+		saved:         winstate.New(),
 		restoreFor:    map[string]string{},
 		startDirs:     map[string]string{},
 		closeOK:       map[string]bool{},

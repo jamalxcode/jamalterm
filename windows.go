@@ -1,12 +1,11 @@
 package main
 
 import (
+	"jamalterm/internal/winstate"
+
 	"context"
-	"encoding/json"
-	"fmt"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -69,10 +68,7 @@ func (a *App) windows() []application.Window {
 	return out
 }
 
-func winNum(name string) int {
-	n, _ := strconv.Atoi(strings.TrimPrefix(name, "jt-"))
-	return n
-}
+func winNum(name string) int { return winstate.Num(name) }
 
 // cycleWindows brings the next window to the front (⌘`).
 func (a *App) cycleWindows() {
@@ -97,7 +93,7 @@ func (a *App) cycleWindows() {
 func (a *App) openWindow(startDir, restore string, cascade int) application.Window {
 	a.mu.Lock()
 	a.nextWin++
-	name := fmt.Sprintf("jt-%d", a.nextWin)
+	name := winstate.Name(a.nextWin)
 	a.startDirs[name] = startDir
 	if restore != "" {
 		a.restoreFor[name] = restore
@@ -175,7 +171,7 @@ func (a *App) windowClosing(name string) {
 			ids = append(ids, id)
 		}
 	}
-	delete(a.winSessions, name)
+	a.saved.Drop(name)
 	delete(a.startDirs, name)
 	delete(a.restoreFor, name)
 	a.mu.Unlock()
@@ -250,30 +246,15 @@ func (a *App) CloseWindow(ctx context.Context) {
 
 // ---- Session: every window's tabs, restored after a restart -----------------
 
-// sessionFile format: {"version":3,"windows":[<window JSON>, …]}. Older
-// versions held one window's JSON directly.
-type sessionFileV3 struct {
-	Version int               `json:"version"`
-	Windows []json.RawMessage `json:"windows"`
-}
-
 func (a *App) loadSessions() []string {
 	if !a.primary || !a.Settings().RestoreSession {
 		return nil
 	}
 	data, err := os.ReadFile(a.sessionFile())
-	if err != nil || len(data) == 0 {
+	if err != nil {
 		return nil
 	}
-	var f sessionFileV3
-	if json.Unmarshal(data, &f) == nil && f.Version >= 3 {
-		var out []string
-		for _, w := range f.Windows {
-			out = append(out, string(w))
-		}
-		return out
-	}
-	return []string{string(data)} // one window, from 2.x
+	return winstate.Decode(data)
 }
 
 // IsPrimaryWindow: this copy of jamalterm restores and saves tabs (a second
@@ -287,12 +268,9 @@ func (a *App) SaveSession(ctx context.Context, data string) error {
 	if !a.primary || w == nil {
 		return nil
 	}
-	if !json.Valid([]byte(data)) {
-		return a.problem("session", fmt.Errorf("window sent tabs that aren't valid JSON"))
+	if err := a.saved.Set(w.Name(), data); err != nil {
+		return a.problem("session", err)
 	}
-	a.mu.Lock()
-	a.winSessions[w.Name()] = data
-	a.mu.Unlock()
 	return a.writeSessions()
 }
 
@@ -300,21 +278,7 @@ func (a *App) writeSessions() error {
 	if !a.primary {
 		return nil
 	}
-	a.mu.Lock()
-	names := make([]string, 0, len(a.winSessions))
-	for n := range a.winSessions {
-		names = append(names, n)
-	}
-	sort.Slice(names, func(i, j int) bool { return winNum(names[i]) < winNum(names[j]) })
-	f := sessionFileV3{Version: 3}
-	for _, n := range names {
-		f.Windows = append(f.Windows, json.RawMessage(a.winSessions[n]))
-	}
-	a.mu.Unlock()
-	data, err := json.Marshal(f)
-	if err != nil {
-		return a.problem("session", err)
-	}
+	data := a.saved.Encode()
 	tmp := a.sessionFile() + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return a.problem("session", err)
@@ -334,15 +298,13 @@ func (a *App) LoadSession(ctx context.Context) string {
 	delete(a.restoreFor, w.Name())
 	if !ok {
 		// A reloaded window: its latest layout (its tabs reattach).
-		s = a.winSessions[w.Name()]
+		s = a.saved.Get(w.Name())
 	}
 	return s
 }
 
 // ForgetSession deletes saved tabs and output (Settings → Privacy).
 func (a *App) ForgetSession() {
-	a.mu.Lock()
-	a.winSessions = map[string]string{}
-	a.mu.Unlock()
+	a.saved.Clear()
 	os.Remove(a.sessionFile())
 }
