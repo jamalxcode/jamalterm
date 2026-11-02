@@ -9,7 +9,7 @@
    (Or: try to open it, then go to System Settings → Privacy & Security → **Open Anyway**.)
 4. For AI features, add your Claude API key in jamalterm → Settings (⌘,).
 
-Works on Apple silicon and Intel Macs, macOS 10.15 or later.
+Works on Apple silicon and Intel Macs, macOS 12 (Monterey) or later.
 
 ## What's inside
 
