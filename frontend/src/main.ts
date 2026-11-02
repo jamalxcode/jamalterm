@@ -668,25 +668,34 @@ document.getElementById('ai-button')!.addEventListener('click', () => runMenu('a
 
 // ---- Start --------------------------------------------------------------------
 
+/** When each part of starting up finished (ms since the page began loading). */
+export const bootTimes: Record<string, number> = {}
+
 async function boot() {
   // Tab numbers are unique across windows.
   nextId = (await WindowID()) * 100000 + 1
-  await loadProviders()
-  cfg = await Settings()
+  const mark = (name: string) => (bootTimes[name] = Math.round(performance.now()))
+  ;[cfg, shellName, home] = await Promise.all([Settings(), ShellName(), HomeDir(), loadProviders()]) as [Prefs, string, string, void]
   applySettings(cfg)
-  ;[shellName, home] = await Promise.all([ShellName(), HomeDir()])
   setGpuOff(await GPUOff())
-  // Wait for the font so the character grid is measured correctly.
+  mark('settings')
+  // Wait for the text font so the character grid is measured correctly.
   await Promise.all([
     document.fonts.load(`${cfg.fontSize}px "JetBrains Mono"`),
     document.fonts.load(`bold ${cfg.fontSize}px "JetBrains Mono"`),
-    // Load the icon font before the terminal caches any glyphs.
-    document.fonts.load(`${cfg.fontSize}px "Symbols Nerd Font Mono"`, '\ue0b0\uf07b'),
   ]).catch(() => undefined)
-  await document.fonts.ready
+  mark('fonts')
+  // The icon font (Nerd Font symbols) is big: don't wait for it. When it
+  // arrives, redraw so icons drawn meanwhile get the right glyphs.
+  void document.fonts.load(`${cfg.fontSize}px "Symbols Nerd Font Mono"`, '\ue0b0\uf07b').then(() => {
+    mark('iconFont')
+    for (const t of tabs) t.redrawGlyphs()
+  }).catch(() => undefined)
   if (!(await reattach()) && !(await restoreSession())) newTab(await StartDir())
+  mark('tabs')
   if (await SmokeMode()) {
     void runSmoke({
+      bootTimes,
       active: () => active,
       tabCount: () => groups.length,
       paneCount: () => groupOf(active)?.count ?? 0,

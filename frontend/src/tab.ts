@@ -409,6 +409,16 @@ export class Tab {
     }
   }
 
+  /** A font finished loading: draw the glyphs again. */
+  redrawGlyphs() {
+    try {
+      this.term.clearTextureAtlas()
+    } catch {
+      /* DOM renderer: nothing cached */
+    }
+    this.term.refresh(0, this.term.rows - 1)
+  }
+
   // ---- Which machine this tab is on ---------------------------------------------
 
   /** The host from the first OSC 7 (this Mac), and the latest one. */

@@ -18,8 +18,12 @@ import (
 
 func smokeDir() string { return os.Getenv("JAMALTERM_SMOKE") }
 
-// SmokeMode: the window should run the self-test.
-func (a *App) SmokeMode() bool { return smokeDir() != "" }
+// SmokeMode: the calling window should run the self-test (only the first
+// window does; the test opens a second one).
+func (a *App) SmokeMode(ctx context.Context) bool {
+	w := winOf(ctx)
+	return smokeDir() != "" && w != nil && winNum(w.Name()) == 1
+}
 
 // SmokeShot saves a screenshot of the screen as <name>.png.
 func (a *App) SmokeShot(name string) string {

@@ -53,9 +53,18 @@ lines = ["## Smoke test on macOS", "",
          "| Step | Result | ms | Detail |", "|---|---|---|---|"]
 for s in r["steps"]:
     lines.append(f"| {s['name']} | {mark[s['ok']]} | {s['ms']} | {s.get('detail', '')} |")
+boot = r.get("boot") or {}
+if boot:
+    lines += ["", "Start-up (ms since the page began loading): " + " · ".join(f"{k} {v}" for k, v in boot.items())]
+# Loose limits: they catch big slowdowns, not noise.
+slow = []
+if (r.get("launchMs") or 0) > 20000: slow.append(f"launch took {r['launchMs']} ms (limit 20000)")
+if (r.get("seqMs") or 0) > 15000: slow.append(f"200,000 lines took {r['seqMs']} ms (limit 15000)")
+for m in slow:
+    lines.append(f"\n❌ Too slow: {m}")
 summary = "\n".join(lines)
 print(summary)
 if os.environ.get("GITHUB_STEP_SUMMARY"):
     open(os.environ["GITHUB_STEP_SUMMARY"], "a").write(summary + "\n")
-sys.exit(0 if r.get("ok") else 1)
+sys.exit(0 if r.get("ok") and not slow else 1)
 PY

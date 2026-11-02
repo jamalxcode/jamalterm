@@ -513,3 +513,24 @@ test('ligatures setting draws without the GPU', async () => {
   assert.equal(await page.locator('.pane.focused.ligatures').count(), 1)
   await page.close()
 })
+
+test('benchmark: 20 MB of output is drawn and acknowledged', async () => {
+  const page = await open()
+  const ms = await page.evaluate(async () => {
+    const id = Number(Object.keys(window.__fake.shells)[0])
+    const line = 'x'.repeat(99) + '\r\n'
+    const chunk = btoa(line.repeat(2000)) // ~200 KB
+    const bytes = line.length * 2000 * 100
+    const acked = () => window.__calls.filter((c) => c[0] === 'Ack').reduce((n, c) => n + c[2], 0)
+    const start = acked()
+    const t0 = performance.now()
+    for (let i = 0; i < 100; i++) window.__emit('pty:data', { id, data: chunk })
+    while (acked() - start < bytes) await new Promise((r) => setTimeout(r, 20))
+    return Math.round(performance.now() - t0)
+  })
+  const note = `Output speed (Chromium, fake shell): 20 MB drawn in ${ms} ms (${Math.round(20000 / ms)} MB/s)`
+  console.log(note)
+  if (process.env.GITHUB_STEP_SUMMARY) await import('node:fs').then((fs) => fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Benchmark\n\n${note}\n`))
+  assert.ok(ms < 60000, `took ${ms} ms`)
+  await page.close()
+})

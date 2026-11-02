@@ -5,6 +5,7 @@ import type { Tab } from './tab'
 import { SmokeShot, SmokeWaitKeys, SmokeReport, WindowCount, SetWindowOpacity } from './backend'
 
 export interface SmokeHost {
+  bootTimes: Record<string, number>
   active(): Tab | undefined
   tabCount(): number
   paneCount(): number
@@ -46,6 +47,9 @@ export async function runSmoke(h: SmokeHost) {
     steps.push({ name, ok, ms: Math.round(performance.now() - t0), detail })
   }
   const shot = async (name: string) => {
+    // Let the screen catch up before capturing it.
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+    await sleep(600)
     const err = await SmokeShot(name)
     if (err) steps.push({ name: `screenshot ${name}`, ok: false, ms: 0, detail: err })
   }
@@ -133,7 +137,7 @@ export async function runSmoke(h: SmokeHost) {
 
   await SmokeReport(JSON.stringify({
     ok: steps.every((s) => s.ok !== false),
-    launchMs, seqMs, steps,
+    launchMs, seqMs, steps, boot: h.bootTimes,
     userAgent: navigator.userAgent,
   }))
 }

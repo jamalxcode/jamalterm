@@ -414,7 +414,8 @@ export function SignInOpenRouter(): $CancellablePromise<void> {
 }
 
 /**
- * SmokeMode: the window should run the self-test.
+ * SmokeMode: the calling window should run the self-test (only the first
+ * window does; the test opens a second one).
  */
 export function SmokeMode(): $CancellablePromise<boolean> {
     return $Call.ByID(1690245685);
