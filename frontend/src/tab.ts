@@ -10,26 +10,13 @@ import { ClipboardAddon, type ClipboardSelectionType } from '@xterm/addon-clipbo
 import { ImageAddon } from '@xterm/addon-image'
 
 import { Start, Attach, Write, Resize, CloseTab, OpenURL, GitBranch, Ack, ResolvePath, OpenPath } from './backend'
-import { type Theme, bgAt } from './themes'
+import { type Theme } from './themes'
+import { shellQuote, once, fontStack, termTheme, guessCommand, sshTarget } from './termtext'
+import { renderOverlay, dotLine } from './overlay'
+export { fontStack, guessCommand, sshTarget, hostMatches } from './termtext'
 import { b64ToBytes, b64ToText, el, escapeHtml, toast, copyText, duration, relTime } from './util'
 import type { Settings } from './types'
 
-function shellQuote(s: string): string {
-  return `'${s.replace(/'/g, `'\\''`)}'`
-}
-
-/** True the first time it's called for a key (remembered per Mac). */
-function once(key: string): boolean {
-  try {
-    if (localStorage.getItem(key)) return false
-    localStorage.setItem(key, '1')
-  } catch {
-    /* private mode: show it */
-  }
-  return true
-}
-
-/** A tab as saved in session.json. */
 export interface SavedTab {
   /** The tab's number, so a reloaded window can reattach to its shell. */
   id?: number
@@ -60,27 +47,6 @@ export interface TabHooks {
   home(): string
   /** Something was typed in this tab (for broadcasting to other panes). */
   onInput?(tab: Tab, data: string): void
-}
-
-/** Adds the bundled Nerd Font icons as a fallback to any font. */
-export function fontStack(family: string): string {
-  const sym = '"Symbols Nerd Font Mono"'
-  if (family.includes(sym)) return family
-  const parts = family.split(',').map((p) => p.trim()).filter(Boolean)
-  const generic = parts.length && /^(monospace|ui-monospace)$/.test(parts[parts.length - 1]) ? parts.pop()! : 'monospace'
-  return [...parts, sym, generic].join(', ')
-}
-
-function termTheme(theme: Theme, opacity = 100) {
-  return {
-    ...theme.colors,
-    // See-through: the terminal draws no background of its own (the area
-    // behind it is tinted once); alpha 0 keeps the RGB for reverse video.
-    background: opacity < 100 ? bgAt(theme, 0.0) : theme.colors.background,
-    scrollbarSliderBackground: theme.light ? '#00000022' : '#ffffff22',
-    scrollbarSliderHoverBackground: theme.light ? '#00000044' : '#ffffff44',
-    scrollbarSliderActiveBackground: theme.light ? '#00000055' : '#ffffff55',
-  }
 }
 
 interface BrowseState {
@@ -794,7 +760,7 @@ export class Tab {
     const buf = this.term.buffer.active
     if (row === undefined) {
       const last = this.lastFinished ?? this.liveBlocks()[this.liveBlocks().length - 1]
-      row = last ? this.dotLine(last) : Math.max(0, buf.baseY + buf.cursorY - 1)
+      row = last ? dotLine(this, last) : Math.max(0, buf.baseY + buf.cursorY - 1)
     }
     this.browse = { active: true, row: this.clampRow(row), col: Math.max(0, col), confirm: null }
     this.term.clearSelection()
@@ -841,12 +807,12 @@ export class Tab {
     const idx = cur ? live.indexOf(cur) : -1
     let target: Block | undefined
     if (dir < 0) {
-      if (cur && this.browse.row > this.dotLine(cur)) target = cur
+      if (cur && this.browse.row > dotLine(this, cur)) target = cur
       else target = idx > 0 ? live[idx - 1] : idx === -1 ? [...live].reverse().find((b) => b.prompt.line < this.browse.row) : undefined
     } else {
       target = idx >= 0 ? live[idx + 1] : live.find((b) => b.prompt.line > this.browse.row)
     }
-    if (target) this.moveTo(this.dotLine(target), 0)
+    if (target) this.moveTo(dotLine(this, target), 0)
     else if (dir > 0) this.exitBrowse()
   }
 
@@ -1088,7 +1054,7 @@ export class Tab {
     })
   }
 
-  private geometry() {
+  geometry() {
     const screen = this.host.querySelector('.xterm-screen') as HTMLElement | null
     if (!screen) return null
     const sr = screen.getBoundingClientRect()
@@ -1105,126 +1071,13 @@ export class Tab {
     return { row: this.term.buffer.active.viewportY + r, col: Math.min(col, this.term.cols - 1) }
   }
 
-  // ---- Overlay: gutter dots and the browse cursor ------------------------------
-
-  /** The first line of a block that has text (prompts often start with a blank line). */
-  private dotLine(b: Block): number {
-    const last = b.start && !b.start.isDisposed ? b.start.line - 1 : b.prompt.line + 3
-    for (let i = b.prompt.line; i <= last; i++) if (this.lineText(i).trim()) return i
-    return b.prompt.line
-  }
+  // ---- Overlay: gutter dots and the browse cursor (overlay.ts) ----------------
 
   scheduleOverlay() {
     if (this.overlayFrame) return
     this.overlayFrame = requestAnimationFrame(() => {
       this.overlayFrame = 0
-      this.renderOverlay()
+      this.overlayKey = renderOverlay(this, this.overlayKey, (b) => this.hooks.onExplain(this, b))
     })
   }
-
-  private renderOverlay() {
-    const g = this.geometry()
-    if (!g || !g.ch) return
-    const vy = this.term.buffer.active.viewportY
-    const rows = this.term.rows
-    const alt = this.term.buffer.active.type === 'alternate'
-    const visible = alt ? [] : this.liveBlocks().filter((b) => b.prompt.line >= vy - 200 && b.prompt.line < vy + rows)
-    const br = this.browse
-    const key = [
-      vy, rows, g.left, g.top, g.ch, g.cw,
-      visible.map((b) => `${b.id}:${b.prompt.line}:${b.end ? b.exitCode : 'r'}`).join(','),
-      br.active ? `${br.row}:${br.col}:${br.confirm?.id ?? ''}` : '',
-    ].join('|')
-    if (key === this.overlayKey) return
-    this.overlayKey = key
-    this.overlay.textContent = ''
-
-    const y = (line: number) => g.top + (line - vy) * g.ch
-
-    if (br.active) {
-      const block = this.blockAt(br.row)
-      if (block) {
-        const from = Math.max(block.prompt.line, vy)
-        const to = Math.min(this.blockEnd(block), vy + rows - 1)
-        if (to >= from) {
-          const hl = el('div', { class: 'block-hl' + (block.end && block.exitCode !== 0 ? ' bad' : '') })
-          hl.style.top = `${y(from)}px`
-          hl.style.height = `${(to - from + 1) * g.ch}px`
-          hl.style.left = `${g.left - 6}px`
-          hl.style.width = `${g.cw * this.term.cols + 8}px`
-          this.overlay.append(hl)
-        }
-      }
-      if (br.row >= vy && br.row < vy + rows) {
-        const line = el('div', { class: 'line-hl' })
-        line.style.top = `${y(br.row)}px`
-        line.style.height = `${g.ch}px`
-        line.style.left = `${g.left - 6}px`
-        line.style.width = `${g.cw * this.term.cols + 8}px`
-        const cur = el('div', { class: 'float-cursor' })
-        cur.style.top = `${y(br.row)}px`
-        cur.style.left = `${g.left + br.col * g.cw}px`
-        cur.style.width = `${g.cw}px`
-        cur.style.height = `${g.ch}px`
-        this.overlay.append(line, cur)
-      }
-    }
-
-    for (const b of visible) {
-      const line = this.dotLine(b)
-      if (line < vy || line >= vy + rows) continue
-      const state = !b.end ? 'run' : b.exitCode === 0 ? 'ok' : 'bad'
-      // Shapes as well as colors: ring = OK, ✕ = failed, spinner = running.
-      const dot = el('button', { class: `dot ${state}` }, state === 'bad' ? '✕' : '')
-      dot.style.top = `${y(line) + g.ch / 2 - 4}px`
-      dot.style.left = `${Math.max(2, g.left - 12)}px`
-      const took = b.finishedAt && b.startedAt ? ` · took ${duration(b.finishedAt - b.startedAt)}` : ''
-      dot.title =
-        state === 'bad'
-          ? `${b.command}\nFailed with exit ${b.exitCode}${took}\nClick to ask Claude why`
-          : `${b.command}\n${state === 'run' ? 'Running' : 'OK'}${took}\nClick to select`
-      dot.addEventListener('click', (e) => {
-        e.stopPropagation()
-        if (state === 'bad') this.hooks.onExplain(this, b)
-        else this.enterBrowse(line, 0)
-      })
-      this.overlay.append(dot)
-    }
-  }
-}
-
-/** The command on a line that looks like a shell prompt ("user@host:~$ ls",
- * "% make", "❯ git status"), or "" if it doesn't look like one. */
-export function guessCommand(line: string): string {
-  const m = /^(?:\S.{0,80}?)?[$%#❯›»➜λ]\s+(\S.*)$/u.exec(line.trimEnd())
-  if (!m) return ''
-  const cmd = m[1].trim()
-  // Not a prompt: "Total: 15 $ 20", "# comment", prices…
-  if (/^[\d.,]+\b/.test(cmd) || cmd.length > 500) return ''
-  return cmd
-}
-
-/** The machine an ssh command connects to: "ssh -p 22 me@prod-db ls" → "prod-db". */
-export function sshTarget(command: string): string {
-  const words = command.trim().split(/\s+/)
-  if (words[0] === 'sudo') words.shift()
-  if (!/(^|\/)(ssh|mosh|autossh)$/.test(words[0] ?? '')) return ''
-  const withArg = new Set(['-b', '-c', '-D', '-E', '-e', '-F', '-I', '-i', '-J', '-L', '-l', '-m', '-O', '-o', '-p', '-Q', '-R', '-S', '-W', '-w', '--ssh', '--port'])
-  for (let i = 1; i < words.length; i++) {
-    const w = words[i]
-    if (w.startsWith('-')) {
-      if (withArg.has(w)) i++
-      continue
-    }
-    return w.replace(/^[^@]*@/, '').replace(/:.*$/, '')
-  }
-  return ''
-}
-
-/** Does host match a pattern like "prod-*, *.example.com"? */
-export function hostMatches(host: string, pattern: string): boolean {
-  return pattern.split(',').map((p) => p.trim()).filter(Boolean).some((p) => {
-    const re = new RegExp('^' + p.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$', 'i')
-    return re.test(host)
-  })
 }

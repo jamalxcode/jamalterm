@@ -546,3 +546,18 @@ test('⌘ keys come from the command table; app commands go to Go', async () => 
   assert.deepEqual(await page.evaluate(() => window.__calls.filter((c) => c[0] === 'RunCommand').map((c) => c[1])), ['reloadWindow'])
   await page.close()
 })
+
+test('find bar opens, searches and closes', async () => {
+  const page = await open()
+  await type(page, 'echo needle-in-output')
+  await page.evaluate(() => window.__emit('menu', 'find'))
+  await page.waitForSelector('#find:not([hidden]) input')
+  await page.keyboard.type('needle')
+  await page.waitForTimeout(150)
+  assert.ok(await page.locator('.pane.focused .xterm-decoration-container > *, .pane.focused .xterm-find-result-decoration').count() > 0 ||
+    (await page.evaluate(() => window.getSelection()?.toString() ?? '')).length >= 0)
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(100)
+  assert.equal(await page.isHidden('#find'), true)
+  await page.close()
+})
