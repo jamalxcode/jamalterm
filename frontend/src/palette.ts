@@ -1,15 +1,15 @@
 // The command palette (⇧⌘P): type a few letters of any action, setting,
 // theme, assistant or tab and press ⏎.
-import type { settings } from '../wailsjs/go/models'
 import { themes } from './themes'
 import { providers } from './providers'
 import type { SettingsPage } from './settingsView'
 import { el, isMac } from './util'
+import type { Settings } from './types'
 
 export interface PaletteHost {
   run(cmd: string): void // a menu command (main.ts runMenu)
-  settings(): settings.Settings
-  save(s: settings.Settings): Promise<void>
+  settings(): Settings
+  save(s: Settings): Promise<void>
   openSettings(page: SettingsPage, find?: string): void
   tabs(): { title: string; detail: string; go(): void }[]
   focus(): void
@@ -61,7 +61,7 @@ export const actions: [string, string, string][] = [
   ['about', 'About jamalterm and Keyboard Shortcuts', ''],
 ]
 
-type Bool = { [K in keyof settings.Settings]: settings.Settings[K] extends boolean ? K : never }[keyof settings.Settings]
+type Bool = { [K in keyof Settings]: Settings[K] extends boolean ? K : never }[keyof Settings]
 
 /** Settings you can flip from the palette: [field, label, page]. */
 export const toggles: [Bool, string, SettingsPage][] = [
@@ -157,16 +157,16 @@ export class Palette {
     const cfg = h.settings()
     const out: PaletteItem[] = actions.map(([cmd, title, keys]) => ({ title, group: 'Action', keys: keys && k(keys), run: () => h.run(cmd) }))
     for (const p of providers) {
-      out.push({ title: `Use ${p.name}`, group: 'AI', detail: cfg.aiProvider === p.id ? 'in use' : p.company, run: () => void h.save({ ...cfg, aiProvider: p.id } as settings.Settings) })
+      out.push({ title: `Use ${p.name}`, group: 'AI', detail: cfg.aiProvider === p.id ? 'in use' : p.company, run: () => void h.save({ ...cfg, aiProvider: p.id } as Settings) })
     }
     for (const th of themes) {
-      out.push({ title: `Theme: ${th.name}`, group: 'Theme', detail: cfg.theme === th.id ? 'in use' : '', run: () => void h.save({ ...cfg, theme: th.id } as settings.Settings) })
+      out.push({ title: `Theme: ${th.name}`, group: 'Theme', detail: cfg.theme === th.id ? 'in use' : '', run: () => void h.save({ ...cfg, theme: th.id } as Settings) })
     }
     for (const [field, label, page] of toggles) {
       const on = Boolean(cfg[field])
       out.push({
         title: `${on ? 'Turn off' : 'Turn on'}: ${label}`, group: 'Setting', detail: `now ${on ? 'on' : 'off'}`,
-        run: () => void h.save({ ...cfg, [field]: !on } as settings.Settings),
+        run: () => void h.save({ ...cfg, [field]: !on } as Settings),
       })
       out.push({ title: `Settings → ${label}`, group: 'Setting', run: () => h.openSettings(page, label) })
     }

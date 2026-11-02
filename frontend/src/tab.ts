@@ -9,9 +9,9 @@ import { ClipboardAddon, type ClipboardSelectionType } from '@xterm/addon-clipbo
 import { ImageAddon } from '@xterm/addon-image'
 
 import { Start, Write, Resize, CloseTab, OpenURL, GitBranch, Ack, ResolvePath, OpenPath } from '../wailsjs/go/main/App'
-import type { settings } from '../wailsjs/go/models'
 import { type Theme, bgAt } from './themes'
 import { b64ToBytes, b64ToText, el, escapeHtml, toast, copyText, duration, relTime } from './util'
+import type { Settings } from './types'
 
 function shellQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`
@@ -52,7 +52,7 @@ export interface TabHooks {
   onChange(tab: Tab): void // title or state changed
   onExplain(tab: Tab, block: Block): void // "ask AI about this block"
   onCommandDone(tab: Tab, block: Block): void // for long-command notifications
-  settings(): settings.Settings
+  settings(): Settings
   shellName(): string
   home(): string
 }
@@ -315,7 +315,7 @@ export class Tab {
     this.scheduleOverlay()
   }
 
-  applySettings(s: settings.Settings, theme: Theme) {
+  applySettings(s: Settings, theme: Theme) {
     const o = this.term.options
     o.theme = termTheme(theme, s.opacity)
     o.fontFamily = fontStack(s.fontFamily)

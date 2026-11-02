@@ -1,14 +1,14 @@
 import { CheckForUpdate, InstallUpdate, OpenURL, Version, PreviousVersion, RevertUpdate } from '../wailsjs/go/main/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
-import type { main } from '../wailsjs/go/models'
 import { el, toast } from './util'
+import type { UpdateInfo } from './types'
 
 const SIX_HOURS = 6 * 60 * 60 * 1000
 
 /** The "a new version is available" card and the update flow. */
 export class Updater {
   private root = document.getElementById('update')!
-  private info: main.UpdateInfo | null = null
+  private info: UpdateInfo | null = null
   private busy = false
 
   constructor(private saveSession: () => Promise<void>) {

@@ -5,7 +5,6 @@ import './style.css'
 
 import { Settings, SaveSettings, ShowProblemLog, ShellName, HomeDir, Quit, Version, GPUOff, SetWindowOpacity, SaveSession, LoadSession, IsPrimaryWindow, NewWindow, StartDir, Notify } from '../wailsjs/go/main/App'
 import { EventsOn, WindowSetTitle } from '../wailsjs/runtime/runtime'
-import type { settings } from '../wailsjs/go/models'
 import { Tab, setGpuOff, type SavedTab } from './tab'
 import { themeById, applyChrome } from './themes'
 import { AIPanel, CommandBar } from './ai'
@@ -16,8 +15,9 @@ import { Palette } from './palette'
 import { Group, type Dir, type SavedNode, type PaneNode } from './panes'
 import { loadProviders, providerInfo, modelOf } from './providers'
 import { el, isMac, toast, duration } from './util'
+import type { Settings as Prefs } from './types'
 
-let cfg: settings.Settings
+let cfg: Prefs
 let shellName = 'shell'
 let home = ''
 // tabs: every terminal; groups: the tabs in the tab bar, each holding one
@@ -116,7 +116,7 @@ function aiReady(): boolean {
 // ---- Settings -------------------------------------------------------------------
 
 
-function applySettings(s: settings.Settings) {
+function applySettings(s: Prefs) {
   const switched = cfg && cfg.aiProvider !== s.aiProvider
   cfg = s
   if (switched) {
@@ -510,7 +510,7 @@ EventsOn('pty:data', (e: { id: number; data: string }) => {
   sessionDirty = true
 })
 EventsOn('pty:exit', (e: { id: number; code: number }) => tabs.find((t) => t.id === e.id)?.onExit(e.code))
-EventsOn('settings:changed', (s: settings.Settings) => applySettings(s))
+EventsOn('settings:changed', (s: Prefs) => applySettings(s))
 
 window.addEventListener('resize', () => requestAnimationFrame(() => active?.refit()))
 document.getElementById('ai-button')!.addEventListener('click', () => runMenu('aiPanel'))

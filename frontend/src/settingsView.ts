@@ -1,8 +1,8 @@
 import { SaveSettings, SetAPIKey, HasSavedAPIKey, AnthropicAccount, BlurActive, ForgetSession, SetProviderKey, HasSavedProviderKey, ListProviderModels, SignInOpenRouter, ShowProblemLog } from '../wailsjs/go/main/App'
-import { settings } from '../wailsjs/go/models'
 import { themes } from './themes'
 import { providers, providerInfo, modelOf, setModelOf } from './providers'
 import { el, toast, SIGN_IN_COMMAND, SIGN_OUT_COMMAND } from './util'
+import type { Settings } from './types'
 
 const fonts = [
   ['"JetBrains Mono", monospace', 'JetBrains Mono (built in)'],
@@ -20,9 +20,9 @@ const models = [
 ]
 
 export interface SettingsHost {
-  current(): settings.Settings
-  preview(s: settings.Settings): void // live preview while the window is open
-  saved(s: settings.Settings): void
+  current(): Settings
+  preview(s: Settings): void // live preview while the window is open
+  saved(s: Settings): void
   closed(): void
   checkUpdates(): void
   runInNewTab(command: string): void
@@ -41,7 +41,7 @@ export type SettingsPage = (typeof settingsPages)[number][0]
 
 export class SettingsView {
   private root = document.getElementById('settings')!
-  private before: settings.Settings | null = null
+  private before: Settings | null = null
   private page: SettingsPage = 'appearance'
 
   constructor(private host: SettingsHost) {
@@ -62,8 +62,8 @@ export class SettingsView {
       return
     }
     if (page) this.page = page
-    const s = settings.Settings.createFrom(this.host.current())
-    this.before = settings.Settings.createFrom(s)
+    const s = { ...this.host.current() }
+    this.before = { ...s }
     const account = await AnthropicAccount()
     const savedKey = await HasSavedAPIKey()
     this.root.textContent = ''
