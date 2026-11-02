@@ -22,16 +22,16 @@ type Settings struct {
 	// shows through.
 	Opacity int `json:"opacity"`
 	// Blur what's behind a see-through window (macOS; applies on restart).
-	Blur        bool   `json:"blur"`
-	CursorBlink bool   `json:"cursorBlink"`
+	Blur        bool `json:"blur"`
+	CursorBlink bool `json:"cursorBlink"`
 	// Ligatures joins character pairs like => and != in fonts that have
 	// them (drawn without the GPU, a little slower).
 	Ligatures bool `json:"ligatures"`
 	// HostColors marks tabs connected to some machines (ssh) with a color
 	// and the machine's name, e.g. red for "prod-*".
 	HostColors []HostColor `json:"hostColors"`
-	Scrollback  int    `json:"scrollback"`
-	Shell       string `json:"shell"` // empty = your login shell
+	Scrollback int         `json:"scrollback"`
+	Shell      string      `json:"shell"` // empty = your login shell
 	// ShellIntegration lets jamalterm know where commands start and end.
 	// Browse mode and the AI features need it.
 	ShellIntegration bool `json:"shellIntegration"`

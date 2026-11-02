@@ -1,6 +1,9 @@
 package shell
 
-import "encoding/base64"
+import (
+	"encoding/base64"
+	"strings"
+)
 
 // RemoteSetup is one line to type into a bash or zsh on another machine
 // (over ssh) that turns on browse mode there for that session only. It
@@ -10,7 +13,14 @@ func RemoteSetup() string {
 	if err != nil {
 		return ""
 	}
-	b := base64.StdEncoding.EncodeToString(script)
+	// Comments don't need to travel.
+	var keep []string
+	for _, l := range strings.Split(string(script), "\n") {
+		if t := strings.TrimSpace(l); t != "" && !strings.HasPrefix(t, "#") {
+			keep = append(keep, l)
+		}
+	}
+	b := base64.StdEncoding.EncodeToString([]byte(strings.Join(keep, "\n") + "\n"))
 	// GNU base64 takes -d, older macOS -D.
 	return ` eval "$(printf '%s' '` + b + `' | { base64 -d 2>/dev/null || base64 -D; })"`
 }

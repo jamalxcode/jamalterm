@@ -13,6 +13,9 @@ func TestRemoteSetup(t *testing.T) {
 			c := &capture{}
 			exited := make(chan error, 1)
 			s := startShell(t, sh, c, exited)
+			// Like a person, type it at the prompt: before the shell's line
+			// editor is up, macOS cuts typed lines at 1024 bytes.
+			waitFor(t, c, "$ ")
 			line := RemoteSetup()
 			if !strings.HasPrefix(line, " eval ") || len(line) > 8000 {
 				t.Fatalf("odd setup line (%d bytes)", len(line))
