@@ -102,8 +102,20 @@ func fakeRelease(t *testing.T, content []byte, corruptSum bool) []byte {
 		fmt.Fprintf(w, `{"tag_name":"v9.9.9","body":"New stuff","html_url":"https://example/rel","assets":[
 		 {"name":"jamalterm-9.9.9.dmg","browser_download_url":"%[1]s/x.dmg"},
 		 {"name":"jamalterm-9.9.9-macos.zip","browser_download_url":"%[1]s/app.zip"},
+		 {"name":"jamalterm-9.9.9-macos.zip.sigstore.json","browser_download_url":"%[1]s/proof"},
 		 {"name":"SHA256SUMS.txt","browser_download_url":"%[1]s/sums"}]}`, srv.URL)
 	})
+	mux.HandleFunc("/proof", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("PROOF")) })
+	// The real Sigstore check is tested on the build machine
+	// (TestRealReleaseProvenance); here it only has to be called right.
+	old := verifyProvenance
+	verifyProvenance = func(_ context.Context, b []byte, sha string) error {
+		if string(b) != "PROOF" || sha != hex.EncodeToString(sum[:]) {
+			return fmt.Errorf("checked the wrong thing: %q %s", b, sha)
+		}
+		return nil
+	}
+	t.Cleanup(func() { verifyProvenance = old })
 	mux.HandleFunc("/app.zip", func(w http.ResponseWriter, r *http.Request) { w.Write(zipBytes) })
 	mux.HandleFunc("/sums", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "%s  jamalterm-9.9.9.dmg\n%s  jamalterm-9.9.9-macos.zip\n", hex.EncodeToString(make([]byte, 32)), sumHex)
@@ -275,5 +287,22 @@ func TestLatestInBetaChannel(t *testing.T) {
 	beta, err := LatestIn(context.Background(), true)
 	if err != nil || beta.Version != "3.1.0-beta.2" {
 		t.Fatalf("beta = %q, %v (drafts must be skipped)", beta.Version, err)
+	}
+}
+
+func TestReleaseWithoutProofIsRefused(t *testing.T) {
+	app := installedApp(t)
+	fakeRelease(t, []byte("new"), false)
+	rel, err := Latest(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel.bundleURL = ""
+	err = Install(context.Background(), rel, app, nil)
+	if err == nil || !strings.Contains(err.Error(), "no proof") {
+		t.Fatalf("got %v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(app, "Contents", "MacOS", "jamalterm")); !bytes.Equal(b, oldVersion) {
+		t.Fatal("the app was changed")
 	}
 }

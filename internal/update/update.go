@@ -245,6 +245,9 @@ func Install(ctx context.Context, rel Release, appPath string, progress Progress
 	if !strings.EqualFold(got, want) {
 		return errors.New("the download is damaged (checksum mismatch); nothing was changed")
 	}
+	if err := checkProvenance(ctx, rel, got); err != nil {
+		return err
+	}
 
 	if err := unzip(zipPath, stage); err != nil {
 		return fmt.Errorf("couldn't unpack the update: %w", err)
@@ -473,4 +476,37 @@ func Relaunch(appPath string) error {
 	cmd := exec.Command("/bin/sh", "-c", `sleep 1; /usr/bin/open -n "$0"`, appPath)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
 	return cmd.Start()
+}
+
+// RequireProvenance: only install releases that prove GitHub built them
+// from this repository (see provenance.go).
+var RequireProvenance = true
+
+// verifyProvenance is replaceable in tests.
+var verifyProvenance = VerifyProvenance
+
+func checkProvenance(ctx context.Context, rel Release, sha256Hex string) error {
+	if !RequireProvenance {
+		return nil
+	}
+	if rel.bundleURL == "" {
+		return errors.New("this release has no proof that GitHub built it, so it wasn't installed; nothing was changed. You can download it from the release page instead")
+	}
+	req, _ := http.NewRequestWithContext(ctx, "GET", rel.bundleURL, nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("couldn't get the build proof: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("couldn't get the build proof: %s", resp.Status)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return err
+	}
+	if err := verifyProvenance(ctx, data, sha256Hex); err != nil {
+		return fmt.Errorf("%v; nothing was changed", err)
+	}
+	return nil
 }

@@ -124,6 +124,7 @@ func NewApp() *App {
 	a.ctx = context.Background()
 	a.primary = a.takeInstanceLock()
 	update.KeepPreviousIn = filepath.Join(a.configDir(), "previous")
+	update.TrustCache = filepath.Join(a.configDir(), "sigstore")
 	var loadErr error
 	a.cfg, loadErr = store.Load()
 	a.log = diag.New(filepath.Join(filepath.Dir(store.Path()), "problems.log"))

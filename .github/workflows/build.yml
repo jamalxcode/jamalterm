@@ -17,7 +17,9 @@ on:
         default: false
 
 permissions:
-  contents: write # to publish releases for v* tags
+  contents: write     # to publish releases
+  id-token: write     # to prove each build came from this workflow (Sigstore)
+  attestations: write
 
 jobs:
   ui:
@@ -83,11 +85,16 @@ jobs:
       - name: Build jamalterm.app (Apple silicon + Intel)
         run: scripts/build-mac.sh "${{ steps.v.outputs.version }}"
 
-      - name: Sign (ad hoc)
-        # Not notarized: that needs a paid Apple Developer account.
+      - name: Sign
+        # Ad hoc unless signing secrets exist (scripts/sign-mac.sh explains).
+        env:
+          MAC_SIGNING_P12: ${{ secrets.MAC_SIGNING_P12 }}
+          MAC_SIGNING_PASSWORD: ${{ secrets.MAC_SIGNING_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          codesign --force --deep --sign - build/bin/jamalterm.app
-          codesign --verify --deep --strict build/bin/jamalterm.app
+          scripts/sign-mac.sh build/bin/jamalterm.app
           lipo -archs build/bin/jamalterm.app/Contents/MacOS/jamalterm
           /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" build/bin/jamalterm.app/Contents/Info.plist
 
@@ -111,12 +118,27 @@ jobs:
           ditto -c -k --keepParent build/bin/jamalterm.app "jamalterm-${{ steps.v.outputs.version }}-macos.zip"
           shasum -a 256 jamalterm-*.dmg jamalterm-*.zip | tee SHA256SUMS.txt
 
+      - name: Prove GitHub built it (Sigstore)
+        if: github.event_name != 'pull_request'
+        id: attest
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: jamalterm-${{ steps.v.outputs.version }}-macos.zip
+
+      - name: Check the proof the way the updater will
+        if: github.event_name != 'pull_request'
+        run: |
+          V="${{ steps.v.outputs.version }}"
+          cp "${{ steps.attest.outputs.bundle-path }}" "jamalterm-$V-macos.zip.sigstore.json"
+          go run ./cmd/verify-release "jamalterm-$V-macos.zip" "jamalterm-$V-macos.zip.sigstore.json" "jamalterm-$V.dmg"
+
       - uses: actions/upload-artifact@v4
         with:
           name: jamalterm-${{ steps.v.outputs.version }}
           path: |
             jamalterm-*.dmg
             jamalterm-*.zip
+            jamalterm-*.sigstore.json
             SHA256SUMS.txt
 
       - name: Publish release
@@ -132,5 +154,5 @@ jobs:
           NOTES=$(section "$V"); [[ -n "${NOTES//[[:space:]]/}" ]] || NOTES=$(section "${V%%-*}")
           PRE=""; [[ "${{ inputs.prerelease }}" == "true" ]] && PRE="--prerelease"
           { echo "## What's new"; echo; echo "$NOTES"; echo; cat .github/release-notes.md; } > notes.md
-          gh release create "$TAG" jamalterm-*.dmg jamalterm-*.zip SHA256SUMS.txt \
+          gh release create "$TAG" jamalterm-*.dmg jamalterm-*.zip jamalterm-*.sigstore.json SHA256SUMS.txt \
             --target "$GITHUB_SHA" --title "jamalterm $TAG" --notes-file notes.md $PRE
