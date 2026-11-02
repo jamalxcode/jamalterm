@@ -24,7 +24,22 @@ const (
 	ProviderXAI       = "xai"       // Grok by xAI (OpenAI-compatible API)
 	// OpenRouter: many models through one OpenAI-compatible API.
 	ProviderOpenRouter = "openrouter"
+	// Local: a model running on this Mac (Ollama, LM Studio…). No key,
+	// and nothing leaves the computer.
+	ProviderLocal = "local"
 )
+
+// LocalBaseURL is the local server's address (from Settings).
+var LocalBaseURL = func() string { return "http://localhost:11434/v1" }
+
+// Local servers people commonly run, for "Find" in Settings.
+var LocalServers = []struct{ Name, URL string }{
+	{"Ollama", "http://localhost:11434/v1"},
+	{"LM Studio", "http://localhost:1234/v1"},
+}
+
+// localKey: local servers don't check keys, but the API wants one.
+const localKey = "local"
 
 // ProviderInfo describes a provider for the UI.
 // This list is the only place assistants are described: the menu, the
@@ -44,6 +59,8 @@ type ProviderInfo struct {
 	AutoModel  string `json:"autoModel"`
 	// SignIn: "anthropic" or "openrouter" when a browser sign-in exists.
 	SignIn string `json:"signIn"`
+	// Local: runs on this Mac; no key, a server address instead.
+	Local bool `json:"local"`
 }
 
 var Providers = []ProviderInfo{
@@ -65,6 +82,10 @@ var Providers = []ProviderInfo{
 		KeyURL: "https://openrouter.ai/keys", KeyWhere: "openrouter.ai/keys", KeyHint: "sk-or-…",
 		Billing: "Billed to your OpenRouter credits.", ModelField: "openrouterModel",
 		AutoModel: "openrouter/auto (OpenRouter picks a model each time)", SignIn: "openrouter"},
+	{ID: ProviderLocal, Name: "Local", Label: "Local model on this Mac (Ollama, LM Studio)", Company: "your own computer",
+		KeyWhere: "Ollama (ollama.com) or LM Studio (lmstudio.ai)",
+		Billing:  "Free, and private: questions never leave this Mac.", ModelField: "localModel",
+		AutoModel: "the first model your local server lists", Local: true},
 }
 
 func providerName(id string) string {
@@ -79,6 +100,8 @@ func providerName(id string) string {
 // compatBase is the API address for an OpenAI-compatible provider.
 func compatBase(provider string) string {
 	switch provider {
+	case ProviderLocal:
+		return strings.TrimRight(LocalBaseURL(), "/")
 	case ProviderOpenRouter:
 		if b := os.Getenv("JAMALTERM_OPENROUTER_BASE_URL"); b != "" {
 			return b
@@ -113,9 +136,28 @@ func compatClient(provider, key string) openai.Client {
 	return openai.NewClient(opts...)
 }
 
+// ListLocalModels asks a local server at url which models it has.
+func ListLocalModels(ctx context.Context, url string) ([]string, error) {
+	client := openai.NewClient(oaioption.WithAPIKey(localKey), oaioption.WithBaseURL(strings.TrimRight(url, "/")))
+	page, err := client.Models.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, m := range page.Data {
+		if isChatModel(ProviderLocal, m.ID) {
+			out = append(out, m.ID)
+		}
+	}
+	return out, nil
+}
+
 // ListModels returns the chat models a provider offers to this key, newest
 // first.
 func ListModels(ctx context.Context, provider, key string) ([]string, error) {
+	if provider == ProviderLocal {
+		key = localKey
+	}
 	if key == "" {
 		return nil, errNoProviderKey(provider)
 	}
@@ -137,7 +179,7 @@ func ListModels(ctx context.Context, provider, key string) ([]string, error) {
 		}
 		page = next
 	}
-	if provider != ProviderOpenRouter { // OpenRouter lists hundreds of models from many makers: keep its order
+	if provider != ProviderOpenRouter && provider != ProviderLocal { // keep the server's own order
 		sort.SliceStable(out, func(i, j int) bool { return rankModel(out[i]) > rankModel(out[j]) })
 	}
 	return out, nil
@@ -238,6 +280,9 @@ var compatTool = openai.ChatCompletionFunctionTool(shared.FunctionDefinitionPara
 // with the same prompts and type_in_terminal tool as Claude.
 func (c *Client) askCompat(ctx context.Context, provider string, req Request, userText string, onDelta func(string), onTool ToolHandler) (string, error) {
 	key := c.keyFor(provider)
+	if provider == ProviderLocal {
+		key = localKey
+	}
 	if key == "" {
 		return "", errNoProviderKey(provider)
 	}
@@ -277,6 +322,11 @@ func (c *Client) askCompat(ctx context.Context, provider string, req Request, us
 			params.StreamOptions = openai.ChatCompletionStreamOptionsParam{IncludeUsage: openai.Bool(true)}
 		}
 		msg, reasoning, finish, usage, err := compatStream(ctx, client, params, onDelta)
+		if err != nil && provider == ProviderLocal && len(params.Tools) > 0 && toolsUnsupported(err) {
+			// Many local models can't use tools: answer without typing commands.
+			params.Tools = nil
+			msg, reasoning, finish, usage, err = compatStream(ctx, client, params, onDelta)
+		}
 		c.onUsage(req.ID, usage)
 		if err != nil {
 			return answer.String(), compatError(provider, err)
@@ -362,11 +412,33 @@ func compatStream(ctx context.Context, client openai.Client, params openai.ChatC
 	return ch.Message, reasoning.String(), string(ch.FinishReason), usage, nil
 }
 
+// toolsUnsupported: the model said it can't use tools (Ollama: "does not
+// support tools").
+func toolsUnsupported(err error) bool {
+	var apiErr *openai.Error
+	if errors.As(err, &apiErr) {
+		// Servers word it differently (Ollama, LM Studio, llama.cpp…); any
+		// "bad request" to a request with tools is worth one try without.
+		return apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 && apiErr.StatusCode != 404
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "tool")
+}
+
 func compatError(provider string, err error) error {
 	if errors.Is(err, context.Canceled) {
 		return err
 	}
 	name := providerName(provider)
+	if provider == ProviderLocal {
+		var apiErr *openai.Error
+		if errors.As(err, &apiErr) {
+			if apiErr.StatusCode == 404 {
+				return fmt.Errorf("your local server doesn't have that model; pick one in Settings (⌘,) → AI, or download it (e.g. ollama pull llama3.2)")
+			}
+			return fmt.Errorf("the local model server answered with error %d", apiErr.StatusCode)
+		}
+		return fmt.Errorf("no local model server at %s. Start Ollama or LM Studio (or change the address in Settings → AI)", compatBase(ProviderLocal))
+	}
 	var apiErr *openai.Error
 	if errors.As(err, &apiErr) {
 		switch apiErr.StatusCode {

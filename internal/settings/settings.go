@@ -71,6 +71,10 @@ type Settings struct {
 	DeepSeekModel   string `json:"deepseekModel"`
 	XAIModel        string `json:"xaiModel"`
 	OpenRouterModel string `json:"openrouterModel"`
+	// LocalURL is the local model server (Ollama, LM Studio…); LocalModel
+	// "" picks the first model it lists.
+	LocalURL   string `json:"localUrl"`
+	LocalModel string `json:"localModel"`
 	// AIShareOutput sends recent command output to Claude with questions.
 	AIShareOutput bool `json:"aiShareOutput"`
 }
@@ -102,6 +106,7 @@ func Defaults() Settings {
 		AIProvider:         "anthropic",
 		AIModel:            "claude-opus-5-5",
 		AIShareOutput:      true,
+		LocalURL:           "http://localhost:11434/v1",
 	}
 }
 
@@ -190,6 +195,9 @@ func (c Settings) normalized() Settings {
 	if c.FontFamily == "" {
 		c.FontFamily = d.FontFamily
 	}
+	if strings.TrimSpace(c.LocalURL) == "" {
+		c.LocalURL = d.LocalURL
+	}
 	if c.UpdateChannel != "beta" {
 		c.UpdateChannel = "stable"
 	}
@@ -197,7 +205,7 @@ func (c Settings) normalized() Settings {
 		c.PromptKeys = "emacs"
 	}
 	switch c.AIProvider {
-	case "anthropic", "openai", "deepseek", "xai", "openrouter":
+	case "anthropic", "openai", "deepseek", "xai", "openrouter", "local":
 	default:
 		c.AIProvider = d.AIProvider
 	}

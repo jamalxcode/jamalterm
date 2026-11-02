@@ -10,6 +10,15 @@ export interface BusyTab {
 }
 
 /**
+ * LocalServer is a model server found on this Mac.
+ */
+export interface LocalServer {
+    "name": string;
+    "url": string;
+    "models": string[] | null;
+}
+
+/**
  * UpdateInfo tells the frontend whether a newer jamalterm exists.
  */
 export interface UpdateInfo {

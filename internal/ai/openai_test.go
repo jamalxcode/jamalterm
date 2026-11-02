@@ -235,3 +235,67 @@ func TestUsageIsReported(t *testing.T) {
 		t.Fatalf("claude usage %+v", got)
 	}
 }
+
+// A local model that can't use tools still answers (the request is
+// repeated without them), and no key is needed.
+func TestLocalModelWithoutTools(t *testing.T) {
+	var mu sync.Mutex
+	var bodies []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/models") {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"object":"list","data":[{"id":"llama3.2:3b","object":"model"},{"id":"nomic-embed-text","object":"model"}]}`)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		var m map[string]any
+		json.Unmarshal(body, &m)
+		mu.Lock()
+		bodies = append(bodies, m)
+		mu.Unlock()
+		if _, ok := m["tools"]; ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(400)
+			fmt.Fprint(w, `{"error":{"message":"registry.ollama.ai/library/llama3.2:3b does not support tools","type":"api_error"}}`)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"id\":\"c\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"llama3.2:3b\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"Use ls -la.\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	old := LocalBaseURL
+	LocalBaseURL = func() string { return srv.URL + "/v1" }
+	defer func() { LocalBaseURL = old }()
+
+	c := New(func() string { return "" }, func() string { return "" })
+	c.Configure(func() string { return ProviderLocal }, func(string) string { return "" }, func(string) string { return "" })
+	got, err := c.Ask(context.Background(), Request{ID: "1", Chat: "t", Mode: ModeChat, Prompt: "list files"}, func(string) {},
+		func(ToolCall) (string, bool) { return "", false })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "Use ls -la." {
+		t.Fatalf("answer %q", got)
+	}
+	if len(bodies) != 2 || bodies[0]["tools"] == nil || bodies[1]["tools"] != nil {
+		t.Fatalf("expected a retry without tools, got %d requests", len(bodies))
+	}
+	if bodies[0]["model"] != "llama3.2:3b" {
+		t.Fatalf("auto model %v (embeddings must be skipped)", bodies[0]["model"])
+	}
+
+	models, err := ListLocalModels(context.Background(), srv.URL+"/v1")
+	if err != nil || len(models) != 1 {
+		t.Fatalf("models %v %v", models, err)
+	}
+
+	// Nothing running there: a clear message.
+	LocalBaseURL = func() string { return "http://127.0.0.1:1/v1" }
+	c.Reset("t")
+	c2 := New(func() string { return "" }, func() string { return "" })
+	c2.Configure(func() string { return ProviderLocal }, func(string) string { return "" }, func(string) string { return "llama3.2:3b" })
+	_, err = c2.Ask(context.Background(), Request{ID: "2", Chat: "t", Mode: ModeChat, Prompt: "hi"}, func(string) {}, nil)
+	if err == nil || !strings.Contains(err.Error(), "Start Ollama or LM Studio") {
+		t.Fatalf("got %v", err)
+	}
+}

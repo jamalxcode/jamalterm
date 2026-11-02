@@ -1,4 +1,4 @@
-import { SaveSettings, SetAPIKey, HasSavedAPIKey, AnthropicAccount, BlurActive, ForgetSession, SetProviderKey, HasSavedProviderKey, ListProviderModels, SignInOpenRouter, ShowProblemLog } from './backend'
+import { SaveSettings, SetAPIKey, HasSavedAPIKey, AnthropicAccount, BlurActive, ForgetSession, SetProviderKey, HasSavedProviderKey, ListProviderModels, SignInOpenRouter, ShowProblemLog, FindLocalServers } from './backend'
 import { themes } from './themes'
 import { providers, providerInfo, modelOf, setModelOf } from './providers'
 import { el, toast, SIGN_IN_COMMAND, SIGN_OUT_COMMAND } from './util'
@@ -246,8 +246,39 @@ export class SettingsView {
 
     // ChatGPT and DeepSeek: an API key and a model (blank = automatic).
     const compatKeys: Record<string, HTMLInputElement> = {}
+    // A model on this Mac: a server address instead of a key.
+    const localBox = () => {
+      const url = text(s.localUrl, 'http://localhost:11434/v1', (v) => (s.localUrl = v.trim()))
+      const datalist = el('datalist', { id: 'models-local' })
+      const model = el('input', { type: 'text', list: 'models-local', placeholder: 'Automatic: the first model the server lists', spellcheck: 'false' }) as HTMLInputElement
+      model.value = s.localModel
+      model.addEventListener('input', () => (s.localModel = model.value.trim()))
+      const find = el('button', { type: 'button', class: 'ghost small' }, 'Find on this Mac')
+      const status = el('span', { class: 'help', text: 'Questions go only to this server and never leave your Mac. Install Ollama (ollama.com) or LM Studio (lmstudio.ai), then download a model, e.g. ollama pull llama3.2' })
+      find.addEventListener('click', async () => {
+        status.textContent = 'Looking…'
+        const found = (await FindLocalServers()) ?? []
+        if (!found.length) {
+          status.textContent = 'No Ollama or LM Studio running on this Mac. Start one and try again.'
+          return
+        }
+        const f = found[0]
+        url.value = f.url
+        s.localUrl = f.url
+        datalist.textContent = ''
+        for (const m of f.models ?? []) datalist.append(el('option', { value: m }))
+        status.textContent = `✓ Found ${found.map((x) => x.name).join(' and ')}. Using ${f.name}: ${(f.models ?? []).length} models (${(f.models ?? []).slice(0, 3).join(', ') || 'none downloaded yet'}).`
+        status.classList.add('ok')
+      })
+      return el('div', { class: 'provider-box' },
+        field('Server address', el('div', { class: 'keyrow' }, url, find)),
+        field('Model', el('div', { class: 'keyrow' }, model, datalist)),
+        status)
+    }
+
     const compatBox = async (id: string) => {
       const p = providerInfo(id)!
+      if (p.local) return localBox()
       const info = { name: p.name, company: p.company, url: p.signIn === 'openrouter' ? `${p.keyWhere}, or use Sign in with ${p.name} above` : p.keyWhere, bill: p.billing, auto: `Automatic: ${p.autoModel}` }
       const saved = await HasSavedProviderKey(id)
       const key = el('input', { type: 'password', placeholder: saved ? '•••••••• saved in your Keychain' : p.keyHint, spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement

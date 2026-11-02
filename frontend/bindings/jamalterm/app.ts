@@ -136,6 +136,13 @@ export function Diagnostics(): $CancellablePromise<string> {
 }
 
 /**
+ * FindLocalServers looks for Ollama and LM Studio running on this Mac.
+ */
+export function FindLocalServers(): $CancellablePromise<$models.LocalServer[] | null> {
+    return $Call.ByID(1934654743);
+}
+
+/**
  * ForgetSession deletes saved tabs and output (Settings → Privacy).
  */
 export function ForgetSession(): $CancellablePromise<void> {

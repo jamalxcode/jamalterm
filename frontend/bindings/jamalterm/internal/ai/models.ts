@@ -66,6 +66,11 @@ export interface ProviderInfo {
      * SignIn: "anthropic" or "openrouter" when a browser sign-in exists.
      */
     "signIn": string;
+
+    /**
+     * Local: runs on this Mac; no key, a server address instead.
+     */
+    "local": boolean;
 }
 
 /**

@@ -12,7 +12,7 @@
       opacity: 100, blur: true, scrollback: 10000, shell: '', shellIntegration: true, arrowBrowse: true, restoreSession: true,
       promptKeys: 'emacs', notifyLongCommands: true, notifyAfterSeconds: 10, screenReader: false, confirmRerun: false,
       optionIsMeta: true, autoUpdate: false, keepProblemLog: true, aiEnabled: true, aiProvider: 'anthropic', aiModel: 'claude-opus-5-5',
-      openaiModel: '', deepseekModel: '', xaiModel: '', openrouterModel: '', aiShareOutput: true,
+      openaiModel: '', deepseekModel: '', xaiModel: '', openrouterModel: '', localUrl: 'http://localhost:11434/v1', localModel: '', aiShareOutput: true,
     }, window.__settings || {}),
     session: window.__session || '',
     live: window.__live || [],
@@ -51,6 +51,7 @@
 
   const providers = [
     { id: 'anthropic', name: 'Claude', label: 'Claude (Anthropic)', company: 'Anthropic', keyUrl: '', keyWhere: 'console', keyHint: 'sk-ant-…', billing: '', modelField: 'aiModel', autoModel: 'x', signIn: 'anthropic' },
+    { id: 'local', name: 'Local', label: 'Local model on this Mac (Ollama, LM Studio)', company: 'your own computer', keyUrl: '', keyWhere: '', keyHint: '', billing: 'Free', modelField: 'localModel', autoModel: 'first', signIn: '', local: true },
     { id: 'openai', name: 'ChatGPT', label: 'ChatGPT (OpenAI)', company: 'OpenAI', keyUrl: '', keyWhere: 'platform', keyHint: 'sk-…', billing: '', modelField: 'openaiModel', autoModel: 'auto', signIn: '' },
   ]
 
@@ -67,6 +68,7 @@
     BusyTabs: (ids) => (state.busy || []).filter((b) => ids.includes(b.id)),
     LiveTabs: () => state.live || [],
     Attach: (id) => b64(`reattached-${id}\r\n`),
+    FindLocalServers: () => [{ name: 'Ollama', url: 'http://localhost:11434/v1', models: ['llama3.2:3b', 'qwen3:8b'] }],
     Diagnostics: () => 'jamalterm diagnostics\nVersion:   test\nRecent problems: none\n',
     GitBranch: () => '', ResolvePath: () => '', PreviousVersion: () => '',
     Start: (id, cols, rows, cwd) => { state.shells[id] = { cwd: cwd || '/home/u', line: '' }; setTimeout(() => prompt(id), 10) },

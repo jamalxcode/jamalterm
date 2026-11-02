@@ -8,5 +8,6 @@ export {
 
 export type {
     BusyTab,
+    LocalServer,
     UpdateInfo
 } from "./models.js";

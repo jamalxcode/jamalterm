@@ -118,6 +118,13 @@ export interface Settings {
     "openrouterModel": string;
 
     /**
+     * LocalURL is the local model server (Ollama, LM Studio…); LocalModel
+     * "" picks the first model it lists.
+     */
+    "localUrl": string;
+    "localModel": string;
+
+    /**
      * AIShareOutput sends recent command output to Claude with questions.
      */
     "aiShareOutput": boolean;

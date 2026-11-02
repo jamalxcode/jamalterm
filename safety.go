@@ -7,6 +7,7 @@ import (
 	goruntime "runtime"
 	"time"
 
+	"jamalterm/internal/ai"
 	"jamalterm/internal/secureinput"
 	"jamalterm/internal/shell"
 
@@ -256,3 +257,24 @@ func (a *App) reloadOnCrash(w *application.WebviewWindow) {
 // RemoteSetupLine is the line that turns on browse mode in a bash or zsh
 // on another machine (Shell → Enable Browse Mode on This Server).
 func (a *App) RemoteSetupLine() string { return shell.RemoteSetup() }
+
+// LocalServer is a model server found on this Mac.
+type LocalServer struct {
+	Name   string   `json:"name"`
+	URL    string   `json:"url"`
+	Models []string `json:"models"`
+}
+
+// FindLocalServers looks for Ollama and LM Studio running on this Mac.
+func (a *App) FindLocalServers() []LocalServer {
+	out := []LocalServer{}
+	for _, s := range ai.LocalServers {
+		ctx, cancel := context.WithTimeout(a.ctx, 2*time.Second)
+		models, err := ai.ListLocalModels(ctx, s.URL)
+		cancel()
+		if err == nil {
+			out = append(out, LocalServer{Name: s.Name, URL: s.URL, Models: models})
+		}
+	}
+	return out
+}

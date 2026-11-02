@@ -125,6 +125,7 @@ func NewApp() *App {
 	a.primary = a.takeInstanceLock()
 	update.KeepPreviousIn = filepath.Join(a.configDir(), "previous")
 	update.TrustCache = filepath.Join(a.configDir(), "sigstore")
+	ai.LocalBaseURL = func() string { return a.Settings().LocalURL }
 	var loadErr error
 	a.cfg, loadErr = store.Load()
 	a.log = diag.New(filepath.Join(filepath.Dir(store.Path()), "problems.log"))
@@ -152,6 +153,8 @@ func NewApp() *App {
 				return a.Settings().XAIModel
 			case ai.ProviderOpenRouter:
 				return a.Settings().OpenRouterModel
+			case ai.ProviderLocal:
+				return a.Settings().LocalModel
 			}
 			return ""
 		})
@@ -371,7 +374,9 @@ func (a *App) SaveSettings(cfg settings.Settings) (settings.Settings, error) {
 // HasAPIKey reports whether AI features can be used: an API key, or a
 // sign-in with an Anthropic account.
 func (a *App) HasAPIKey() bool {
-	if p := a.Settings().AIProvider; p != ai.ProviderAnthropic {
+	if p := a.Settings().AIProvider; p == ai.ProviderLocal {
+		return true // no key; the server is checked when you ask
+	} else if p != ai.ProviderAnthropic {
 		return a.secrets.KeyFor(p) != ""
 	}
 	return a.secrets.APIKey() != "" || ai.SignedInAccount().SignedIn
