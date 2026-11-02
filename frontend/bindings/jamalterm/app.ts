@@ -3,7 +3,8 @@
 
 /**
  * App is the bridge between the window and the shells, settings and AI.
- * Its exported methods are callable from TypeScript (frontend/wailsjs).
+ * It is a Wails service: its exported methods are callable from TypeScript
+ * (frontend/bindings, used through frontend/src/backend.ts).
  * @module
  */
 
