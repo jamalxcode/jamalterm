@@ -729,9 +729,12 @@ button:disabled { opacity: 0.5; }
 .divider:hover, .split.dragging > .divider { background: var(--accent); }
 .split.dragging { user-select: none; }
 .group.has-split .pane:not(.focused) .term-host { opacity: 0.62; }
+/* The focused pane: a frame and a corner notch (shapes, not only color). */
+.group.has-split .pane.focused { outline: 2px solid var(--accent); outline-offset: -2px; }
 .group.has-split .pane.focused::before {
-  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px;
-  background: var(--accent); z-index: 3; pointer-events: none;
+  content: ''; position: absolute; left: 0; top: 0; z-index: 3; pointer-events: none;
+  width: 0; height: 0; border-style: solid; border-width: 12px 12px 0 0;
+  border-color: var(--accent) transparent transparent transparent;
 }
 
 /* ---- Confirm dialogs ---- */

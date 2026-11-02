@@ -62,7 +62,7 @@ export const themes: Theme[] = [
   t('gruvbox-dark', 'Gruvbox Dark', {
     background: '#282828', foreground: '#ebdbb2', cursor: '#ebdbb2', cursorAccent: '#282828',
     selectionBackground: '#504945',
-    black: '#282828', red: '#cc241d', green: '#98971a', yellow: '#d79921',
+    black: '#282828', red: '#d23d37', green: '#98971a', yellow: '#d79921',
     blue: '#458588', magenta: '#b16286', cyan: '#689d6a', white: '#a89984',
     brightBlack: '#928374', brightRed: '#fb4934', brightGreen: '#b8bb26', brightYellow: '#fabd2f',
     brightBlue: '#83a598', brightMagenta: '#d3869b', brightCyan: '#8ec07c', brightWhite: '#ebdbb2',
@@ -86,10 +86,10 @@ export const themes: Theme[] = [
   t('solarized-light', 'Solarized Light', {
     background: '#fdf6e3', foreground: '#586e75', cursor: '#586e75', cursorAccent: '#fdf6e3',
     selectionBackground: '#eee8d5',
-    black: '#073642', red: '#dc322f', green: '#859900', yellow: '#b58900',
-    blue: '#268bd2', magenta: '#d33682', cyan: '#2aa198', white: '#eee8d5',
-    brightBlack: '#657b83', brightRed: '#cb4b16', brightGreen: '#859900', brightYellow: '#b58900',
-    brightBlue: '#268bd2', brightMagenta: '#6c71c4', brightCyan: '#2aa198', brightWhite: '#002b36',
+    black: '#073642', red: '#dc322f', green: '#819400', yellow: '#b08500',
+    blue: '#268bd2', magenta: '#d33682', cyan: '#299c93', white: '#eee8d5',
+    brightBlack: '#657b83', brightRed: '#cb4b16', brightGreen: '#819400', brightYellow: '#b08500',
+    brightBlue: '#268bd2', brightMagenta: '#6c71c4', brightCyan: '#299c93', brightWhite: '#002b36',
   }, true),
 ]
 

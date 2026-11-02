@@ -554,8 +554,10 @@ test('find bar opens, searches and closes', async () => {
   await page.waitForSelector('#find:not([hidden]) input')
   await page.keyboard.type('needle')
   await page.waitForTimeout(150)
-  assert.ok(await page.locator('.pane.focused .xterm-decoration-container > *, .pane.focused .xterm-find-result-decoration').count() > 0 ||
-    (await page.evaluate(() => window.getSelection()?.toString() ?? '')).length >= 0)
+  assert.match(await page.textContent('#find .count'), /^1 of [12]$/, 'shows the match count')
+  await page.keyboard.type('zzz')
+  await page.waitForTimeout(150)
+  assert.equal(await page.textContent('#find .count'), 'No matches')
   await page.keyboard.press('Escape')
   await page.waitForTimeout(100)
   assert.equal(await page.isHidden('#find'), true)
