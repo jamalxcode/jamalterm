@@ -74,6 +74,9 @@ jobs:
           node -e "require('rollup')" 2>/dev/null || npm install --no-save "@rollup/rollup-darwin-$(uname -m | sed 's/x86_64/x64/')"
           npm run build
 
+      - name: Test the app package (needs the built frontend)
+        run: go test .
+
       - name: Bindings are up to date
         # frontend/bindings must match App's methods (make bindings).
         run: |

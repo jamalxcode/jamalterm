@@ -12,6 +12,7 @@ import { SettingsView } from './settingsView'
 import { Updater } from './updater'
 import { showDiagnostics, logWindowErrors } from './diagnostics'
 import { Palette } from './palette'
+import { loadCommands, commandForKey, runCommand, commands } from './keys'
 import { runSmoke } from './smoke'
 import { SmokeMode } from './backend'
 import { Group, type Dir, type SavedNode, type PaneNode } from './panes'
@@ -98,7 +99,11 @@ const settingsView = new SettingsView({
 })
 
 const palette = new Palette({
-  run: (cmd) => runMenu(cmd),
+  run: (id) => {
+    const c = commands.find((x) => x.id === id)
+    if (c) runCommand(c, runMenu)
+    else runMenu(id)
+  },
   settings: () => cfg,
   save: async (s) => {
     try {
@@ -596,31 +601,15 @@ function setFont(size: number) {
 
 EventsOn('menu', runMenu)
 
-// ⌘ shortcuts typed while the terminal has focus also arrive here, in case
-// the menu bar didn't take them (e.g. in development).
-const keyMap: Record<string, string> = {
-  t: 'newTab', n: 'newWindow', w: 'closeTab', k: 'clear', f: 'find', ',': 'settings',
-  i: 'aiPanel', j: 'aiCommand', '=': 'zoomIn', '+': 'zoomIn', '-': 'zoomOut', '0': 'zoomReset',
-  ArrowUp: 'browse', '}': 'nextTab', '{': 'prevTab', ']': 'nextPane', '[': 'prevPane', d: 'splitRight',
-}
+// ⌘ shortcuts typed while the terminal has the focus also arrive here, in
+// case the menu bar didn't take them (the same table as the menu: keys.ts).
 window.addEventListener('keydown', (e) => {
-  if (!e.metaKey || e.altKey || e.ctrlKey) return
-  if (settingsView.visible && e.key !== ',') return
-  let cmd = keyMap[e.key]
-  if (/^[1-9]$/.test(e.key)) cmd = `tab${e.key}`
-  if (e.key === 'ArrowUp' && e.shiftKey) cmd = 'prevCommand'
-  if (e.key === 'ArrowDown' && e.shiftKey) cmd = 'nextCommand'
-  if (e.key === 'e' && e.shiftKey) cmd = 'aiExplainLast'
-  if (e.key.toLowerCase() === 'p' && e.shiftKey) cmd = 'palette'
-  if (e.key.toLowerCase() === 'd' && e.shiftKey) cmd = 'splitDown'
-  if (e.key.toLowerCase() === 'w' && e.shiftKey) cmd = 'closeGroup'
-  if (e.key === ']' && e.shiftKey) cmd = 'nextTab'
-  if (e.key === '[' && e.shiftKey) cmd = 'prevTab'
-  if (cmd) {
-    e.preventDefault()
-    e.stopPropagation() // xterm.js must not handle it a second time
-    runMenu(cmd)
-  }
+  const c = commandForKey(e)
+  if (!c) return
+  if (settingsView.visible && c.id !== 'settings') return
+  e.preventDefault()
+  e.stopPropagation() // xterm.js must not handle it a second time
+  runCommand(c, runMenu)
 }, true)
 
 // ---- Events from Go --------------------------------------------------------------
@@ -675,7 +664,7 @@ async function boot() {
   // Tab numbers are unique across windows.
   nextId = (await WindowID()) * 100000 + 1
   const mark = (name: string) => (bootTimes[name] = Math.round(performance.now()))
-  ;[cfg, shellName, home] = await Promise.all([Settings(), ShellName(), HomeDir(), loadProviders()]) as [Prefs, string, string, void]
+  ;[cfg, shellName, home] = await Promise.all([Settings(), ShellName(), HomeDir(), loadProviders(), loadCommands()]) as [Prefs, string, string, void, void]
   applySettings(cfg)
   setGpuOff(await GPUOff())
   mark('settings')

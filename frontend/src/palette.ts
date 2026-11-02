@@ -3,7 +3,8 @@
 import { themes } from './themes'
 import { providers } from './providers'
 import type { SettingsPage } from './settingsView'
-import { el, isMac } from './util'
+import { el } from './util'
+import { commands, keyLabel } from './keys'
 import type { Settings } from './types'
 
 export interface PaletteHost {
@@ -23,45 +24,6 @@ export interface PaletteItem {
   run(): void
 }
 
-const mod = isMac ? '⌘' : 'Ctrl+Shift+'
-const k = (s: string) => (isMac ? s : s.replace(/⌘/g, mod))
-
-/** Menu actions: [command, title, shortcut]. */
-export const actions: [string, string, string][] = [
-  ['newTab', 'New Tab', '⌘T'],
-  ['newWindow', 'New Window', '⌘N'],
-  ['splitRight', 'Split Pane Right', '⌘D'],
-  ['splitDown', 'Split Pane Down', '⇧⌘D'],
-  ['closeTab', 'Close Pane', '⌘W'],
-  ['closeGroup', 'Close Tab (all its panes)', '⇧⌘W'],
-  ['nextTab', 'Next Tab', '⇧⌘]'],
-  ['prevTab', 'Previous Tab', '⇧⌘['],
-  ['nextPane', 'Next Pane', '⌘]'],
-  ['prevPane', 'Previous Pane', '⌘['],
-  ['paneLeft', 'Pane to the Left', '⌥⌘←'],
-  ['paneRight', 'Pane to the Right', '⌥⌘→'],
-  ['paneUp', 'Pane Above', '⌥⌘↑'],
-  ['paneDown', 'Pane Below', '⌥⌘↓'],
-  ['broadcast', 'Broadcast Typing to All Panes (on / off)', '⌥⌘I'],
-  ['remoteIntegration', 'Enable Browse Mode on This Server (ssh)', ''],
-  ['clear', 'Clear Screen', '⌘K'],
-  ['find', 'Find in Output', '⌘F'],
-  ['browse', 'Browse Past Commands (free-floating cursor)', '⌘↑'],
-  ['prevCommand', 'Jump to Previous Command', '⇧⌘↑'],
-  ['nextCommand', 'Jump to Next Command', '⇧⌘↓'],
-  ['zoomIn', 'Bigger Text', '⌘='],
-  ['zoomOut', 'Smaller Text', '⌘-'],
-  ['zoomReset', 'Actual Text Size', '⌘0'],
-  ['aiPanel', 'Ask AI', '⌘I'],
-  ['aiCommand', 'Command from Plain English', '⌘J'],
-  ['aiExplainLast', 'Explain Last Error', '⇧⌘E'],
-  ['settings', 'Open Settings', '⌘,'],
-  ['checkUpdates', 'Check for Updates', ''],
-  ['revertUpdate', 'Go Back to Previous Version', ''],
-  ['diagnostics', 'Copy Diagnostics', ''],
-  ['showLog', 'Show Problem Log', ''],
-  ['about', 'About jamalterm and Keyboard Shortcuts', ''],
-]
 
 type Bool = { [K in keyof Settings]: Settings[K] extends boolean ? K : never }[keyof Settings]
 
@@ -160,7 +122,9 @@ export class Palette {
   items(): PaletteItem[] {
     const h = this.host
     const cfg = h.settings()
-    const out: PaletteItem[] = actions.map(([cmd, title, keys]) => ({ title, group: 'Action', keys: keys && k(keys), run: () => h.run(cmd) }))
+    const out: PaletteItem[] = commands.filter((c) => c.palette).map((c) => ({
+      title: c.title.replace(/…$/, ''), group: 'Action', keys: keyLabel(c.keys), run: () => h.run(c.id),
+    }))
     for (const p of providers) {
       out.push({ title: `Use ${p.name}`, group: 'AI', detail: cfg.aiProvider === p.id ? 'in use' : p.company, run: () => void h.save({ ...cfg, aiProvider: p.id } as Settings) })
     }
@@ -176,7 +140,7 @@ export class Palette {
       out.push({ title: `Settings → ${label}`, group: 'Setting', run: () => h.openSettings(page, label) })
     }
     for (const [label, page, find] of places) out.push({ title: `Settings → ${label}`, group: 'Setting', run: () => h.openSettings(page, find) })
-    h.tabs().forEach((t, i) => out.push({ title: `Tab ${i + 1}: ${t.title}`, group: 'Tab', detail: t.detail, keys: i < 9 ? k(`⌘${i + 1}`) : '', run: t.go }))
+    h.tabs().forEach((t, i) => out.push({ title: `Tab ${i + 1}: ${t.title}`, group: 'Tab', detail: t.detail, keys: i < 9 ? keyLabel(commands.find((c) => c.id === `tab${i + 1}`)?.keys ?? '') : '', run: t.go }))
     // "Settings → x" duplicates the toggle's label: keep it only when searching.
     return out
   }

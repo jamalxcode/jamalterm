@@ -534,3 +534,15 @@ test('benchmark: 20 MB of output is drawn and acknowledged', async () => {
   assert.ok(ms < 60000, `took ${ms} ms`)
   await page.close()
 })
+
+test('⌘ keys come from the command table; app commands go to Go', async () => {
+  const page = await open()
+  await page.keyboard.press('Meta+d')
+  await page.waitForTimeout(300)
+  assert.equal(await page.locator('.group.active .pane').count(), 2, '⌘D split')
+  await page.evaluate(() => (window.__calls.length = 0))
+  await page.keyboard.press('Meta+Shift+r')
+  await page.waitForTimeout(100)
+  assert.deepEqual(await page.evaluate(() => window.__calls.filter((c) => c[0] === 'RunCommand').map((c) => c[1])), ['reloadWindow'])
+  await page.close()
+})

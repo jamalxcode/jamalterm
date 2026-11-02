@@ -69,6 +69,13 @@
     LiveTabs: () => state.live || [],
     Attach: (id) => b64(`reattached-${id}\r\n`),
     FindLocalServers: () => [{ name: 'Ollama', url: 'http://localhost:11434/v1', models: ['llama3.2:3b', 'qwen3:8b'] }],
+    Commands: () => [
+      { id: 'newTab', title: 'New Tab', menu: 'Shell', keys: 'Cmd+T', palette: true, native: false },
+      { id: 'splitRight', title: 'Split Right', menu: 'Shell', keys: 'Cmd+D', palette: true, native: false },
+      { id: 'settings', title: 'Settings…', menu: 'jamalterm', keys: 'Cmd+,', palette: true, native: false },
+      { id: 'palette', title: 'Command Palette…', menu: 'View', keys: 'Cmd+Shift+P', palette: false, native: false },
+      { id: 'reloadWindow', title: 'Reload Window', menu: 'View', keys: 'Cmd+Shift+R', palette: true, native: true },
+    ],
     Diagnostics: () => 'jamalterm diagnostics\nVersion:   test\nRecent problems: none\n',
     GitBranch: () => '', ResolvePath: () => '', PreviousVersion: () => '',
     Start: (id, cols, rows, cwd) => { state.shells[id] = { cwd: cwd || '/home/u', line: '' }; setTimeout(() => prompt(id), 10) },

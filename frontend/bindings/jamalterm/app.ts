@@ -126,6 +126,13 @@ export function CloseWindowNow(): $CancellablePromise<void> {
 }
 
 /**
+ * Commands lists every command (for the palette and ⌘ keys in the window).
+ */
+export function Commands(): $CancellablePromise<$models.Command[] | null> {
+    return $Call.ByID(1390709563);
+}
+
+/**
  * Diagnostics is the report shown by Help → Copy Diagnostics. The window
  * shows it in full before anything is copied, and it is never sent
  * anywhere by jamalterm. It holds the version, system, settings (no keys,
@@ -326,6 +333,14 @@ export function ResolvePath(cwd: string, p: string): $CancellablePromise<string>
  */
 export function RevertUpdate(): $CancellablePromise<void> {
     return $Call.ByID(4209549866);
+}
+
+/**
+ * RunCommand does a command the app handles itself (from the palette or a
+ * key the menu bar didn't catch).
+ */
+export function RunCommand(id: string): $CancellablePromise<void> {
+    return $Call.ByID(1466765683, id);
 }
 
 /**

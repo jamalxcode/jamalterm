@@ -10,6 +10,43 @@ export interface BusyTab {
 }
 
 /**
+ * Command is something you can do from the menu bar, the command palette
+ * or a shortcut. This table is the only list: the menu is built from it,
+ * and the window reads it (Commands) for the palette and for ⌘ keys.
+ */
+export interface Command {
+    "id": string;
+    "title": string;
+
+    /**
+     * menu bar menu
+     */
+    "menu": string;
+
+    /**
+     * Keys in Mac terms, e.g. "Cmd+Shift+D" ("" = none). Development builds
+     * on Linux use Ctrl+Shift for Cmd so the shell keeps Ctrl+W and friends.
+     */
+    "keys": string;
+
+    /**
+     * Palette: offered in the command palette.
+     */
+    "palette": boolean;
+
+    /**
+     * Native: done by the app itself (windows, quitting…), not the window.
+     */
+    "native": boolean;
+
+    /**
+     * Kind of menu entry: "" a plain item; "check" Secure Keyboard Entry;
+     * "providers" the AI assistant choices; "edit" the standard Edit menu.
+     */
+    "kind"?: string;
+}
+
+/**
  * LocalServer is a model server found on this Mac.
  */
 export interface LocalServer {
