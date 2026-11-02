@@ -58,6 +58,8 @@ type Settings struct {
 
 	// AutoUpdate checks GitHub for new versions at launch and every 6 hours.
 	AutoUpdate bool `json:"autoUpdate"`
+	// UpdateChannel: "stable", or "beta" to also get test versions first.
+	UpdateChannel string `json:"updateChannel"`
 
 	AIEnabled bool `json:"aiEnabled"`
 	// AIProvider answers questions: "anthropic" (Claude), "openai"
@@ -94,6 +96,7 @@ func Defaults() Settings {
 		ConfirmRerun:       false,
 		OptionIsMeta:       true,
 		AutoUpdate:         true,
+		UpdateChannel:      "stable",
 		KeepProblemLog:     true,
 		AIEnabled:          true,
 		AIProvider:         "anthropic",
@@ -186,6 +189,9 @@ func (c Settings) normalized() Settings {
 	}
 	if c.FontFamily == "" {
 		c.FontFamily = d.FontFamily
+	}
+	if c.UpdateChannel != "beta" {
+		c.UpdateChannel = "stable"
 	}
 	if c.PromptKeys != "vi" {
 		c.PromptKeys = "emacs"

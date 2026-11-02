@@ -399,6 +399,36 @@ export function SignInOpenRouter(): $CancellablePromise<void> {
 }
 
 /**
+ * SmokeMode: the window should run the self-test.
+ */
+export function SmokeMode(): $CancellablePromise<boolean> {
+    return $Call.ByID(1690245685);
+}
+
+/**
+ * SmokeReport saves the window's results with a few facts from Go, then quits.
+ */
+export function SmokeReport(report: string): $CancellablePromise<void> {
+    return $Call.ByID(390314012, report);
+}
+
+/**
+ * SmokeShot saves a screenshot of the screen as <name>.png.
+ */
+export function SmokeShot(name: string): $CancellablePromise<string> {
+    return $Call.ByID(3936437862, name);
+}
+
+/**
+ * SmokeWaitKeys tells CI the window is ready for real key presses (it
+ * writes ready-for-keys), then waits until CI writes keys-done. False if
+ * CI didn't send any (e.g. no permission to press keys).
+ */
+export function SmokeWaitKeys(): $CancellablePromise<boolean> {
+    return $Call.ByID(2668437451);
+}
+
+/**
  * Start launches a shell for tab id. cwd is where it starts ("" = home).
  */
 export function Start(id: number, cols: number, rows: number, cwd: string): $CancellablePromise<void> {
@@ -417,6 +447,13 @@ export function StartDir(): $CancellablePromise<string> {
  */
 export function Version(): $CancellablePromise<string> {
     return $Call.ByID(2431199839);
+}
+
+/**
+ * WindowCount is how many jamalterm windows are open.
+ */
+export function WindowCount(): $CancellablePromise<number> {
+    return $Call.ByID(652709092);
 }
 
 /**

@@ -92,6 +92,7 @@ const places: [string, SettingsPage, string][] = [
   ['Prompt editing keys (emacs / vi)', 'shell', 'Prompt editing keys'],
   ['AI assistant and API keys', 'ai', 'Assistant'],
   ['Forget saved tabs and output', 'privacy', 'Saved tabs'],
+  ['Update channel (stable / beta)', 'updates', 'Update channel'],
 ]
 
 /** Scores how well query matches text (letters in order); -1 = no match. */

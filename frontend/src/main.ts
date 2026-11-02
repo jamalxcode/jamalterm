@@ -12,6 +12,8 @@ import { SettingsView } from './settingsView'
 import { Updater } from './updater'
 import { showDiagnostics, logWindowErrors } from './diagnostics'
 import { Palette } from './palette'
+import { runSmoke } from './smoke'
+import { SmokeMode } from './backend'
 import { Group, type Dir, type SavedNode, type PaneNode } from './panes'
 import { loadProviders, providerInfo, modelOf } from './providers'
 import { el, isMac, toast, duration, confirmDialog } from './util'
@@ -620,6 +622,15 @@ async function boot() {
   ]).catch(() => undefined)
   await document.fonts.ready
   if (!(await reattach()) && !(await restoreSession())) newTab(await StartDir())
+  if (await SmokeMode()) {
+    void runSmoke({
+      active: () => active,
+      tabCount: () => groups.length,
+      paneCount: () => groupOf(active)?.count ?? 0,
+      run: (cmd) => runMenu(cmd),
+    })
+    return
+  }
   void updater.startAuto(() => cfg.autoUpdate)
 }
 

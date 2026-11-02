@@ -35,6 +35,7 @@ export const {
   OpenPath, OpenURL, PreviousVersion, ProblemLogPath, Quit, QuitNow,
   Resize, ResolvePath, RevertUpdate, SaveSession, SaveSettings, SecureInputActive,
   SetAIProvider, SetAPIKey, SetActiveTab, SetProviderKey, SetWindowOpacity, Settings,
-  ShellName, ShowProblemLog, SignInOpenRouter, Start, StartDir, Version,
-  WindowID, Write,
+  ShellName, ShowProblemLog, SignInOpenRouter, SmokeMode, SmokeReport, SmokeShot,
+  SmokeWaitKeys, Start, StartDir, Version, WindowCount, WindowID,
+  Write,
 } = App

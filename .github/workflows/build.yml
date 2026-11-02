@@ -10,6 +10,11 @@ on:
         description: "Publish a release with this version (e.g. 1.0.0). Leave empty for a test build."
         required: false
         default: ""
+      prerelease:
+        description: "A test version: only people on the Beta update channel get it (use a version like 3.1.0-beta.1)."
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write # to publish releases for v* tags
@@ -86,6 +91,15 @@ jobs:
           lipo -archs build/bin/jamalterm.app/Contents/MacOS/jamalterm
           /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" build/bin/jamalterm.app/Contents/Info.plist
 
+      - name: Smoke test (the real app on this Mac)
+        run: scripts/smoke-mac.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-test-${{ steps.v.outputs.version }}
+          path: smoke/
+
       - name: Make the disk image
         run: |
           mkdir dmg
@@ -113,8 +127,10 @@ jobs:
           TAG="v${{ steps.v.outputs.version }}"
           # Notes = this version's CHANGELOG section, then the install steps.
           V="${{ steps.v.outputs.version }}"
-          { echo "## What's new"; echo
-            awk -v v="## $V" '$0==v{on=1;next} /^## /{on=0} on' CHANGELOG.md
-            echo; cat .github/release-notes.md; } > notes.md
+          section() { awk -v v="## $1" '$0==v{on=1;next} /^## /{on=0} on' CHANGELOG.md; }
+          # A test version (3.1.0-beta.1) uses its own section, or else 3.1.0's.
+          NOTES=$(section "$V"); [[ -n "${NOTES//[[:space:]]/}" ]] || NOTES=$(section "${V%%-*}")
+          PRE=""; [[ "${{ inputs.prerelease }}" == "true" ]] && PRE="--prerelease"
+          { echo "## What's new"; echo; echo "$NOTES"; echo; cat .github/release-notes.md; } > notes.md
           gh release create "$TAG" jamalterm-*.dmg jamalterm-*.zip SHA256SUMS.txt \
-            --target "$GITHUB_SHA" --title "jamalterm $TAG" --notes-file notes.md
+            --target "$GITHUB_SHA" --title "jamalterm $TAG" --notes-file notes.md $PRE

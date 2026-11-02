@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -224,5 +225,55 @@ func TestKeepAndRevert(t *testing.T) {
 	entries, _ := os.ReadDir(filepath.Dir(app))
 	if len(entries) != 1 {
 		t.Fatalf("leftovers next to the app: %v", entries)
+	}
+}
+
+func TestCompareTestVersions(t *testing.T) {
+	order := []string{"0.0.0-dev.abc", "3.0.9", "3.1.0-beta.1", "3.1.0-beta.2", "3.1.0-beta.10", "3.1.0", "v3.1.1"}
+	for i := range order {
+		for j := range order {
+			want := 0
+			if i > j {
+				want = 1
+			} else if i < j {
+				want = -1
+			}
+			if got := Compare(order[i], order[j]); got != want {
+				t.Errorf("Compare(%s, %s) = %d, want %d", order[i], order[j], got, want)
+			}
+		}
+	}
+}
+
+func TestLatestInBetaChannel(t *testing.T) {
+	asset := func(v string) string {
+		return `[{"name":"jamalterm-` + v + `-macos.zip","browser_download_url":"z"},{"name":"SHA256SUMS.txt","browser_download_url":"s"}]`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
+			w.Write([]byte(`{"tag_name":"v3.0.0","assets":` + asset("3.0.0") + `}`))
+		case strings.HasSuffix(r.URL.Path, "/releases"):
+			w.Write([]byte(`[
+				{"tag_name":"v3.1.0-beta.2","prerelease":true,"assets":` + asset("3.1.0-beta.2") + `},
+				{"tag_name":"v3.2.0-beta.1","draft":true,"assets":` + asset("3.2.0-beta.1") + `},
+				{"tag_name":"v3.1.0-beta.1","prerelease":true,"assets":` + asset("3.1.0-beta.1") + `},
+				{"tag_name":"v3.0.0","assets":` + asset("3.0.0") + `}]`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	old := APIBase
+	APIBase = srv.URL
+	defer func() { APIBase = old }()
+
+	stable, err := LatestIn(context.Background(), false)
+	if err != nil || stable.Version != "3.0.0" {
+		t.Fatalf("stable = %q, %v", stable.Version, err)
+	}
+	beta, err := LatestIn(context.Background(), true)
+	if err != nil || beta.Version != "3.1.0-beta.2" {
+		t.Fatalf("beta = %q, %v (drafts must be skipped)", beta.Version, err)
 	}
 }

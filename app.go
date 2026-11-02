@@ -558,7 +558,7 @@ func (a *App) CheckForUpdate() (UpdateInfo, error) {
 	info := UpdateInfo{Current: version}
 	ctx, cancel := context.WithTimeout(a.ctx, 20*time.Second)
 	defer cancel()
-	rel, err := update.Latest(ctx)
+	rel, err := update.LatestIn(ctx, a.Settings().UpdateChannel == "beta")
 	if err != nil {
 		return info, a.problem("update check", err)
 	}

@@ -91,6 +91,11 @@ export interface Settings {
      * AutoUpdate checks GitHub for new versions at launch and every 6 hours.
      */
     "autoUpdate": boolean;
+
+    /**
+     * UpdateChannel: "stable", or "beta" to also get test versions first.
+     */
+    "updateChannel": string;
     "aiEnabled": boolean;
 
     /**

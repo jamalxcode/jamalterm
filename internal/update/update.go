@@ -41,13 +41,24 @@ type Release struct {
 	zipURL  string
 	zipName string
 	sumsURL string
+	// bundleURL is the Sigstore bundle proving GitHub built zipName
+	// from this repository ("" for releases before 3.1).
+	bundleURL string
 }
 
 var client = &http.Client{Timeout: 5 * time.Minute}
 
-// Latest asks GitHub for the newest release.
-func Latest(ctx context.Context) (Release, error) {
-	req, _ := http.NewRequestWithContext(ctx, "GET", APIBase+"/repos/"+repo+"/releases/latest", nil)
+// Latest asks GitHub for the newest stable release.
+func Latest(ctx context.Context) (Release, error) { return LatestIn(ctx, false) }
+
+// LatestIn asks GitHub for the newest release; with beta, test versions
+// (GitHub "pre-releases", e.g. 3.1.0-beta.1) count too.
+func LatestIn(ctx context.Context, beta bool) (Release, error) {
+	path := "/releases/latest"
+	if beta {
+		path = "/releases?per_page=20"
+	}
+	req, _ := http.NewRequestWithContext(ctx, "GET", APIBase+"/repos/"+repo+path, nil)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "jamalterm-updater")
 	resp, err := client.Do(req)
@@ -58,23 +69,53 @@ func Latest(ctx context.Context) (Release, error) {
 	if resp.StatusCode != 200 {
 		return Release{}, fmt.Errorf("GitHub answered %s", resp.Status)
 	}
-	var r struct {
-		Tag    string `json:"tag_name"`
-		Body   string `json:"body"`
-		URL    string `json:"html_url"`
-		Assets []struct {
-			Name string `json:"name"`
-			URL  string `json:"browser_download_url"`
-		} `json:"assets"`
+	var list []ghRelease
+	if beta {
+		err = json.NewDecoder(resp.Body).Decode(&list)
+	} else {
+		var one ghRelease
+		err = json.NewDecoder(resp.Body).Decode(&one)
+		list = []ghRelease{one}
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+	if err != nil {
 		return Release{}, err
 	}
+	var best *ghRelease
+	for i := range list {
+		r := &list[i]
+		if r.Draft || (!beta && r.Prerelease) {
+			continue
+		}
+		if best == nil || Compare(r.Tag, best.Tag) > 0 {
+			best = r
+		}
+	}
+	if best == nil {
+		return Release{}, errors.New("no releases yet")
+	}
+	return best.release()
+}
+
+type ghRelease struct {
+	Tag        string `json:"tag_name"`
+	Body       string `json:"body"`
+	URL        string `json:"html_url"`
+	Draft      bool   `json:"draft"`
+	Prerelease bool   `json:"prerelease"`
+	Assets     []struct {
+		Name string `json:"name"`
+		URL  string `json:"browser_download_url"`
+	} `json:"assets"`
+}
+
+func (r ghRelease) release() (Release, error) {
 	rel := Release{Version: strings.TrimPrefix(r.Tag, "v"), Notes: r.Body, URL: r.URL}
 	for _, a := range r.Assets {
 		switch {
 		case strings.HasSuffix(a.Name, "-macos.zip"):
 			rel.zipURL, rel.zipName = a.URL, a.Name
+		case strings.HasSuffix(a.Name, "-macos.zip.sigstore.json"):
+			rel.bundleURL = a.URL
 		case a.Name == "SHA256SUMS.txt":
 			rel.sumsURL = a.URL
 		}
@@ -87,14 +128,63 @@ func Latest(ctx context.Context) (Release, error) {
 
 // Newer reports whether version a is newer than b ("1.2.0" > "1.1.9").
 // Development builds ("dev", "0.0.0-dev.abc") are older than any release.
-func Newer(a, b string) bool {
+func Newer(a, b string) bool { return Compare(a, b) > 0 }
+
+// Compare orders versions: 3.1.0 > 3.1.0-beta.2 > 3.1.0-beta.1 > 3.0.9.
+func Compare(a, b string) int {
 	pa, pb := parse(a), parse(b)
 	for i := 0; i < 3; i++ {
 		if pa[i] != pb[i] {
-			return pa[i] > pb[i]
+			if pa[i] > pb[i] {
+				return 1
+			}
+			return -1
 		}
 	}
-	return false
+	qa, qb := pre(a), pre(b)
+	switch {
+	case qa == qb:
+		return 0
+	case qa == "": // a release beats its own test versions
+		return 1
+	case qb == "":
+		return -1
+	}
+	na, nb := preNum(qa), preNum(qb)
+	if na != nb {
+		if na > nb {
+			return 1
+		}
+		return -1
+	}
+	if qa > qb {
+		return 1
+	}
+	return -1
+}
+
+// pre is the test-version part: "beta.2" in "3.1.0-beta.2".
+func pre(v string) string {
+	v = strings.TrimPrefix(v, "v")
+	if i := strings.IndexByte(v, '+'); i >= 0 {
+		v = v[:i]
+	}
+	if i := strings.IndexByte(v, '-'); i >= 0 {
+		if strings.HasPrefix(v[i+1:], "dev") {
+			return "" // a development build counts as the version it's built from
+		}
+		return v[i+1:]
+	}
+	return ""
+}
+
+func preNum(p string) int {
+	i := strings.LastIndexByte(p, '.')
+	n, err := strconv.Atoi(p[i+1:])
+	if err != nil {
+		return -1
+	}
+	return n
 }
 
 func parse(v string) [3]int {

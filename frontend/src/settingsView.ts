@@ -331,6 +331,9 @@ export class SettingsView {
         el('label', { class: 'check' }, check(s.autoUpdate, (v) => (s.autoUpdate = v)), ' Check for new versions automatically'),
         checkNow,
       ),
+      el('div', { class: 'row' },
+        field('Update channel', select([['stable', 'Stable (recommended)'], ['beta', 'Beta: get test versions first']], s.updateChannel, (v) => (s.updateChannel = v)),
+          'Beta versions have the newest changes before everyone else, and may have rough edges. You can always go back with jamalterm → Go Back to Previous Version.')),
     )
 
     // Privacy: what stays on this Mac, and what you can delete.
