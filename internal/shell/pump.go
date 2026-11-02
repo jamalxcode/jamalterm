@@ -25,9 +25,13 @@ type Pump struct {
 	buf     []byte
 	unacked int
 	closed  bool
+	recent  []byte // the last RecentBytes sent, to redraw a reloaded window
 	stop    chan struct{}
 	done    chan struct{}
 }
+
+// RecentBytes is how much recent output a pump keeps for Recent.
+const RecentBytes = 256 << 10
 
 // NewPump starts a pump that hands batches to emit.
 func NewPump(emit func([]byte)) *Pump {
@@ -91,6 +95,10 @@ func (p *Pump) flush(force bool) {
 	data := p.buf
 	p.buf = nil
 	p.unacked += len(data)
+	p.recent = append(p.recent, data...)
+	if over := len(p.recent) - RecentBytes; over > 0 {
+		p.recent = append([]byte(nil), p.recent[over:]...)
+	}
 	p.mu.Unlock()
 	p.cond.Broadcast()
 	p.emit(data)
@@ -112,4 +120,16 @@ func (p *Pump) Close() {
 	p.closed = true
 	p.mu.Unlock()
 	p.cond.Broadcast()
+}
+
+// Recent returns the last output sent (up to RecentBytes) and forgets
+// what the old page hadn't acknowledged: a reloaded window draws this,
+// then output carries on.
+func (p *Pump) Recent() []byte {
+	p.mu.Lock()
+	out := append([]byte(nil), p.recent...)
+	p.unacked = 0
+	p.mu.Unlock()
+	p.cond.Broadcast()
+	return out
 }

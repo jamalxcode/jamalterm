@@ -48,6 +48,10 @@ type Settings struct {
 	ConfirmRerun bool `json:"confirmRerun"`
 	OptionIsMeta bool `json:"optionIsMeta"`
 
+	// SecureInput keeps macOS Secure Keyboard Entry on whenever jamalterm
+	// is in front. Off, it still turns on by itself at password prompts.
+	SecureInput bool `json:"secureInput"`
+
 	// KeepProblemLog keeps a small private log of problems on this Mac
 	// (Help → Copy Diagnostics). It is never sent anywhere.
 	KeepProblemLog bool `json:"keepProblemLog"`

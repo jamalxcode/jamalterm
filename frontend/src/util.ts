@@ -118,3 +118,29 @@ function inline(s: string): string {
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/^#{1,4}\s+(.*)$/, '<strong>$1</strong>')
 }
+
+/** A small modal question. Resolves true for the main button. */
+export function confirmDialog(o: { title: string; body: string; items?: string[]; ok: string; cancel?: string }): Promise<boolean> {
+  return new Promise((resolve) => {
+    const box = el('div', { class: 'modal', role: 'alertdialog', 'aria-modal': 'true' })
+    const okBtn = el('button', { class: 'primary danger', text: o.ok })
+    const cancelBtn = el('button', { class: 'ghost', text: o.cancel ?? 'Cancel' })
+    const list = o.items?.length ? [el('ul', { class: 'confirm-list' }, ...o.items.map((t) => el('li', { text: t })))] : []
+    box.append(el('div', { class: 'dialog confirm' },
+      el('div', { class: 'dialog-head' }, el('h2', { text: o.title })),
+      el('div', { class: 'dialog-body' }, el('p', { text: o.body }), ...list),
+      el('div', { class: 'dialog-foot' }, cancelBtn, okBtn)))
+    document.body.append(box)
+    const done = (v: boolean) => {
+      box.remove()
+      resolve(v)
+    }
+    okBtn.onclick = () => done(true)
+    cancelBtn.onclick = () => done(false)
+    box.onmousedown = (e) => e.target === box && done(false)
+    box.onkeydown = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); done(false) }
+    }
+    cancelBtn.focus() // the safe choice has the focus
+  })
+}

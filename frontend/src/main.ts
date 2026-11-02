@@ -14,7 +14,8 @@ import { showDiagnostics, logWindowErrors } from './diagnostics'
 import { Palette } from './palette'
 import { Group, type Dir, type SavedNode, type PaneNode } from './panes'
 import { loadProviders, providerInfo, modelOf } from './providers'
-import { el, isMac, toast, duration } from './util'
+import { el, isMac, toast, duration, confirmDialog } from './util'
+import { BusyTabs, QuitNow, CloseWindowNow, SetActiveTab, LiveTabs } from './backend'
 import type { Settings as Prefs } from './types'
 
 let cfg: Prefs
@@ -133,8 +134,8 @@ function applySettings(s: Prefs) {
 // ---- Tabs -----------------------------------------------------------------------
 
 /** Creates a terminal (not yet placed in a group). */
-function makeTerm(cwd: string, saved?: SavedTab) {
-  const tab = new Tab(nextId++, termsEl, cwd, hooks, themeById(cfg.theme))
+function makeTerm(cwd: string, saved?: SavedTab, id = nextId++) {
+  const tab = new Tab(id, termsEl, cwd, hooks, themeById(cfg.theme))
   if (saved) tab.restore(saved)
   tabs.push(tab)
   // Clicking a pane gives it the focus.
@@ -166,11 +167,15 @@ function splitPane(dir: Dir) {
 }
 
 /** Rebuilds a saved tab with its split panes. */
-function restoreGroup(node: SavedNode) {
+function restoreGroup(node: SavedNode, live?: Set<number>) {
   const made: Tab[] = []
+  const attach = new Set<Tab>()
   const build = (n: SavedNode): PaneNode => {
     if ('tab' in n) {
-      const t = makeTerm(n.tab.cwd || '', n.tab)
+      // After a reload the shell is still running: reconnect to it.
+      const again = live && n.tab.id !== undefined && live.has(n.tab.id)
+      const t = again ? makeTerm(n.tab.cwd || '', undefined, n.tab.id) : makeTerm(n.tab.cwd || '', n.tab)
+      if (again) attach.add(t)
       made.push(t)
       return { tab: t }
     }
@@ -181,8 +186,38 @@ function restoreGroup(node: SavedNode) {
   g.root = root
   g.render()
   groups.push(g)
-  for (const t of made) void t.start()
+  for (const t of made) void (attach.has(t) ? t.attach() : t.start())
   return g
+}
+
+/** Keeps only the panes whose shells are still running. */
+function pruneLive(n: SavedNode, live: Set<number>): SavedNode | null {
+  if ('tab' in n) return n.tab.id !== undefined && live.has(n.tab.id) ? n : null
+  const a = pruneLive(n.a, live), b = pruneLive(n.b, live)
+  if (a && b) return { ...n, a, b }
+  return a ?? b
+}
+
+/** A reloaded window: put back the tabs whose shells kept running. */
+async function reattach(): Promise<boolean> {
+  const live = new Set(await LiveTabs())
+  if (!live.size) return false
+  let data: { active?: number; groups?: SavedNode[] } = {}
+  try {
+    data = JSON.parse((await LoadSession()) || '{}')
+  } catch { /* use the plain list */ }
+  const seen = new Set<number>()
+  const walk = (n: SavedNode): void => { if ('tab' in n) { if (n.tab.id !== undefined) seen.add(n.tab.id) } else { walk(n.a); walk(n.b) } }
+  for (const n of data.groups ?? []) {
+    const kept = pruneLive(n, live)
+    if (kept) { walk(kept); restoreGroup(kept, live) }
+  }
+  // Tabs opened just before the reload (not saved yet): one tab each.
+  for (const id of live) if (!seen.has(id)) restoreGroup({ tab: { id, cwd: '' } }, live)
+  nextId = Math.max(nextId, ...live) + 1
+  const want = groups[data.active ?? 0] ?? groups[0]
+  if (want) activate(want.focused)
+  return groups.length > 0
 }
 
 // ---- Session: tabs come back after a restart or update ----------------------
@@ -228,6 +263,7 @@ function activate(tab: Tab) {
   const g = groupOf(tab)
   for (const x of groups) x.setActive(x === g)
   g?.setFocused(tab)
+  void SetActiveTab(tab.id)
   requestAnimationFrame(() => {
     for (const t of g?.tabs() ?? [tab]) t.refit()
     tab.term.focus()
@@ -238,9 +274,22 @@ function activate(tab: Tab) {
   updateChrome()
 }
 
+/** Asks before stopping programs that are still running in these tabs. */
+async function okToStop(list: Tab[], what: string): Promise<boolean> {
+  const busy = await BusyTabs(list.map((t) => t.id))
+  if (!busy?.length) return true
+  return confirmDialog({
+    title: `Close ${what}?`,
+    body: busy.length === 1 ? 'This program is still running and will be stopped:' : `These ${busy.length} programs are still running and will be stopped:`,
+    items: busy.map((b) => `${b.name}  —  ${tabs.find((t) => t.id === b.id)?.prettyCwd ?? ''}`),
+    ok: `Close ${what}`,
+  })
+}
+
 /** Closes a terminal: the focused pane, or the whole tab if it's alone. */
-function closeTab(tab = active) {
+async function closeTab(tab = active) {
   if (!tab) return
+  if (tab.running && !(await okToStop([tab], groupOf(tab)!.count > 1 ? 'Pane' : 'Tab'))) return
   const g = groupOf(tab)
   tabs.splice(tabs.indexOf(tab), 1)
   ai.forgetTab(tab.id)
@@ -248,12 +297,13 @@ function closeTab(tab = active) {
   tab.close()
   sessionDirty = true
   if (g && next) return activate(tab === active ? next : active!)
-  if (g) closeGroup(g)
+  if (g) void closeGroup(g, true)
 }
 
 /** Closes a whole tab with all its panes. */
-function closeGroup(g = groupOf(active)) {
+async function closeGroup(g = groupOf(active), asked = false) {
   if (!g) return
+  if (!asked && !(await okToStop(g.tabs().filter((t) => t.running), 'Tab'))) return
   for (const t of g.tabs()) {
     tabs.splice(tabs.indexOf(t), 1)
     ai.forgetTab(t.id)
@@ -303,6 +353,7 @@ function renderTabs() {
     label.append(el('span', { class: 'path', text: t.shortCwd || t.title }))
     if (t.branch) label.append(el('span', { class: 'branch' }, el('i', { class: 'nf', text: '\ue725' }), t.branch))
     if (status === 'exited') label.append(el('span', { class: 'sep', text: ' (exited)' }))
+    if (g.tabs().some((x) => x.passwordMode)) label.append(el('span', { class: 'lock', title: 'Password prompt: typing is protected', text: '🔒' }))
     if (g.count > 1) label.append(el('span', { class: 'panes', title: `${g.count} panes`, text: ` ⊞${g.count}` }))
 
     const last = t.lastFinished
@@ -338,6 +389,7 @@ function updateChrome() {
   if (!active) return
   const title = active.prettyCwd ? `${active.title} — ${active.prettyCwd}` : active.title
   WindowSetTitle(title)
+  secureBadge.hidden = !active.passwordMode
   const hint = active.browseHint()
   hintEl.innerHTML = hint
   hintEl.hidden = !hint
@@ -513,6 +565,37 @@ EventsOn('pty:data', (e: { id: number; data: string }) => {
   sessionDirty = true
 })
 EventsOn('pty:exit', (e: { id: number; code: number }) => tabs.find((t) => t.id === e.id)?.onExit(e.code))
+// Quitting or closing the window would stop running programs: ask first.
+EventsOn('confirm', async (e: { kind: string; busy: { id: number; name: string }[] }) => {
+  const quit = e.kind === 'quit'
+  const where = (id: number) => tabs.find((t) => t.id === id)?.prettyCwd ?? 'another window'
+  const ok = await confirmDialog({
+    title: quit ? 'Quit jamalterm?' : 'Close this window?',
+    body: e.busy.length === 1 ? 'This program is still running and will be stopped:' : `These ${e.busy.length} programs are still running and will be stopped:`,
+    items: e.busy.map((b) => `${b.name}  —  ${where(b.id)}`),
+    ok: quit ? 'Quit' : 'Close Window',
+  })
+  if (!ok) return active?.term.focus()
+  if (quit) {
+    await saveSessionNow()
+    void QuitNow()
+  } else void CloseWindowNow()
+})
+
+// A password prompt: typing is protected (Secure Keyboard Entry); show a lock.
+const secureBadge = el('div', { id: 'secure-badge', hidden: '', role: 'status' }, '🔒 Typing is protected')
+document.body.append(secureBadge)
+EventsOn('secure:password', (e: { id: number; on: boolean }) => {
+  const t = tabs.find((x) => x.id === e.id)
+  if (!t) return
+  t.passwordMode = e.on
+  renderTabs()
+  secureBadge.hidden = !(active?.passwordMode)
+})
+EventsOn('secure:input', (on: boolean) => {
+  secureBadge.textContent = on ? '🔒 Typing is protected' : '🔒 Password prompt'
+})
+
 EventsOn('settings:changed', (s: Prefs) => applySettings(s))
 
 window.addEventListener('resize', () => requestAnimationFrame(() => active?.refit()))
@@ -536,7 +619,7 @@ async function boot() {
     document.fonts.load(`${cfg.fontSize}px "Symbols Nerd Font Mono"`, '\ue0b0\uf07b'),
   ]).catch(() => undefined)
   await document.fonts.ready
-  if (!(await restoreSession())) newTab(await StartDir())
+  if (!(await reattach()) && !(await restoreSession())) newTab(await StartDir())
   void updater.startAuto(() => cfg.autoUpdate)
 }
 

@@ -28,12 +28,13 @@ export function WindowSetTitle(title: string) {
 
 export const {
   AIAsk, AICancel, AIProviders, AIReset, AIToolResult, Ack,
-  AnthropicAccount, BlurActive, CheckForUpdate, CloseTab, CloseWindow, Diagnostics,
-  ForgetSession, GPUOff, GitBranch, HasAPIKey, HasSavedAPIKey, HasSavedProviderKey,
-  HomeDir, InstallUpdate, IsPrimaryWindow, ListProviderModels, LoadSession, LogProblem,
-  NewWindow, Notify, OpenPath, OpenURL, PreviousVersion, ProblemLogPath,
-  Quit, Resize, ResolvePath, RevertUpdate, SaveSession, SaveSettings,
-  SetAIProvider, SetAPIKey, SetProviderKey, SetWindowOpacity, Settings, ShellName,
-  ShowProblemLog, SignInOpenRouter, Start, StartDir, Version, WindowID,
-  Write,
+  AnthropicAccount, Attach, BlurActive, BusyTabs, CheckForUpdate, CloseTab,
+  CloseWindow, CloseWindowNow, Diagnostics, ForgetSession, GPUOff, GitBranch,
+  HasAPIKey, HasSavedAPIKey, HasSavedProviderKey, HomeDir, InstallUpdate, IsPrimaryWindow,
+  ListProviderModels, LiveTabs, LoadSession, LogProblem, NewWindow, Notify,
+  OpenPath, OpenURL, PreviousVersion, ProblemLogPath, Quit, QuitNow,
+  Resize, ResolvePath, RevertUpdate, SaveSession, SaveSettings, SecureInputActive,
+  SetAIProvider, SetAPIKey, SetActiveTab, SetProviderKey, SetWindowOpacity, Settings,
+  ShellName, ShowProblemLog, SignInOpenRouter, Start, StartDir, Version,
+  WindowID, Write,
 } = App

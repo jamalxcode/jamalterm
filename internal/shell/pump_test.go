@@ -106,3 +106,22 @@ func TestPumpCloseUnblocksWriter(t *testing.T) {
 		t.Fatal("Close left the writer blocked")
 	}
 }
+
+func TestPumpRecent(t *testing.T) {
+	var mu sync.Mutex
+	got := 0
+	p := NewPump(func(b []byte) { mu.Lock(); got += len(b); mu.Unlock() })
+	p.MaxUnacked = 1 << 30
+	chunk := bytes.Repeat([]byte("x"), 100<<10)
+	for i := 0; i < 4; i++ {
+		p.Write(chunk)
+		time.Sleep(40 * time.Millisecond)
+	}
+	p.Write([]byte("END"))
+	time.Sleep(60 * time.Millisecond)
+	r := p.Recent()
+	if len(r) != RecentBytes || !bytes.HasSuffix(r, []byte("END")) {
+		t.Fatalf("recent: %d bytes, ends %q", len(r), r[len(r)-3:])
+	}
+	p.Close()
+}

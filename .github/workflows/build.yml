@@ -72,7 +72,8 @@ jobs:
         run: |
           go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
           wails3 generate bindings -clean -ts -i -d frontend/bindings
-          git diff --exit-code -- frontend/bindings
+          python3 scripts/gen-backend.py
+          git diff --exit-code -- frontend/bindings frontend/src/backend.ts
 
       - name: Build jamalterm.app (Apple silicon + Intel)
         run: scripts/build-mac.sh "${{ steps.v.outputs.version }}"

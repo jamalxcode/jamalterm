@@ -53,6 +53,12 @@ func (a *App) buildMenu() *application.Menu {
 	a.item(appMenu, "Go Back to Previous Version…", "", "revertUpdate")
 	appMenu.AddSeparator()
 	a.item(appMenu, "Settings…", cmd(","), "settings")
+	a.secureItem = appMenu.AddCheckbox("Secure Keyboard Entry", a.Settings().SecureInput)
+	a.secureItem.OnClick(func(c *application.Context) {
+		cfg := a.Settings()
+		cfg.SecureInput = c.IsChecked()
+		a.SaveSettings(cfg)
+	})
 	appMenu.AddSeparator()
 	appMenu.Add("Hide jamalterm").SetAccelerator(cmd("h")).OnClick(func(*application.Context) { a.app.Hide() })
 	appMenu.Add("Quit jamalterm").SetAccelerator(cmd("q")).OnClick(func(*application.Context) { a.app.Quit() })
@@ -82,6 +88,12 @@ func (a *App) buildMenu() *application.Menu {
 	a.item(view, "Bigger Text", cmd("="), "zoomIn")
 	a.item(view, "Smaller Text", cmd("-"), "zoomOut")
 	a.item(view, "Actual Size", cmd("0"), "zoomReset")
+	view.AddSeparator()
+	view.Add("Reload Window").SetAccelerator(cmdShift("r")).OnClick(func(*application.Context) {
+		if w := a.app.Window.Current(); w != nil {
+			w.Reload() // tabs keep running and reattach
+		}
+	})
 
 	aiMenu := m.AddSubmenu("AI")
 	a.item(aiMenu, "Ask AI…", cmd("i"), "aiPanel")

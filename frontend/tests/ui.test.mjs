@@ -41,6 +41,7 @@ async function open(opts = {}) {
   await page.addInitScript((o) => {
     window.__settings = o.settings
     window.__session = o.session
+    window.__live = o.live
   }, opts)
   await page.addInitScript(fake)
   await page.goto(base)
@@ -312,5 +313,64 @@ test('a saved split layout comes back after a restart', async () => {
   assert.ok(Math.abs(rects[0].top - rects[1].top) < 2 && rects[1].left > rects[0].left)
   assert.ok(rects[2].top >= rects[0].bottom - 2 && rects[2].width > rects[0].width * 1.8)
   assert.ok(rects[0].height < rects[2].height, 'top row is the smaller part')
+  await page.close()
+})
+
+test('closing a tab with a program running asks first', async () => {
+  const page = await open()
+  await page.evaluate(() => window.__emit('menu', 'newTab'))
+  await page.waitForTimeout(300)
+  const id = await page.evaluate(() => window.__calls.filter((c) => c[0] === 'Start').pop()[1])
+  await page.evaluate((id) => { window.__fake.busy = [{ id, name: 'vim' }] }, id)
+  await page.evaluate(() => window.__emit('menu', 'closeTab'))
+  await page.waitForSelector('.dialog.confirm')
+  assert.match(await page.locator('.dialog.confirm').innerText(), /vim/)
+  await page.click('.dialog.confirm button:has-text("Cancel")')
+  await page.waitForTimeout(100)
+  assert.equal(await page.locator('.tab').count(), 2, 'Cancel keeps the tab')
+  await page.waitForTimeout(200)
+  await page.evaluate(() => window.__emit('menu', 'closeTab'))
+  await page.click('.dialog.confirm button:has-text("Close Tab")')
+  await page.waitForTimeout(200)
+  assert.equal(await page.locator('.tab').count(), 1)
+  await page.close()
+})
+
+test('quitting with programs running asks, then quits', async () => {
+  const page = await open()
+  await page.evaluate(() => window.__emit('confirm', { kind: 'quit', busy: [{ id: 1, name: 'npm' }] }))
+  await page.waitForSelector('.dialog.confirm')
+  assert.match(await page.locator('.dialog.confirm').innerText(), /Quit jamalterm\?[\s\S]*npm/)
+  await page.click('.dialog.confirm button:has-text("Quit")')
+  await page.waitForTimeout(100)
+  assert.ok(await page.evaluate(() => window.__calls.some((c) => c[0] === 'QuitNow')))
+  await page.close()
+})
+
+test('a reloaded window reconnects to its running shells', async () => {
+  const session = JSON.stringify({ version: 2, active: 0, groups: [
+    { dir: 'row', ratio: 0.5, a: { tab: { id: 7, cwd: '/a', output: 'old' } }, b: { tab: { id: 8, cwd: '/b' } } },
+    { tab: { id: 9, cwd: '/gone' } },
+  ] })
+  const page = await open({ session, live: [7, 8] })
+  const calls = await page.evaluate(() => window.__calls.map((c) => c[0] + ':' + (c[1] ?? '')))
+  assert.ok(calls.includes('Attach:7') && calls.includes('Attach:8'))
+  assert.ok(!calls.some((c) => c.startsWith('Start:')), 'no new shells')
+  assert.equal(await page.locator('.tab').count(), 1, 'the ended tab is left out')
+  assert.equal(await page.locator('.group.active .pane').count(), 2)
+  assert.match(await screen(page), /reattached-/)
+  await page.close()
+})
+
+test('a password prompt shows a lock', async () => {
+  const page = await open()
+  const id = await page.evaluate(() => window.__calls.find((c) => c[0] === 'Start')[1])
+  await page.evaluate((id) => window.__emit('secure:password', { id, on: true }), id)
+  await page.waitForTimeout(50)
+  assert.equal(await page.locator('.tab .lock').count(), 1)
+  assert.equal(await page.locator('#secure-badge').isVisible(), true)
+  await page.evaluate((id) => window.__emit('secure:password', { id, on: false }), id)
+  await page.waitForTimeout(50)
+  assert.equal(await page.locator('#secure-badge').isVisible(), false)
   await page.close()
 })

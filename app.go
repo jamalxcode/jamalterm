@@ -86,6 +86,14 @@ type App struct {
 	restoreFor  map[string]string // window name → tabs to reopen
 	startDirs   map[string]string // window name → first tab's folder
 	quitting    bool
+
+	// Safety (safety.go).
+	quitOK     bool            // you agreed to quit with programs running
+	closeOK    map[string]bool // windows you agreed to close
+	accepted   map[int]bool    // busy tabs you agreed to stop
+	activeTab  map[string]int  // window name → focused tab
+	appActive  bool
+	secureItem *application.MenuItem
 }
 
 type toolReply struct {
@@ -108,6 +116,10 @@ func NewApp() *App {
 		winSessions:   map[string]string{},
 		restoreFor:    map[string]string{},
 		startDirs:     map[string]string{},
+		closeOK:       map[string]bool{},
+		accepted:      map[int]bool{},
+		activeTab:     map[string]int{},
+		appActive:     true,
 	}
 	a.ctx = context.Background()
 	a.primary = a.takeInstanceLock()
@@ -148,6 +160,7 @@ func NewApp() *App {
 // ServiceStartup runs when the app starts (Wails service).
 func (a *App) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
 	a.ctx = ctx
+	go a.watchSecureInput(ctx)
 	return nil
 }
 
@@ -291,6 +304,7 @@ func (a *App) CloseTab(id int) {
 	delete(a.sessions, id)
 	delete(a.pumps, id)
 	delete(a.owner, id)
+	delete(a.accepted, id)
 	a.mu.Unlock()
 	if p != nil {
 		p.Close() // never leave the shell blocked waiting for the window
@@ -379,6 +393,9 @@ func (a *App) refreshProviderMenu() {
 	current := a.Settings().AIProvider
 	for id, item := range a.providerItems {
 		item.SetChecked(id == current)
+	}
+	if a.secureItem != nil {
+		a.secureItem.SetChecked(a.Settings().SecureInput)
 	}
 }
 

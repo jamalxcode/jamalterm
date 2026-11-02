@@ -147,7 +147,14 @@ func (a *App) openWindow(startDir, restore string, cascade int) application.Wind
 		opts.X, opts.Y = x+28, y+28
 	}
 	w := a.app.Window.NewWithOptions(opts)
-	w.RegisterHook(events.Common.WindowClosing, func(*application.WindowEvent) { a.windowClosing(name) })
+	w.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		if a.vetoClose(w) {
+			e.Cancel()
+			return
+		}
+		a.windowClosing(name)
+	})
+	a.reloadOnCrash(w)
 	return w
 }
 
@@ -236,6 +243,7 @@ func (a *App) StartDir(ctx context.Context) string {
 // Closing the last window quits.
 func (a *App) CloseWindow(ctx context.Context) {
 	if w := winOf(ctx); w != nil {
+		a.allowClose(w.Name()) // the window already asked about each tab
 		w.Close()
 	}
 }
@@ -322,8 +330,12 @@ func (a *App) LoadSession(ctx context.Context) string {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	s := a.restoreFor[w.Name()]
+	s, ok := a.restoreFor[w.Name()]
 	delete(a.restoreFor, w.Name())
+	if !ok {
+		// A reloaded window: its latest layout (its tabs reattach).
+		s = a.winSessions[w.Name()]
+	}
 	return s
 }
 

@@ -8,7 +8,7 @@ import { SerializeAddon } from '@xterm/addon-serialize'
 import { ClipboardAddon, type ClipboardSelectionType } from '@xterm/addon-clipboard'
 import { ImageAddon } from '@xterm/addon-image'
 
-import { Start, Write, Resize, CloseTab, OpenURL, GitBranch, Ack, ResolvePath, OpenPath } from './backend'
+import { Start, Attach, Write, Resize, CloseTab, OpenURL, GitBranch, Ack, ResolvePath, OpenPath } from './backend'
 import { type Theme, bgAt } from './themes'
 import { b64ToBytes, b64ToText, el, escapeHtml, toast, copyText, duration, relTime } from './util'
 import type { Settings } from './types'
@@ -30,6 +30,8 @@ function once(key: string): boolean {
 
 /** A tab as saved in session.json. */
 export interface SavedTab {
+  /** The tab's number, so a reloaded window can reattach to its shell. */
+  id?: number
   cwd: string
   shareOutput?: boolean
   output?: string
@@ -233,16 +235,28 @@ export class Tab {
   // ---- Session: saved across restarts ---------------------------------------
 
   /** What's saved for this tab: folder, sharing switch and recent output. */
+  // Serializing the scrollback is the expensive part of saving, so it's
+  // redone only after new output.
+  private snapDirty = true
+  private snapOutput = ''
+
   snapshot(): SavedTab {
-    let output = ''
-    try {
-      output = this.serializer.serialize({ scrollback: 1000, excludeAltBuffer: true, excludeModes: true })
-      if (output.length > 400_000) output = this.serializer.serialize({ scrollback: 200, excludeAltBuffer: true, excludeModes: true })
-    } catch {
-      /* nothing to save */
+    if (this.snapDirty) {
+      let output = ''
+      try {
+        output = this.serializer.serialize({ scrollback: 1000, excludeAltBuffer: true, excludeModes: true })
+        if (output.length > 400_000) output = this.serializer.serialize({ scrollback: 200, excludeAltBuffer: true, excludeModes: true })
+      } catch {
+        /* nothing to save */
+      }
+      this.snapOutput = output
+      this.snapDirty = false
     }
-    return { cwd: this.cwd, shareOutput: this.shareOutput, output }
+    return { id: this.id, cwd: this.cwd, shareOutput: this.shareOutput, output: this.snapOutput }
   }
+
+  /** The program in front is asking for a password (typing is protected). */
+  passwordMode = false
 
   /** Shows a saved tab's output (dimmed divider after it) before the shell starts. */
   restore(saved: SavedTab) {
@@ -277,8 +291,30 @@ export class Tab {
     }
   }
 
+  /** Reconnects to a shell that kept running while the window reloaded. */
+  async attach() {
+    this.starting = true
+    try {
+      const b64 = await Attach(this.id)
+      this.term.reset()
+      const bytes = b64ToBytes(b64)
+      this.term.write(bytes)
+      this.running = true
+      this.exited = false
+      this.refit()
+      Resize(this.id, this.term.cols, this.term.rows)
+    } catch {
+      this.term.write('\x1b[2m[this tab\'s shell ended while the window reloaded]\x1b[0m\r\n')
+      void this.start()
+    } finally {
+      this.starting = false
+      this.hooks.onChange(this)
+    }
+  }
+
   write(b64: string) {
     const bytes = b64ToBytes(b64)
+    this.snapDirty = true
     // Tell Go once this batch is drawn, so it can send more (backpressure).
     this.term.write(bytes, () => Ack(this.id, bytes.length))
   }

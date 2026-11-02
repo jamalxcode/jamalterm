@@ -33,6 +33,9 @@ func main() {
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
 		ShouldQuit: func() bool {
+			if !a.shouldQuit() {
+				return false // the window asks first
+			}
 			a.setQuitting()
 			return true
 		},

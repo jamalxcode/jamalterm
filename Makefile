@@ -12,6 +12,7 @@ frontend:
 # Install the tool with: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
 bindings:
 	$(WAILS3) generate bindings -clean -ts -i $(if $(filter Linux,$(shell uname)),-f '-tags $(LINUX_TAGS)') -d frontend/bindings
+	python3 scripts/gen-backend.py
 
 mac: frontend
 	scripts/build-mac.sh

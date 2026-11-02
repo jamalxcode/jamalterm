@@ -73,11 +73,26 @@ export function AnthropicAccount(): $CancellablePromise<ai$0.Account> {
 }
 
 /**
+ * Attach reconnects a reloaded window to a running tab: it returns the
+ * recent output (base64) and output carries on from there.
+ */
+export function Attach(id: number): $CancellablePromise<string> {
+    return $Call.ByID(1349821212, id);
+}
+
+/**
  * BlurActive reports whether the window was started with background blur
  * (it can only change at launch).
  */
 export function BlurActive(): $CancellablePromise<boolean> {
     return $Call.ByID(2703477402);
+}
+
+/**
+ * BusyTabs lists which of these tabs are running something.
+ */
+export function BusyTabs(ids: number[] | null): $CancellablePromise<$models.BusyTab[] | null> {
+    return $Call.ByID(3710383292, ids);
 }
 
 /**
@@ -100,6 +115,14 @@ export function CloseTab(id: number): $CancellablePromise<void> {
  */
 export function CloseWindow(): $CancellablePromise<void> {
     return $Call.ByID(3642446947);
+}
+
+/**
+ * CloseWindowNow closes the calling window after you agreed to stop
+ * what's running in it.
+ */
+export function CloseWindowNow(): $CancellablePromise<void> {
+    return $Call.ByID(3657344013);
 }
 
 /**
@@ -188,6 +211,14 @@ export function ListProviderModels(provider: string): $CancellablePromise<string
 }
 
 /**
+ * LiveTabs lists the calling window's tabs whose shells are still running
+ * (after the window reloaded, e.g. View → Reload Window).
+ */
+export function LiveTabs(): $CancellablePromise<number[] | null> {
+    return $Call.ByID(2160926519);
+}
+
+/**
  * LoadSession returns the tabs the calling window should reopen ("" = none).
  */
 export function LoadSession(): $CancellablePromise<string> {
@@ -254,6 +285,13 @@ export function Quit(): $CancellablePromise<void> {
 }
 
 /**
+ * QuitNow quits after you agreed to stop what's running.
+ */
+export function QuitNow(): $CancellablePromise<void> {
+    return $Call.ByID(2250163358);
+}
+
+/**
  * Resize is called when the window or font size changes.
  */
 export function Resize(id: number, cols: number, rows: number): $CancellablePromise<void> {
@@ -291,6 +329,13 @@ export function SaveSettings(cfg: settings$0.Settings): $CancellablePromise<sett
 }
 
 /**
+ * SecureInputActive reports whether typing is protected right now.
+ */
+export function SecureInputActive(): $CancellablePromise<boolean> {
+    return $Call.ByID(1554098270);
+}
+
+/**
  * SetAIProvider switches the assistant ("anthropic", "openai",
  * "deepseek") and saves it, from the AI menu or the panel header.
  */
@@ -303,6 +348,13 @@ export function SetAIProvider(id: string): $CancellablePromise<void> {
  */
 export function SetAPIKey(key: string): $CancellablePromise<void> {
     return $Call.ByID(4066338368, key);
+}
+
+/**
+ * SetActiveTab tells which tab in the calling window has the focus.
+ */
+export function SetActiveTab(id: number): $CancellablePromise<void> {
+    return $Call.ByID(4078211772, id);
 }
 
 /**

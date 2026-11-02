@@ -7,5 +7,6 @@ export {
 };
 
 export type {
+    BusyTab,
     UpdateInfo
 } from "./models.js";
