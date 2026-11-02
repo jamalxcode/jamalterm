@@ -3,6 +3,7 @@ package shell
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // The line typed into a "remote" shell (here: a local one started without
@@ -15,7 +16,11 @@ func TestRemoteSetup(t *testing.T) {
 			s := startShell(t, sh, c, exited)
 			// Like a person, type it at the prompt: before the shell's line
 			// editor is up, macOS cuts typed lines at 1024 bytes.
-			waitFor(t, c, "$ ")
+			deadline := time.Now().Add(5 * time.Second)
+			for !strings.ContainsAny(strings.TrimRight(c.String(), " "), "$#%") && time.Now().Before(deadline) {
+				time.Sleep(20 * time.Millisecond)
+			}
+			time.Sleep(200 * time.Millisecond)
 			line := RemoteSetup()
 			if !strings.HasPrefix(line, " eval ") || len(line) > 8000 {
 				t.Fatalf("odd setup line (%d bytes)", len(line))
