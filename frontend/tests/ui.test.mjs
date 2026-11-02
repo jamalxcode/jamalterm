@@ -376,7 +376,7 @@ test('a password prompt shows a lock', async () => {
 })
 
 const pty = (page, text) => page.evaluate((t) => {
-  const id = window.__calls.find((c) => c[0] === 'Start')[1]
+  const id = Number(Object.keys(window.__fake.shells)[0])
   window.__emit('pty:data', { id, data: btoa(unescape(encodeURIComponent(t))) })
 }, text)
 
@@ -432,5 +432,84 @@ test('a local model: no key, a server address, Find on this Mac', async () => {
   const saved = await page.evaluate(() => window.__calls.filter((c) => c[0] === 'SaveSettings').pop()[1])
   assert.equal(saved.aiProvider, 'local')
   assert.equal(saved.localUrl, 'http://localhost:11434/v1')
+  await page.close()
+})
+
+test('kitty keyboard protocol: on when a program asks, off when it pops', async () => {
+  const page = await open()
+  const writes = async (keys) => {
+    await page.evaluate(() => (window.__calls.length = 0))
+    for (const k of keys) await page.keyboard.press(k)
+    await page.waitForTimeout(80)
+    return page.evaluate(() => window.__calls.filter((c) => c[0] === 'Write').map((c) => c[2]))
+  }
+  await pty(page, '\x1b[>1u\x1b[?u')
+  await page.waitForTimeout(80)
+  assert.ok(await page.evaluate(() => window.__calls.some((c) => c[0] === 'Write' && c[2] === '\x1b[?1u')), 'answers the query')
+  assert.deepEqual(await writes(['Escape']), ['\x1b[27u'])
+  assert.deepEqual(await writes(['Control+a']), ['\x1b[97;5u'])
+  assert.deepEqual(await writes(['Shift+Enter']), ['\x1b[13;2u'])
+  assert.deepEqual(await writes(['b']), ['b'], 'text stays text')
+  assert.deepEqual(await writes(['Enter']), ['\r'], 'plain Enter stays')
+  await pty(page, '\x1b[<u')
+  await page.waitForTimeout(50)
+  assert.deepEqual(await writes(['Escape']), ['\x1b'], 'back to normal after the program pops')
+  await page.close()
+})
+
+test('OSC 8 links open with ⌘-click', async () => {
+  const page = await open()
+  await pty(page, '\r\n\x1b]8;;https://example.com/docs\x07read the docs\x1b]8;;\x07\r\n')
+  await page.waitForTimeout(150)
+  const box = await page.evaluate(() => {
+    const row = [...document.querySelectorAll('.pane.focused .xterm-rows > div')].find((d) => d.textContent.replace(/\u00a0/g, ' ').includes('read the docs'))
+    const r = row.getBoundingClientRect()
+    return { x: r.left + 40, y: r.top + r.height / 2 }
+  })
+  await page.mouse.move(box.x, box.y)
+  await page.waitForTimeout(100)
+  await page.keyboard.down('Meta')
+  await page.mouse.click(box.x, box.y)
+  await page.keyboard.up('Meta')
+  await page.waitForTimeout(100)
+  const opened = await page.evaluate(() => window.__calls.filter((c) => c[0] === 'OpenURL').map((c) => c[1]))
+  assert.deepEqual(opened, ['https://example.com/docs'])
+  await page.close()
+})
+
+test('host colors: an ssh tab shows the machine name and color', async () => {
+  const page = await open({ settings: { hostColors: [{ pattern: 'prod-*', color: 'red' }] } })
+  await pty(page, '\x1b]6973;cmd;' + btoa('ssh -p 2222 me@prod-db') + '\x07\x1b]133;C\x07\r\n')
+  await page.waitForTimeout(150)
+  assert.match(await page.locator('.tab.active').innerText(), /@prod-db/)
+  assert.equal(await page.locator('.pane.focused.host-tinted').count(), 1)
+  await pty(page, '\x1b]133;D;0\x07\x1b]133;A\x07$ ')
+  await page.waitForTimeout(150)
+  assert.equal(await page.locator('.pane.focused.host-tinted').count(), 0, 'gone after ssh ends')
+  await page.close()
+})
+
+test('broadcast typing goes to every pane in the tab', async () => {
+  const page = await open()
+  await page.evaluate(() => window.__emit('menu', 'splitRight'))
+  await page.waitForTimeout(300)
+  await page.evaluate(() => window.__emit('menu', 'broadcast'))
+  await page.waitForTimeout(100)
+  assert.equal(await page.isVisible('#broadcast-bar'), true)
+  await page.evaluate(() => (window.__calls.length = 0))
+  await page.keyboard.type('z')
+  await page.waitForTimeout(100)
+  const ids = await page.evaluate(() => window.__calls.filter((c) => c[0] === 'Write' && c[2] === 'z').map((c) => c[1]))
+  assert.equal(new Set(ids).size, 2, `went to both panes: ${ids}`)
+  await page.waitForTimeout(200)
+  await page.evaluate(() => window.__emit('menu', 'broadcast'))
+  await page.waitForTimeout(100)
+  assert.equal(await page.isVisible('#broadcast-bar'), false)
+  await page.close()
+})
+
+test('ligatures setting draws without the GPU', async () => {
+  const page = await open({ settings: { ligatures: true } })
+  assert.equal(await page.locator('.pane.focused.ligatures').count(), 1)
   await page.close()
 })

@@ -1,4 +1,5 @@
 import { Terminal, type IMarker } from '@xterm/xterm'
+import { KittyKeyboard } from './kitty'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
@@ -57,6 +58,8 @@ export interface TabHooks {
   settings(): Settings
   shellName(): string
   home(): string
+  /** Something was typed in this tab (for broadcasting to other panes). */
+  onInput?(tab: Tab, data: string): void
 }
 
 /** Adds the bundled Nerd Font icons as a fallback to any font. */
@@ -144,7 +147,14 @@ export class Tab {
       macOptionClickForcesSelection: true,
       scrollback: s.scrollback,
       drawBoldTextInBrightColors: true,
+      // Links programs print with OSC 8 (ls --hyperlink, gcc, git…): ⌘-click.
+      linkHandler: {
+        allowNonHttpProtocols: true,
+        activate: (e, uri) => this.openLink(e, uri),
+        hover: () => undefined,
+      },
     })
+    this.kitty = new KittyKeyboard(this.term, (s) => Write(this.id, s))
     this.term.loadAddon(this.fit)
     this.term.loadAddon(this.search)
     this.term.loadAddon(this.serializer)
@@ -169,13 +179,7 @@ export class Tab {
     } catch {
       /* not essential */
     }
-    if (!gpuOff) try {
-      const webgl = new WebglAddon()
-      webgl.onContextLoss(() => webgl.dispose())
-      this.term.loadAddon(webgl)
-    } catch {
-      /* the DOM renderer is fine */
-    }
+    this.setRenderer(s.ligatures)
 
     this.registerShellMarks()
 
@@ -184,10 +188,7 @@ export class Tab {
         void this.start()
         return
       }
-      if (this.running) {
-        this.typedSincePrompt = true
-        Write(this.id, data)
-      }
+      if (this.running) this.input(data)
     })
     this.term.onTitleChange((t) => {
       this.oscTitle = t
@@ -279,6 +280,7 @@ export class Tab {
         this.disposeBlocks()
       }
       this.exited = false
+      this.kitty.reset()
       await Start(this.id, this.term.cols, this.term.rows, this.cwd)
       this.running = true
       Resize(this.id, this.term.cols, this.term.rows)
@@ -351,7 +353,87 @@ export class Tab {
     this.scheduleOverlay()
   }
 
+  // ---- Input -------------------------------------------------------------------
+
+  readonly kitty: KittyKeyboard
+
+  /** Sends typing to the shell (and, when broadcasting, to the other panes). */
+  input(data: string, broadcast = true) {
+    this.typedSincePrompt = true
+    Write(this.id, data)
+    if (broadcast) this.hooks.onInput?.(this, data)
+  }
+
+  /** An OSC 8 link: web pages in the browser, files in their app. */
+  private openLink(e: MouseEvent, uri: string) {
+    if (!(e.metaKey || e.ctrlKey)) {
+      toast('⌘-click to open ' + (uri.length > 60 ? uri.slice(0, 57) + '…' : uri))
+      return
+    }
+    let u: URL
+    try {
+      u = new URL(uri)
+    } catch {
+      return
+    }
+    if (u.protocol === 'http:' || u.protocol === 'https:' || u.protocol === 'mailto:') OpenURL(uri)
+    else if (u.protocol === 'file:') {
+      // Only files on this computer.
+      if (u.hostname && u.hostname !== 'localhost' && !this.isLocalHost(u.hostname)) return void toast('That file is on ' + u.hostname)
+      void OpenPath(decodeURIComponent(u.pathname))
+    } else toast(`jamalterm doesn't open ${u.protocol} links`)
+  }
+
+  // ---- Drawing: GPU, or the DOM renderer for ligatures --------------------------
+
+  private webgl: WebglAddon | null = null
+
+  private setRenderer(ligatures: boolean) {
+    this.pane.classList.toggle('ligatures', ligatures)
+    const wantGpu = !gpuOff && !ligatures
+    if (wantGpu && !this.webgl) {
+      try {
+        const webgl = new WebglAddon()
+        webgl.onContextLoss(() => {
+          webgl.dispose()
+          this.webgl = null
+        })
+        this.term.loadAddon(webgl)
+        this.webgl = webgl
+      } catch {
+        /* the DOM renderer is fine */
+      }
+    } else if (!wantGpu && this.webgl) {
+      this.webgl.dispose()
+      this.webgl = null
+    }
+  }
+
+  // ---- Which machine this tab is on ---------------------------------------------
+
+  /** The host from the first OSC 7 (this Mac), and the latest one. */
+  private localHost = ''
+  private oscHost = ''
+
+  private isLocalHost(h: string) {
+    return !!this.localHost && h.toLowerCase() === this.localHost.toLowerCase()
+  }
+
+  /** The other machine this tab is connected to ("" when it's this Mac). */
+  get remoteHost(): string {
+    if (this.oscHost && !this.isLocalHost(this.oscHost)) return this.oscHost
+    for (let i = this.blocks.length - 1; i >= 0; i--) {
+      const b = this.blocks[i]
+      if (b.start && !b.end) {
+        const h = sshTarget(b.command)
+        if (h) return h
+      }
+    }
+    return ''
+  }
+
   applySettings(s: Settings, theme: Theme) {
+    this.setRenderer(s.ligatures)
     const o = this.term.options
     o.theme = termTheme(theme, s.opacity)
     o.fontFamily = fontStack(s.fontFamily)
@@ -465,6 +547,14 @@ export class Tab {
       return true
     })
     parser.registerOscHandler(7, (data) => {
+      const host = /^file:\/\/([^/]*)\//.exec(data)?.[1] ?? ''
+      if (host) {
+        if (!this.localHost) this.localHost = host
+        if (host !== this.oscHost) {
+          this.oscHost = host
+          this.hooks.onChange(this)
+        }
+      }
       const m = /^file:\/\/[^/]*(\/.*)$/.exec(data)
       if (m) {
         let path = m[1]
@@ -923,6 +1013,14 @@ export class Tab {
     }
     // ⌘ shortcuts belong to the menu bar, never to the shell.
     if (e.metaKey) return false
+    // Programs that asked for the kitty keyboard protocol get unambiguous keys.
+    const kitty = this.running ? this.kitty.encode(e, this.hooks.settings().optionIsMeta) : null
+    if (kitty) {
+      e.preventDefault()
+      this.keyConsumed = true
+      this.input(kitty)
+      return false
+    }
     if (e.key === 'ArrowUp' && !e.altKey && !e.ctrlKey && !e.shiftKey && this.atEmptyPrompt()) {
       // The free-floating cursor starts where the text cursor is.
       const buf = this.term.buffer.active
@@ -1094,4 +1192,29 @@ export function guessCommand(line: string): string {
   // Not a prompt: "Total: 15 $ 20", "# comment", prices…
   if (/^[\d.,]+\b/.test(cmd) || cmd.length > 500) return ''
   return cmd
+}
+
+/** The machine an ssh command connects to: "ssh -p 22 me@prod-db ls" → "prod-db". */
+export function sshTarget(command: string): string {
+  const words = command.trim().split(/\s+/)
+  if (words[0] === 'sudo') words.shift()
+  if (!/(^|\/)(ssh|mosh|autossh)$/.test(words[0] ?? '')) return ''
+  const withArg = new Set(['-b', '-c', '-D', '-E', '-e', '-F', '-I', '-i', '-J', '-L', '-l', '-m', '-O', '-o', '-p', '-Q', '-R', '-S', '-W', '-w', '--ssh', '--port'])
+  for (let i = 1; i < words.length; i++) {
+    const w = words[i]
+    if (w.startsWith('-')) {
+      if (withArg.has(w)) i++
+      continue
+    }
+    return w.replace(/^[^@]*@/, '').replace(/:.*$/, '')
+  }
+  return ''
+}
+
+/** Does host match a pattern like "prod-*, *.example.com"? */
+export function hostMatches(host: string, pattern: string): boolean {
+  return pattern.split(',').map((p) => p.trim()).filter(Boolean).some((p) => {
+    const re = new RegExp('^' + p.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$', 'i')
+    return re.test(host)
+  })
 }

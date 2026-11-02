@@ -12,7 +12,7 @@
       opacity: 100, blur: true, scrollback: 10000, shell: '', shellIntegration: true, arrowBrowse: true, restoreSession: true,
       promptKeys: 'emacs', notifyLongCommands: true, notifyAfterSeconds: 10, screenReader: false, confirmRerun: false,
       optionIsMeta: true, autoUpdate: false, keepProblemLog: true, aiEnabled: true, aiProvider: 'anthropic', aiModel: 'claude-opus-5-5',
-      openaiModel: '', deepseekModel: '', xaiModel: '', openrouterModel: '', localUrl: 'http://localhost:11434/v1', localModel: '', aiShareOutput: true,
+      openaiModel: '', deepseekModel: '', xaiModel: '', openrouterModel: '', localUrl: 'http://localhost:11434/v1', localModel: '', ligatures: false, hostColors: [], aiShareOutput: true,
     }, window.__settings || {}),
     session: window.__session || '',
     live: window.__live || [],

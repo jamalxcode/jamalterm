@@ -16,6 +16,8 @@ export class Group {
   readonly el = el('div', { class: 'group' })
   root: PaneNode
   focused: Tab
+  /** Typing in one pane goes to every pane in this tab. */
+  broadcast = false
 
   constructor(parent: HTMLElement, tab: Tab, private onResize: (g: Group) => void) {
     this.root = { tab }

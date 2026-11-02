@@ -42,6 +42,7 @@ export const actions: [string, string, string][] = [
   ['paneRight', 'Pane to the Right', '⌥⌘→'],
   ['paneUp', 'Pane Above', '⌥⌘↑'],
   ['paneDown', 'Pane Below', '⌥⌘↓'],
+  ['broadcast', 'Broadcast Typing to All Panes (on / off)', '⌥⌘I'],
   ['remoteIntegration', 'Enable Browse Mode on This Server (ssh)', ''],
   ['clear', 'Clear Screen', '⌘K'],
   ['find', 'Find in Output', '⌘F'],
@@ -67,6 +68,7 @@ type Bool = { [K in keyof Settings]: Settings[K] extends boolean ? K : never }[k
 /** Settings you can flip from the palette: [field, label, page]. */
 export const toggles: [Bool, string, SettingsPage][] = [
   ['cursorBlink', 'Blinking cursor', 'appearance'],
+  ['ligatures', 'Font ligatures (=> != …)', 'appearance'],
   ['blur', 'Blur behind see-through window', 'appearance'],
   ['shellIntegration', 'Shell integration', 'shell'],
   ['arrowBrowse', '↑ at an empty prompt browses commands', 'shell'],
@@ -88,6 +90,7 @@ const places: [string, SettingsPage, string][] = [
   ['Line height', 'appearance', 'Line height'],
   ['Cursor style', 'appearance', 'Cursor'],
   ['Window opacity / transparency', 'appearance', 'Window opacity'],
+  ['Host colors (ssh)', 'appearance', 'Host colors'],
   ['Shell program', 'shell', 'Shell'],
   ['Scrollback lines', 'shell', 'Scrollback'],
   ['Prompt editing keys (emacs / vi)', 'shell', 'Prompt editing keys'],

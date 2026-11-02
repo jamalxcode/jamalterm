@@ -124,6 +124,7 @@ func (a *App) buildMenu() *application.Menu {
 	a.item(win, "Pane Right", cmdOpt("Right"), "paneRight")
 	a.item(win, "Pane Above", cmdOpt("Up"), "paneUp")
 	a.item(win, "Pane Below", cmdOpt("Down"), "paneDown")
+	a.item(win, "Broadcast Typing to All Panes", cmdOpt("i"), "broadcast")
 	win.AddSeparator()
 	for i := 1; i <= 9; i++ {
 		n := string(rune('0' + i))

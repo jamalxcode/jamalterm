@@ -176,6 +176,36 @@ export class SettingsView {
     )
     updateBlurNote()
 
+    // Host colors: tabs connected to matching machines get a colored edge
+    // and the machine's name.
+    const hostColorsField = () => {
+      const colors = ['red', 'orange', 'yellow', 'green', 'blue', 'purple']
+      const list = el('div', { class: 'host-rules' })
+      const rows = () => {
+        list.textContent = ''
+        ;(s.hostColors ??= []).forEach((h, i) => {
+          const pat = el('input', { type: 'text', placeholder: 'prod-*, *.example.com', spellcheck: 'false', 'aria-label': 'Machine names' }) as HTMLInputElement
+          pat.value = h.pattern
+          pat.addEventListener('input', () => (h.pattern = pat.value))
+          const col = select(colors.map((c) => [c, c[0].toUpperCase() + c.slice(1)]), h.color, (v) => (h.color = v))
+          col.setAttribute('aria-label', 'Color')
+          const dot = el('span', { class: 'host-swatch' })
+          dot.style.background = `var(--${h.color})`
+          col.addEventListener('change', () => (dot.style.background = `var(--${col.value})`))
+          const del = el('button', { type: 'button', class: 'ghost small', title: 'Remove' }, '✕')
+          del.addEventListener('click', () => { s.hostColors?.splice(i, 1); rows() })
+          list.append(el('div', { class: 'keyrow' }, pat, dot, col, del))
+        })
+      }
+      rows()
+      const add = el('button', { type: 'button', class: 'ghost small' }, '+ Add a machine')
+      add.addEventListener('click', () => { (s.hostColors ??= []).push({ pattern: '', color: 'red' }); rows() })
+      return el('div', { class: 'field' },
+        el('span', { class: 'label', text: 'Host colors' }),
+        list, el('div', {}, add),
+        el('span', { class: 'help', text: 'Tabs connected (ssh) to a matching machine get this color and show its name, e.g. red for production.' }))
+    }
+
     const appearance = el(
       'section', { 'data-page': 'appearance' },
       el('h3', { text: 'Appearance' }),
@@ -190,6 +220,8 @@ export class SettingsView {
         el('label', { class: 'check' }, check(s.cursorBlink, (v) => { s.cursorBlink = v; live() }), ' Blinking cursor'),
       ),
       opacityRow,
+      el('label', { class: 'check' }, check(s.ligatures, (v) => { s.ligatures = v; live() }), ' Font ligatures (=> != ->) in fonts that have them, like JetBrains Mono and Fira Code (drawn without the GPU)'),
+      hostColorsField(),
     )
 
     const forget = el('button', { type: 'button', class: 'ghost small' }, 'Forget saved tabs and output')

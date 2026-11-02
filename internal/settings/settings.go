@@ -24,6 +24,12 @@ type Settings struct {
 	// Blur what's behind a see-through window (macOS; applies on restart).
 	Blur        bool   `json:"blur"`
 	CursorBlink bool   `json:"cursorBlink"`
+	// Ligatures joins character pairs like => and != in fonts that have
+	// them (drawn without the GPU, a little slower).
+	Ligatures bool `json:"ligatures"`
+	// HostColors marks tabs connected to some machines (ssh) with a color
+	// and the machine's name, e.g. red for "prod-*".
+	HostColors []HostColor `json:"hostColors"`
 	Scrollback  int    `json:"scrollback"`
 	Shell       string `json:"shell"` // empty = your login shell
 	// ShellIntegration lets jamalterm know where commands start and end.
@@ -77,6 +83,13 @@ type Settings struct {
 	LocalModel string `json:"localModel"`
 	// AIShareOutput sends recent command output to Claude with questions.
 	AIShareOutput bool `json:"aiShareOutput"`
+}
+
+// HostColor colors tabs whose machine matches Pattern ("prod-*",
+// "*.example.com"; several separated by commas).
+type HostColor struct {
+	Pattern string `json:"pattern"`
+	Color   string `json:"color"` // red, orange, yellow, green, blue, purple
 }
 
 // Defaults are used for anything missing from the file.
@@ -195,6 +208,19 @@ func (c Settings) normalized() Settings {
 	if c.FontFamily == "" {
 		c.FontFamily = d.FontFamily
 	}
+	var hosts []HostColor
+	for _, h := range c.HostColors {
+		h.Pattern = strings.TrimSpace(h.Pattern)
+		switch h.Color {
+		case "red", "orange", "yellow", "green", "blue", "purple":
+		default:
+			h.Color = "red"
+		}
+		if h.Pattern != "" {
+			hosts = append(hosts, h)
+		}
+	}
+	c.HostColors = hosts
 	if strings.TrimSpace(c.LocalURL) == "" {
 		c.LocalURL = d.LocalURL
 	}

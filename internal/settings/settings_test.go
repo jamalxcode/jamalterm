@@ -3,6 +3,7 @@ package settings
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -11,7 +12,7 @@ func TestRoundTripAndDefaults(t *testing.T) {
 	st := NewStore(path)
 
 	got, err := st.Load()
-	if err != nil || got != Defaults() {
+	if err != nil || !reflect.DeepEqual(got, Defaults()) {
 		t.Fatalf("missing file should give defaults: %+v %v", got, err)
 	}
 
@@ -38,7 +39,7 @@ func TestRoundTripAndDefaults(t *testing.T) {
 
 	// A damaged file still gives usable settings.
 	os.WriteFile(path, []byte(`{nope`), 0o600)
-	if bad, err := st.Load(); err == nil || bad != Defaults() {
+	if bad, err := st.Load(); err == nil || !reflect.DeepEqual(bad, Defaults()) {
 		t.Fatalf("damaged file: %+v %v", bad, err)
 	}
 }
@@ -95,5 +96,15 @@ func TestRemovedProviderFallsBackToClaude(t *testing.T) {
 	got, err := NewStore(path).Load()
 	if err != nil || got.AIProvider != "anthropic" {
 		t.Fatalf("provider %q err %v", got.AIProvider, err)
+	}
+}
+
+func TestHostColorsCleanedUp(t *testing.T) {
+	c := Defaults()
+	c.HostColors = []HostColor{{Pattern: " prod-* ", Color: "red"}, {Pattern: "", Color: "blue"}, {Pattern: "staging", Color: "pink"}}
+	got := c.normalized().HostColors
+	want := []HostColor{{Pattern: "prod-*", Color: "red"}, {Pattern: "staging", Color: "red"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v", got)
 	}
 }

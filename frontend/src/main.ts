@@ -5,7 +5,7 @@ import './style.css'
 
 import { Settings, SaveSettings, ShowProblemLog, ShellName, HomeDir, CloseWindow, WindowID, Version, GPUOff, SetWindowOpacity, SaveSession, LoadSession, IsPrimaryWindow, NewWindow, StartDir, Notify } from './backend'
 import { EventsOn, WindowSetTitle } from './backend'
-import { Tab, setGpuOff, type SavedTab } from './tab'
+import { Tab, setGpuOff, hostMatches, type SavedTab } from './tab'
 import { themeById, applyChrome } from './themes'
 import { AIPanel, CommandBar } from './ai'
 import { SettingsView } from './settingsView'
@@ -65,6 +65,12 @@ const hooks = {
   settings: () => cfg,
   shellName: () => shellName,
   home: () => home,
+  // Broadcast: what's typed in one pane goes to the tab's other panes too.
+  onInput: (t: Tab, data: string) => {
+    const g = groupOf(t)
+    if (!g?.broadcast) return
+    for (const o of g.tabs()) if (o !== t && o.running) o.input(data, false)
+  },
 }
 
 const aiHost = {
@@ -348,6 +354,24 @@ function movePane(dx: number, dy: number) {
   if (t) activate(t)
 }
 
+/** The host-color rule for a tab's machine, if any. */
+function hostColor(t: Tab): { host: string; color: string } | null {
+  const host = t.remoteHost
+  if (!host) return null
+  const rule = (cfg.hostColors ?? []).find((h) => hostMatches(host, h.pattern))
+  return rule ? { host, color: rule.color } : { host, color: '' }
+}
+
+function paintHosts() {
+  for (const t of tabs) {
+    const hc = hostColor(t)
+    t.pane.classList.toggle('host-tinted', !!hc?.color)
+    t.pane.dataset.host = hc?.color ? hc.host : ''
+    if (hc?.color) t.pane.style.setProperty('--host', `var(--${hc.color})`)
+    else t.pane.style.removeProperty('--host')
+  }
+}
+
 const STATUS_TEXT = { running: 'running', failed: 'last command failed', exited: 'shell exited', idle: '' }
 
 function renderTabs() {
@@ -364,6 +388,14 @@ function renderTabs() {
     if (status === 'exited') label.append(el('span', { class: 'sep', text: ' (exited)' }))
     if (g.tabs().some((x) => x.passwordMode)) label.append(el('span', { class: 'lock', title: 'Password prompt: typing is protected', text: '🔒' }))
     if (g.count > 1) label.append(el('span', { class: 'panes', title: `${g.count} panes`, text: ` ⊞${g.count}` }))
+    if (g.broadcast) label.append(el('span', { class: 'broadcast', title: 'Typing goes to every pane in this tab (⌥⌘I)', text: ' 📣' }))
+    const hc = hostColor(t)
+    if (hc) {
+      // The machine's name, always as text; the color is extra.
+      const chip = el('span', { class: 'host', title: `Connected to ${hc.host}`, text: `@${hc.host}` })
+      if (hc.color) chip.style.setProperty('--host', `var(--${hc.color})`)
+      label.append(chip)
+    }
 
     const last = t.lastFinished
     const tip = [
@@ -395,7 +427,11 @@ function renderTabs() {
 }
 
 function updateChrome() {
+  paintHosts()
   if (!active) return
+  const g = groupOf(active)
+  broadcastBar.hidden = !g?.broadcast
+  if (g?.broadcast) broadcastBar.textContent = `📣 Typing goes to all ${g.count} panes in this tab — ⌥⌘I to stop`
   const title = active.prettyCwd ? `${active.title} — ${active.prettyCwd}` : active.title
   WindowSetTitle(title)
   secureBadge.hidden = !active.passwordMode
@@ -403,6 +439,18 @@ function updateChrome() {
   hintEl.innerHTML = hint
   hintEl.hidden = !hint
   document.body.classList.toggle('browsing', !!hint)
+}
+
+const broadcastBar = el('div', { id: 'broadcast-bar', role: 'status', hidden: '' })
+document.body.append(broadcastBar)
+
+function toggleBroadcast() {
+  const g = groupOf(active)
+  if (!g) return
+  if (g.count < 2 && !g.broadcast) return toast('Split the tab first (⌘D): broadcast types into every pane of a tab')
+  g.broadcast = !g.broadcast
+  renderTabs()
+  updateChrome()
 }
 
 // ---- Find (⌘F) --------------------------------------------------------------------
@@ -511,6 +559,7 @@ function runMenu(cmd: string) {
     case 'paneUp': return movePane(0, -1)
     case 'paneDown': return movePane(0, 1)
     case 'closeGroup': return closeGroup()
+    case 'broadcast': return toggleBroadcast()
     case 'clear':
       t?.exitBrowse()
       t?.term.clear()
