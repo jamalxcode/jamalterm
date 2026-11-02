@@ -11,6 +11,7 @@ import { themeById, applyChrome } from './themes'
 import { AIPanel, CommandBar } from './ai'
 import { SettingsView } from './settingsView'
 import { Updater } from './updater'
+import { showDiagnostics, logWindowErrors } from './diagnostics'
 import { loadProviders, providerInfo, modelOf } from './providers'
 import { el, isMac, toast, duration } from './util'
 
@@ -314,6 +315,7 @@ function runMenu(cmd: string) {
   if (cmd.startsWith('toast:')) return toast(cmd.slice(6), 'error')
   switch (cmd) {
     case 'about': return void about()
+    case 'diagnostics': return void showDiagnostics(() => active?.term.focus())
     case 'checkUpdates': return void updater.check(true)
     case 'revertUpdate': return void updater.offerRevert()
     case 'settings': return void settingsView.open()
@@ -412,4 +414,5 @@ async function boot() {
   void updater.startAuto(() => cfg.autoUpdate)
 }
 
+logWindowErrors()
 void boot()

@@ -124,6 +124,7 @@ export namespace settings {
 	    promptKeys: string;
 	    confirmRerun: boolean;
 	    optionIsMeta: boolean;
+	    keepProblemLog: boolean;
 	    autoUpdate: boolean;
 	    aiEnabled: boolean;
 	    aiProvider: string;
@@ -159,6 +160,7 @@ export namespace settings {
 	        this.promptKeys = source["promptKeys"];
 	        this.confirmRerun = source["confirmRerun"];
 	        this.optionIsMeta = source["optionIsMeta"];
+	        this.keepProblemLog = source["keepProblemLog"];
 	        this.autoUpdate = source["autoUpdate"];
 	        this.aiEnabled = source["aiEnabled"];
 	        this.aiProvider = source["aiProvider"];

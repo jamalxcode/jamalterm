@@ -24,6 +24,8 @@ export function CheckForUpdate():Promise<main.UpdateInfo>;
 
 export function CloseTab(arg1:number):Promise<void>;
 
+export function Diagnostics():Promise<string>;
+
 export function ForgetSession():Promise<void>;
 
 export function GPUOff():Promise<boolean>;
@@ -46,6 +48,8 @@ export function ListProviderModels(arg1:string):Promise<Array<string>>;
 
 export function LoadSession():Promise<string>;
 
+export function LogProblem(arg1:string,arg2:string):Promise<void>;
+
 export function NewWindow(arg1:string):Promise<void>;
 
 export function Notify(arg1:string,arg2:string):Promise<void>;
@@ -55,6 +59,8 @@ export function OpenPath(arg1:string):Promise<void>;
 export function OpenURL(arg1:string):Promise<void>;
 
 export function PreviousVersion():Promise<string>;
+
+export function ProblemLogPath():Promise<string>;
 
 export function Quit():Promise<void>;
 
@@ -79,6 +85,8 @@ export function SetWindowOpacity(arg1:number):Promise<void>;
 export function Settings():Promise<settings.Settings>;
 
 export function ShellName():Promise<string>;
+
+export function ShowProblemLog():Promise<void>;
 
 export function SignInOpenRouter():Promise<void>;
 

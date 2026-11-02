@@ -93,5 +93,12 @@ func (a *App) buildMenu() *menu.Menu {
 			runtime.WindowFullscreen(a.ctx)
 		}
 	})
+
+	help := m.AddSubmenu("Help")
+	help.AddText("Command Palette…", cmdShift("p"), a.menu("palette"))
+	help.AddText("Keyboard Shortcuts", nil, a.menu("about"))
+	help.AddSeparator()
+	help.AddText("Copy Diagnostics…", nil, a.menu("diagnostics"))
+	help.AddText("Show Problem Log", nil, func(_ *menu.CallbackData) { a.ShowProblemLog() })
 	return m
 }

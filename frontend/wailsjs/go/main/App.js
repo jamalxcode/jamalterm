@@ -42,6 +42,10 @@ export function CloseTab(arg1) {
   return window['go']['main']['App']['CloseTab'](arg1);
 }
 
+export function Diagnostics() {
+  return window['go']['main']['App']['Diagnostics']();
+}
+
 export function ForgetSession() {
   return window['go']['main']['App']['ForgetSession']();
 }
@@ -86,6 +90,10 @@ export function LoadSession() {
   return window['go']['main']['App']['LoadSession']();
 }
 
+export function LogProblem(arg1, arg2) {
+  return window['go']['main']['App']['LogProblem'](arg1, arg2);
+}
+
 export function NewWindow(arg1) {
   return window['go']['main']['App']['NewWindow'](arg1);
 }
@@ -104,6 +112,10 @@ export function OpenURL(arg1) {
 
 export function PreviousVersion() {
   return window['go']['main']['App']['PreviousVersion']();
+}
+
+export function ProblemLogPath() {
+  return window['go']['main']['App']['ProblemLogPath']();
 }
 
 export function Quit() {
@@ -152,6 +164,10 @@ export function Settings() {
 
 export function ShellName() {
   return window['go']['main']['App']['ShellName']();
+}
+
+export function ShowProblemLog() {
+  return window['go']['main']['App']['ShowProblemLog']();
 }
 
 export function SignInOpenRouter() {

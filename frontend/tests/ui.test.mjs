@@ -185,3 +185,29 @@ test('window opacity makes the background see-through', async () => {
   assert.match(bg, /rgba\(21, 22, 30, 0\.6\)/)
   await page.close()
 })
+
+test('Copy Diagnostics shows the report first and copies only on Copy', async () => {
+  const page = await open()
+  await page.evaluate(() => window.__emit('menu', 'diagnostics'))
+  await page.waitForSelector('#diagnostics textarea')
+  assert.match(await page.inputValue('#diagnostics textarea'), /Version:\s+test/)
+  await page.evaluate(() => navigator.clipboard.writeText('before'))
+  await page.click('#diagnostics button:has-text("Close")')
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'before')
+  await page.waitForTimeout(200) // the menu ignores repeats within 150 ms
+  await page.evaluate(() => window.__emit('menu', 'diagnostics'))
+  await page.click('#diagnostics button:has-text("Copy")')
+  assert.match(await page.evaluate(() => navigator.clipboard.readText()), /jamalterm diagnostics/)
+  assert.equal(await page.locator('#diagnostics').count(), 0)
+  await page.close()
+})
+
+test('script errors in the window go to the problem log', async () => {
+  const page = await open()
+  await page.evaluate(() => setTimeout(() => { throw new Error('boom here') }, 0))
+  await page.waitForTimeout(100)
+  const logged = await page.evaluate(() => window.__calls.filter((c) => c[0] === 'LogProblem'))
+  assert.equal(logged.length, 1)
+  assert.match(logged[0][2], /boom here/)
+  await page.close()
+})

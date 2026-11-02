@@ -17,6 +17,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/menu"
 
 	"jamalterm/internal/ai"
+	"jamalterm/internal/diag"
 	"jamalterm/internal/settings"
 	"jamalterm/internal/shell"
 	"jamalterm/internal/update"
@@ -59,6 +60,7 @@ type App struct {
 	store   *settings.Store
 	secrets *settings.Secrets
 	ai      *ai.Client
+	log     *diag.Log // private problem log (never sent anywhere)
 
 	mu       sync.Mutex
 	cfg      settings.Settings
@@ -92,7 +94,13 @@ func NewApp() *App {
 
 		providerItems: map[string]*menu.MenuItem{},
 	}
-	a.cfg, _ = store.Load()
+	var loadErr error
+	a.cfg, loadErr = store.Load()
+	a.log = diag.New(filepath.Join(filepath.Dir(store.Path()), "problems.log"))
+	a.log.SetEnabled(a.cfg.KeepProblemLog)
+	if loadErr != nil {
+		a.log.Problem("settings", "settings file couldn't be read, using defaults: %v", loadErr)
+	}
 	a.ai = ai.New(a.secrets.APIKey, func() string { return a.Settings().AIModel })
 	a.ai.OnUsage(func(id string, u ai.Usage) {
 		runtime.EventsEmit(a.ctx, "ai:usage", map[string]any{"id": id, "model": u.Model, "input": u.Input, "output": u.Output})
@@ -197,7 +205,7 @@ func (a *App) Start(id, cols, rows int, cwd string) error {
 	})
 	if err != nil {
 		pump.Close()
-		return err
+		return a.problem("shell", fmt.Errorf("%s didn't start: %w", shellLabel(cfg.Shell), err))
 	}
 	a.sessions[id] = s
 	a.pumps[id] = pump
@@ -281,15 +289,16 @@ func (a *App) Settings() settings.Settings {
 // SaveSettings stores new settings and tells every window.
 func (a *App) SaveSettings(cfg settings.Settings) (settings.Settings, error) {
 	if err := a.store.Save(cfg); err != nil {
-		return a.Settings(), err
+		return a.Settings(), a.problem("settings", err)
 	}
 	saved, err := a.store.Load()
 	if err != nil {
-		return a.Settings(), err
+		return a.Settings(), a.problem("settings", err)
 	}
 	a.mu.Lock()
 	a.cfg = saved
 	a.mu.Unlock()
+	a.log.SetEnabled(saved.KeepProblemLog)
 	a.applyWindowOpacity()
 	a.refreshProviderMenu()
 	runtime.EventsEmit(a.ctx, eventSettings, saved)
@@ -335,9 +344,9 @@ func (a *App) SignInOpenRouter() error {
 	defer cancel()
 	key, err := ai.OpenRouterSignIn(ctx, func(u string) { runtime.BrowserOpenURL(a.ctx, u) })
 	if err != nil {
-		return err
+		return a.problem("openrouter sign-in", err)
 	}
-	return a.secrets.SetKeyFor(ai.ProviderOpenRouter, key)
+	return a.problem("keychain", a.secrets.SetKeyFor(ai.ProviderOpenRouter, key))
 }
 
 // AIProviders lists the assistants to choose from (Claude, ChatGPT, DeepSeek).
@@ -347,14 +356,17 @@ func (a *App) AIProviders() []ai.ProviderInfo { return ai.Providers }
 func (a *App) HasSavedProviderKey(provider string) bool { return a.secrets.HasSavedKeyFor(provider) }
 
 // SetProviderKey saves a provider's API key in the Keychain ("" removes it).
-func (a *App) SetProviderKey(provider, key string) error { return a.secrets.SetKeyFor(provider, key) }
+func (a *App) SetProviderKey(provider, key string) error {
+	return a.problem("keychain", a.secrets.SetKeyFor(provider, key))
+}
 
 // ListProviderModels asks ChatGPT or DeepSeek which chat models the saved
 // key can use (newest first).
 func (a *App) ListProviderModels(provider string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
 	defer cancel()
-	return ai.ListModels(ctx, provider, a.secrets.KeyFor(provider))
+	models, err := ai.ListModels(ctx, provider, a.secrets.KeyFor(provider))
+	return models, a.problem("ai models", err)
 }
 
 // AnthropicAccount reports the `ant auth login` sign-in, if any.
@@ -364,7 +376,7 @@ func (a *App) AnthropicAccount() ai.Account { return ai.SignedInAccount() }
 func (a *App) HasSavedAPIKey() bool { return a.secrets.HasSavedKey() }
 
 // SetAPIKey saves the Claude API key in the Keychain ("" removes it).
-func (a *App) SetAPIKey(key string) error { return a.secrets.SetAPIKey(key) }
+func (a *App) SetAPIKey(key string) error { return a.problem("keychain", a.secrets.SetAPIKey(key)) }
 
 // ---- AI ---------------------------------------------------------------------
 
@@ -379,6 +391,9 @@ func (a *App) AIAsk(req ai.Request) {
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				err = errors.New("stopped")
+			} else {
+				// The error only: never the question or the answer.
+				a.log.Problem("ai", "%s: %v", a.Settings().AIProvider, err)
 			}
 			runtime.EventsEmit(a.ctx, eventAIError, aiEvent{ID: req.ID, Error: err.Error()})
 			return
@@ -461,9 +476,9 @@ func (a *App) SaveSession(data string) error {
 	}
 	tmp := a.sessionFile() + ".tmp"
 	if err := os.WriteFile(tmp, []byte(data), 0o600); err != nil {
-		return err
+		return a.problem("session", err)
 	}
-	return os.Rename(tmp, a.sessionFile())
+	return a.problem("session", os.Rename(tmp, a.sessionFile()))
 }
 
 // LoadSession returns the saved tabs ("" if none or not the first window).
@@ -503,7 +518,7 @@ func (a *App) CheckForUpdate() (UpdateInfo, error) {
 	defer cancel()
 	rel, err := update.Latest(ctx)
 	if err != nil {
-		return info, err
+		return info, a.problem("update check", err)
 	}
 	info.Latest, info.Notes, info.URL = rel.Version, rel.Notes, rel.URL
 	info.Available = update.Newer(rel.Version, version)
@@ -536,13 +551,13 @@ func (a *App) InstallUpdate(relaunch bool) error {
 		runtime.EventsEmit(a.ctx, eventProgress, map[string]int64{"done": done, "total": total})
 	})
 	if err != nil {
-		return err
+		return a.problem("update", err)
 	}
 	if !relaunch {
 		return nil
 	}
 	if err := update.Relaunch(app); err != nil {
-		return fmt.Errorf("updated to %s, but couldn't restart: %v. Quit and open jamalterm again", rel.Version, err)
+		return a.problem("update", fmt.Errorf("updated to %s, but couldn't restart: %v. Quit and open jamalterm again", rel.Version, err))
 	}
 	go func() {
 		time.Sleep(200 * time.Millisecond)
@@ -571,10 +586,10 @@ func (a *App) RevertUpdate() error {
 		return err
 	}
 	if err := update.Revert(app); err != nil {
-		return err
+		return a.problem("go back", err)
 	}
 	if err := update.Relaunch(app); err != nil {
-		return fmt.Errorf("went back, but couldn't restart: %v. Quit and open jamalterm again", err)
+		return a.problem("go back", fmt.Errorf("went back, but couldn't restart: %v. Quit and open jamalterm again", err))
 	}
 	go func() {
 		time.Sleep(200 * time.Millisecond)

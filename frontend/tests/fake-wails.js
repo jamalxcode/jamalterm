@@ -63,6 +63,7 @@
     AIProviders: () => providers,
     HasAPIKey: () => true, HasSavedAPIKey: () => false, HasSavedProviderKey: () => false,
     AnthropicAccount: () => ({ signedIn: false }), BlurActive: () => false,
+    Diagnostics: () => 'jamalterm diagnostics\nVersion:   test\nRecent problems: none\n',
     GitBranch: () => '', ResolvePath: () => '', PreviousVersion: () => '',
     Start: (id, cols, rows, cwd) => { state.shells[id] = { cwd: cwd || '/home/u', line: '' }; setTimeout(() => prompt(id), 10) },
     Write: (id, data) => write(id, data),

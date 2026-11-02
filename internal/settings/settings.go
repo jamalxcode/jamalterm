@@ -48,6 +48,10 @@ type Settings struct {
 	ConfirmRerun bool `json:"confirmRerun"`
 	OptionIsMeta bool `json:"optionIsMeta"`
 
+	// KeepProblemLog keeps a small private log of problems on this Mac
+	// (Help → Copy Diagnostics). It is never sent anywhere.
+	KeepProblemLog bool `json:"keepProblemLog"`
+
 	// AutoUpdate checks GitHub for new versions at launch and every 6 hours.
 	AutoUpdate bool `json:"autoUpdate"`
 
@@ -86,6 +90,7 @@ func Defaults() Settings {
 		ConfirmRerun:       false,
 		OptionIsMeta:       true,
 		AutoUpdate:         true,
+		KeepProblemLog:     true,
 		AIEnabled:          true,
 		AIProvider:         "anthropic",
 		AIModel:            "claude-opus-5-5",

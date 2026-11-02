@@ -646,3 +646,16 @@ button:disabled { opacity: 0.5; }
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 #toast.error { border-color: var(--red); }
+
+/* ---- Diagnostics ---- */
+.diag-text {
+  width: 100%;
+  min-height: 300px;
+  resize: vertical;
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre;
+  box-sizing: border-box;
+}
+.dialog-foot .spacer { flex: 1; }
