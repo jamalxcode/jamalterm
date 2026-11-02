@@ -141,14 +141,27 @@ func TestTcshKeepsUserAliases(t *testing.T) {
 	defer s.Close()
 	waitFor(t, c, "\x1b]133;A\x07")
 	s.Write([]byte("echo hi-there\n"))
-	waitFor(t, c, "USER-POSTCMD")
-	waitFor(t, c, "hi-there")
-	waitFor(t, c, "\x1b]133;D;0\x07")
-	out := c.String()
-	if strings.Count(out, "USER-PRECMD") < 2 {
-		t.Fatalf("user precmd didn't run at each prompt:\n%q", out)
+	// Startup files can run commands (and so postcmd) before the first
+	// prompt, so look only at what comes after the command we typed.
+	waitFor(t, c, "\x1b]133;C\x07")
+	deadline := time.Now().Add(5 * time.Second)
+	var after string
+	for time.Now().Before(deadline) {
+		out := c.String()
+		after = out[strings.Index(out, "\x1b]133;C\x07"):]
+		if strings.Contains(after, "\x1b]133;D;0\x07") && strings.Contains(after, "USER-PRECMD") {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
-	if !strings.Contains(out, "\x1b]133;C\x07") {
-		t.Fatal("our marks are missing")
+	if !strings.Contains(after, "hi-there") || !strings.Contains(after, "\x1b]133;D;0\x07") {
+		t.Fatalf("command didn't finish with our marks:\n%q", c.String())
+	}
+	if !strings.Contains(after, "USER-PRECMD") {
+		t.Fatalf("user precmd didn't run at the next prompt:\n%q", c.String())
+	}
+	// Ours reports the command first, then yours runs, then its output.
+	if p := strings.Index(after, "USER-POSTCMD"); p < 0 || p > strings.LastIndex(after, "hi-there") {
+		t.Fatalf("user postcmd didn't run for the command:\n%q", c.String())
 	}
 }
