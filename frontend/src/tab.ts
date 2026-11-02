@@ -518,8 +518,14 @@ export class Tab {
   }
 
   private markDone(code?: number) {
-    const b = this.blocks[this.blocks.length - 1]
-    if (!b || b.end || !b.start) return
+    // The most recent command still running. Over ssh with browse mode on
+    // the server, the server's commands run inside the local "ssh" one;
+    // each "done" closes the innermost.
+    let b: Block | undefined
+    for (let i = this.blocks.length - 1; i >= 0; i--) {
+      if (this.blocks[i].start && !this.blocks[i].end) { b = this.blocks[i]; break }
+    }
+    if (!b) return
     b.end = this.term.registerMarker(0)
     b.exitCode = code ?? 0
     b.finishedAt = Date.now()
@@ -834,11 +840,19 @@ export class Tab {
   private activate(how: 'run' | 'edit' | 'there') {
     const block = this.blockAt(this.browse.row)
     if (!block || !block.command) {
-      if (how === 'edit') {
-        const text = this.lineText(this.browse.row).trim()
-        if (text && this.sendCommand(text, false)) this.exitBrowse()
+      // No marks here (a server, or a shell without integration): if the
+      // line looks like "… $ command", take the command after the prompt.
+      // It goes on the prompt for you to check, never straight to running.
+      const line = this.lineText(this.browse.row)
+      const guess = guessCommand(line)
+      if (how === 'edit' || guess) {
+        const text = guess || line.trim()
+        if (text && this.sendCommand(text, false)) {
+          this.exitBrowse()
+          if (guess && how !== 'edit') toast('Put on the prompt: press ⏎ to run it (no shell integration here, so jamalterm doesn\'t run it for you)')
+        }
       } else {
-        toast(this.integration ? 'No command on this line — move to one with ↑ ↓' : 'Shell integration is off — use ⇧⏎ to copy this line to the prompt')
+        toast(this.integration ? 'No command on this line — move to one with ↑ ↓' : 'No command found on this line — ⇧⏎ copies the whole line to the prompt')
       }
       return
     }
@@ -1069,4 +1083,15 @@ export class Tab {
       this.overlay.append(dot)
     }
   }
+}
+
+/** The command on a line that looks like a shell prompt ("user@host:~$ ls",
+ * "% make", "❯ git status"), or "" if it doesn't look like one. */
+export function guessCommand(line: string): string {
+  const m = /^(?:\S.{0,80}?)?[$%#❯›»➜λ]\s+(\S.*)$/u.exec(line.trimEnd())
+  if (!m) return ''
+  const cmd = m[1].trim()
+  // Not a prompt: "Total: 15 $ 20", "# comment", prices…
+  if (/^[\d.,]+\b/.test(cmd) || cmd.length > 500) return ''
+  return cmd
 }

@@ -42,6 +42,7 @@ export const actions: [string, string, string][] = [
   ['paneRight', 'Pane to the Right', '⌥⌘→'],
   ['paneUp', 'Pane Above', '⌥⌘↑'],
   ['paneDown', 'Pane Below', '⌥⌘↓'],
+  ['remoteIntegration', 'Enable Browse Mode on This Server (ssh)', ''],
   ['clear', 'Clear Screen', '⌘K'],
   ['find', 'Find in Output', '⌘F'],
   ['browse', 'Browse Past Commands (free-floating cursor)', '⌘↑'],

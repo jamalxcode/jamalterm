@@ -17,7 +17,7 @@ import { SmokeMode } from './backend'
 import { Group, type Dir, type SavedNode, type PaneNode } from './panes'
 import { loadProviders, providerInfo, modelOf } from './providers'
 import { el, isMac, toast, duration, confirmDialog } from './util'
-import { BusyTabs, QuitNow, CloseWindowNow, SetActiveTab, LiveTabs } from './backend'
+import { BusyTabs, QuitNow, CloseWindowNow, SetActiveTab, LiveTabs, RemoteSetupLine, Write } from './backend'
 import type { Settings as Prefs } from './types'
 
 let cfg: Prefs
@@ -37,8 +37,15 @@ const hintEl = document.getElementById('hint')!
 const findEl = document.getElementById('find')!
 document.body.classList.toggle('mac', isMac)
 
+const sshTipShown = new WeakSet<Tab>()
+
 const hooks = {
   onChange: (t: Tab) => {
+    // The first ssh in a tab: say how browse mode can work over there too.
+    if (t.runningName === 'ssh' && !sshTipShown.has(t)) {
+      sshTipShown.add(t)
+      toast('Browse mode on that server: Shell → Enable Browse Mode on This Server (once you\'re logged in)')
+    }
     renderTabs()
     if (t === active) updateChrome()
   },
@@ -478,6 +485,13 @@ function runMenu(cmd: string) {
   switch (cmd) {
     case 'about': return void about()
     case 'palette': return palette.open()
+    case 'remoteIntegration':
+      if (!t) return
+      void RemoteSetupLine().then((line) => {
+        Write(t.id, line + '\r')
+        t.term.focus()
+      })
+      return
     case 'showLog': return void ShowProblemLog()
     case 'diagnostics': return void showDiagnostics(() => active?.term.focus())
     case 'checkUpdates': return void updater.check(true)

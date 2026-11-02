@@ -374,3 +374,43 @@ test('a password prompt shows a lock', async () => {
   assert.equal(await page.locator('#secure-badge').isVisible(), false)
   await page.close()
 })
+
+const pty = (page, text) => page.evaluate((t) => {
+  const id = window.__calls.find((c) => c[0] === 'Start')[1]
+  window.__emit('pty:data', { id, data: btoa(unescape(encodeURIComponent(t))) })
+}, text)
+
+test('over ssh: server commands nest inside ssh, and ssh ends cleanly', async () => {
+  const page = await open()
+  // Local: "ssh srv" starts…
+  await pty(page, '\x1b]6973;cmd;' + btoa('ssh srv') + '\x07\x1b]133;C\x07\r\nWelcome\r\n')
+  // …then the server's own marks (browse mode on there).
+  await pty(page, '\x1b]133;A\x07srv$ \x1b]6973;cmd;' + btoa('uptime') + '\x07\x1b]133;C\x07\r\nup 3 days\r\n\x1b]133;D;0\x07\x1b]133;A\x07srv$ ')
+  await page.waitForTimeout(150)
+  // Leaving the server: the local shell reports ssh done.
+  await pty(page, 'logout\r\n\x1b]133;D;0\x07\x1b]133;A\x07/home/u $ ')
+  await page.waitForTimeout(200)
+  const dots = await page.locator('.pane.focused .dot').evaluateAll((d) => d.map((x) => x.className))
+  assert.ok(dots.length >= 2, `dots: ${dots}`)
+  assert.ok(!dots.some((c) => /\brun\b/.test(c)), `no command left running: ${dots}`)
+  assert.equal(await page.locator('.tab.running').count(), 0)
+  await page.close()
+})
+
+test('a line that looks like a prompt (no marks) goes onto the prompt with ⏎', async () => {
+  const page = await open()
+  await pty(page, '\r\ndeploy@web1:~/app$ git pull --rebase\r\nAlready up to date.\r\n')
+  await page.waitForTimeout(100)
+  await page.keyboard.press('ArrowUp') // browse starts a line up: "Already up to date."
+  await page.waitForTimeout(100)
+  await page.keyboard.press('ArrowUp') // the "deploy@web1…$ git pull" line
+  await page.waitForTimeout(100)
+  await page.evaluate(() => (window.__calls.length = 0))
+  await page.keyboard.press('Enter')
+  await page.waitForTimeout(150)
+  const sent = await lastWrite(page)
+  const toastText = await page.textContent('#toast')
+  assert.match(sent, /git pull --rebase$/, `typed without ⏎ (toast: ${toastText})`)
+  assert.doesNotMatch(sent, /\r/, 'not run')
+  await page.close()
+})

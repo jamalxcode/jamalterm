@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"jamalterm/internal/secureinput"
+	"jamalterm/internal/shell"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -251,3 +252,7 @@ func (a *App) reloadOnCrash(w *application.WebviewWindow) {
 		w.Reload()
 	})
 }
+
+// RemoteSetupLine is the line that turns on browse mode in a bash or zsh
+// on another machine (Shell → Enable Browse Mode on This Server).
+func (a *App) RemoteSetupLine() string { return shell.RemoteSetup() }

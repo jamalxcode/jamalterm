@@ -292,6 +292,14 @@ export function QuitNow(): $CancellablePromise<void> {
 }
 
 /**
+ * RemoteSetupLine is the line that turns on browse mode in a bash or zsh
+ * on another machine (Shell → Enable Browse Mode on This Server).
+ */
+export function RemoteSetupLine(): $CancellablePromise<string> {
+    return $Call.ByID(1183056494);
+}
+
+/**
  * Resize is called when the window or font size changes.
  */
 export function Resize(id: number, cols: number, rows: number): $CancellablePromise<void> {

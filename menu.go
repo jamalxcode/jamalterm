@@ -73,6 +73,8 @@ func (a *App) buildMenu() *application.Menu {
 	a.item(shellMenu, "Close Pane", cmd("w"), "closeTab")
 	a.item(shellMenu, "Close Tab", cmdShift("w"), "closeGroup")
 	shellMenu.AddSeparator()
+	a.item(shellMenu, "Enable Browse Mode on This Server", "", "remoteIntegration")
+	shellMenu.AddSeparator()
 	a.item(shellMenu, "Clear", cmd("k"), "clear")
 	a.item(shellMenu, "Find…", cmd("f"), "find")
 
