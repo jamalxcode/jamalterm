@@ -13,14 +13,19 @@ import { SettingsView } from './settingsView'
 import { Updater } from './updater'
 import { showDiagnostics, logWindowErrors } from './diagnostics'
 import { Palette } from './palette'
+import { Group, type Dir, type SavedNode, type PaneNode } from './panes'
 import { loadProviders, providerInfo, modelOf } from './providers'
 import { el, isMac, toast, duration } from './util'
 
 let cfg: settings.Settings
 let shellName = 'shell'
 let home = ''
+// tabs: every terminal; groups: the tabs in the tab bar, each holding one
+// terminal or several split panes. active: the terminal with the focus.
 const tabs: Tab[] = []
+const groups: Group[] = []
 let active: Tab | undefined
+const groupOf = (t: Tab | undefined) => (t ? groups.find((g) => g.has(t)) : undefined)
 let nextId = 1
 
 const tabsEl = document.getElementById('tabs')!
@@ -87,7 +92,7 @@ const palette = new Palette({
     }
   },
   openSettings: (page, find) => void settingsView.open(page, find),
-  tabs: () => tabs.map((t) => ({ title: t.title, detail: t.prettyCwd, go: () => activate(t) })),
+  tabs: () => groups.map((g) => ({ title: g.focused.title + (g.count > 1 ? ` (${g.count} panes)` : ''), detail: g.focused.prettyCwd, go: () => activate(g.focused) })),
   focus: () => active?.term.focus(),
 })
 
@@ -127,14 +132,57 @@ function applySettings(s: settings.Settings) {
 
 // ---- Tabs -----------------------------------------------------------------------
 
-function newTab(cwd = active?.cwd ?? '', saved?: SavedTab) {
+/** Creates a terminal (not yet placed in a group). */
+function makeTerm(cwd: string, saved?: SavedTab) {
   const tab = new Tab(nextId++, termsEl, cwd, hooks, themeById(cfg.theme))
   if (saved) tab.restore(saved)
   tabs.push(tab)
+  // Clicking a pane gives it the focus.
+  tab.pane.addEventListener('mousedown', () => active !== tab && activate(tab), true)
+  return tab
+}
+
+const refitGroup = (g: Group) => requestAnimationFrame(() => g.tabs().forEach((t) => t.refit()))
+
+function newTab(cwd = active?.cwd ?? '', saved?: SavedTab) {
+  const tab = makeTerm(cwd, saved)
+  groups.push(new Group(termsEl, tab, refitGroup))
   activate(tab)
   void tab.start()
   sessionDirty = true
   return tab
+}
+
+/** Splits the focused pane: 'row' puts the new one on the right, 'column' below. */
+function splitPane(dir: Dir) {
+  const from = active
+  const g = groupOf(from)
+  if (!from || !g) return void newTab()
+  const tab = makeTerm(from.cwd)
+  g.split(from, tab, dir)
+  activate(tab)
+  void tab.start()
+  sessionDirty = true
+}
+
+/** Rebuilds a saved tab with its split panes. */
+function restoreGroup(node: SavedNode) {
+  const made: Tab[] = []
+  const build = (n: SavedNode): PaneNode => {
+    if ('tab' in n) {
+      const t = makeTerm(n.tab.cwd || '', n.tab)
+      made.push(t)
+      return { tab: t }
+    }
+    return { dir: n.dir === 'column' ? 'column' : 'row', ratio: Math.min(0.9, Math.max(0.1, Number(n.ratio) || 0.5)), a: build(n.a), b: build(n.b) }
+  }
+  const root = build(node)
+  const g = new Group(termsEl, made[0], refitGroup)
+  g.root = root
+  g.render()
+  groups.push(g)
+  for (const t of made) void t.start()
+  return g
 }
 
 // ---- Session: tabs come back after a restart or update ----------------------
@@ -143,7 +191,8 @@ let sessionDirty = false
 
 async function saveSessionNow() {
   sessionDirty = false
-  const data = { version: 1, active: active ? tabs.indexOf(active) : 0, tabs: tabs.map((t) => t.snapshot()) }
+  const g = groupOf(active)
+  const data = { version: 2, active: g ? groups.indexOf(g) : 0, groups: groups.map((x) => x.snapshot()) }
   try {
     await SaveSession(JSON.stringify(data))
   } catch {
@@ -158,25 +207,29 @@ window.addEventListener('beforeunload', () => void saveSessionNow())
 
 async function restoreSession(): Promise<boolean> {
   if (!cfg.restoreSession || !(await IsPrimaryWindow())) return false
-  let data: { active?: number; tabs?: SavedTab[] }
+  let data: { active?: number; tabs?: SavedTab[]; groups?: SavedNode[] }
   try {
     data = JSON.parse((await LoadSession()) || '{}')
   } catch {
     return false
   }
-  if (!data.tabs?.length) return false
-  for (const t of data.tabs) newTab(t.cwd || '', t)
-  const want = tabs[data.active ?? 0]
-  if (want) activate(want)
+  // Version 1 had one terminal per tab.
+  const saved = data.groups ?? (data.tabs ?? []).map((t) => ({ tab: t }))
+  if (!saved.length) return false
+  for (const n of saved) restoreGroup(n)
+  const want = groups[data.active ?? 0] ?? groups[0]
+  activate(want.focused)
   return true
 }
 
 function activate(tab: Tab) {
   if (active && active !== tab) active.exitBrowse()
   active = tab
-  for (const t of tabs) t.pane.classList.toggle('active', t === tab)
+  const g = groupOf(tab)
+  for (const x of groups) x.setActive(x === g)
+  g?.setFocused(tab)
   requestAnimationFrame(() => {
-    tab.refit()
+    for (const t of g?.tabs() ?? [tab]) t.refit()
     tab.term.focus()
   })
   closeFind()
@@ -185,30 +238,63 @@ function activate(tab: Tab) {
   updateChrome()
 }
 
+/** Closes a terminal: the focused pane, or the whole tab if it's alone. */
 function closeTab(tab = active) {
   if (!tab) return
-  const i = tabs.indexOf(tab)
-  tabs.splice(i, 1)
+  const g = groupOf(tab)
+  tabs.splice(tabs.indexOf(tab), 1)
   ai.forgetTab(tab.id)
+  const next = g?.remove(tab)
   tab.close()
-  if (!tabs.length) {
+  sessionDirty = true
+  if (g && next) return activate(tab === active ? next : active!)
+  if (g) closeGroup(g)
+}
+
+/** Closes a whole tab with all its panes. */
+function closeGroup(g = groupOf(active)) {
+  if (!g) return
+  for (const t of g.tabs()) {
+    tabs.splice(tabs.indexOf(t), 1)
+    ai.forgetTab(t.id)
+    t.close()
+  }
+  const i = groups.indexOf(g)
+  groups.splice(i, 1)
+  g.el.remove()
+  sessionDirty = true
+  if (!groups.length) {
     void saveSessionNow().then(() => Quit()) // nothing to reopen next time
     return
   }
-  activate(tabs[Math.min(i, tabs.length - 1)])
+  activate(groups[Math.min(i, groups.length - 1)].focused)
 }
 
 function cycle(dir: number) {
-  if (!active || tabs.length < 2) return
-  const i = tabs.indexOf(active)
-  activate(tabs[(i + dir + tabs.length) % tabs.length])
+  const g = groupOf(active)
+  if (!g || groups.length < 2) return
+  const i = groups.indexOf(g)
+  activate(groups[(i + dir + groups.length) % groups.length].focused)
+}
+
+/** Moves the focus between panes: in order (dir ±1) or by direction. */
+function cyclePane(dir: number) {
+  const g = groupOf(active)
+  if (!g || !active || g.count < 2) return
+  const list = g.tabs()
+  activate(list[(list.indexOf(active) + dir + list.length) % list.length])
+}
+function movePane(dx: number, dy: number) {
+  const t = active && groupOf(active)?.neighbour(active, dx, dy)
+  if (t) activate(t)
 }
 
 const STATUS_TEXT = { running: 'running', failed: 'last command failed', exited: 'shell exited', idle: '' }
 
 function renderTabs() {
   tabsEl.textContent = ''
-  tabs.forEach((t, i) => {
+  groups.forEach((g, i) => {
+    const t = g.focused
     const status = t.status
     // Folder first; while something runs, its name leads.
     const label = el('span', { class: 'label' })
@@ -217,6 +303,7 @@ function renderTabs() {
     label.append(el('span', { class: 'path', text: t.shortCwd || t.title }))
     if (t.branch) label.append(el('span', { class: 'branch' }, el('i', { class: 'nf', text: '\ue725' }), t.branch))
     if (status === 'exited') label.append(el('span', { class: 'sep', text: ' (exited)' }))
+    if (g.count > 1) label.append(el('span', { class: 'panes', title: `${g.count} panes`, text: ` ⊞${g.count}` }))
 
     const last = t.lastFinished
     const tip = [
@@ -224,20 +311,21 @@ function renderTabs() {
       t.branch ? `Branch: ${t.branch}` : '',
       t.runningBlock ? `Running: ${t.runningBlock.command}` : '',
       !t.runningBlock && last ? `Last: ${last.command}  →  ${last.exitCode === 0 ? 'OK' : `failed (exit ${last.exitCode})`}` : '',
+      g.count > 1 ? `${g.count} panes (⌘] next pane)` : '',
       i < 9 ? `⌘${i + 1} to switch` : '',
     ].filter(Boolean).join('\n')
 
     const close = el('button', { class: 'close', title: 'Close tab (⌘W)' }, '×')
     const icon = el('i', { class: `state ${status}`, 'aria-label': STATUS_TEXT[status] }, status === 'failed' ? '✕' : '')
     const num = el('span', { class: 'num', text: String(i + 1) })
-    const item = el('div', { class: `tab ${t === active ? 'active' : ''} ${status}`, title: tip }, ...(i < 9 ? [num] : []), icon, label, close)
+    const item = el('div', { class: `tab ${g.has(active!) ? 'active' : ''} ${status}`, title: tip }, ...(i < 9 ? [num] : []), icon, label, close)
     item.addEventListener('mousedown', (e) => {
-      if (e.button === 1) closeTab(t)
-      else if (e.target !== close) activate(t)
+      if (e.button === 1) closeGroup(g)
+      else if (e.target !== close) activate(g.focused)
     })
     close.addEventListener('click', (e) => {
       e.stopPropagation()
-      closeTab(t)
+      closeGroup(g)
     })
     tabsEl.append(item)
   })
@@ -343,6 +431,15 @@ function runMenu(cmd: string) {
     case 'closeTab': return closeTab()
     case 'nextTab': return cycle(1)
     case 'prevTab': return cycle(-1)
+    case 'splitRight': return splitPane('row')
+    case 'splitDown': return splitPane('column')
+    case 'nextPane': return cyclePane(1)
+    case 'prevPane': return cyclePane(-1)
+    case 'paneLeft': return movePane(-1, 0)
+    case 'paneRight': return movePane(1, 0)
+    case 'paneUp': return movePane(0, -1)
+    case 'paneDown': return movePane(0, 1)
+    case 'closeGroup': return closeGroup()
     case 'clear':
       t?.exitBrowse()
       t?.term.clear()
@@ -368,8 +465,8 @@ function runMenu(cmd: string) {
   const m = /^tab(\d)$/.exec(cmd)
   if (m) {
     const n = parseInt(m[1], 10)
-    const target = n === 9 ? tabs[tabs.length - 1] : tabs[n - 1]
-    if (target) activate(target)
+    const target = n === 9 ? groups[groups.length - 1] : groups[n - 1]
+    if (target) activate(target.focused)
   }
 }
 
@@ -384,7 +481,7 @@ EventsOn('menu', runMenu)
 const keyMap: Record<string, string> = {
   t: 'newTab', n: 'newWindow', w: 'closeTab', k: 'clear', f: 'find', ',': 'settings',
   i: 'aiPanel', j: 'aiCommand', '=': 'zoomIn', '+': 'zoomIn', '-': 'zoomOut', '0': 'zoomReset',
-  ArrowUp: 'browse', '}': 'nextTab', '{': 'prevTab', ']': 'nextTab', '[': 'prevTab',
+  ArrowUp: 'browse', '}': 'nextTab', '{': 'prevTab', ']': 'nextPane', '[': 'prevPane', d: 'splitRight',
 }
 window.addEventListener('keydown', (e) => {
   if (!e.metaKey || e.altKey || e.ctrlKey) return
@@ -395,6 +492,10 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowDown' && e.shiftKey) cmd = 'nextCommand'
   if (e.key === 'e' && e.shiftKey) cmd = 'aiExplainLast'
   if (e.key.toLowerCase() === 'p' && e.shiftKey) cmd = 'palette'
+  if (e.key.toLowerCase() === 'd' && e.shiftKey) cmd = 'splitDown'
+  if (e.key.toLowerCase() === 'w' && e.shiftKey) cmd = 'closeGroup'
+  if (e.key === ']' && e.shiftKey) cmd = 'nextTab'
+  if (e.key === '[' && e.shiftKey) cmd = 'prevTab'
   if (cmd) {
     e.preventDefault()
     e.stopPropagation() // xterm.js must not handle it a second time

@@ -191,8 +191,10 @@ body.browsing #main { bottom: 30px; }
 
 #terminals { position: relative; flex: 1; min-width: 0; }
 
-.pane { position: absolute; inset: 0; visibility: hidden; }
-.pane.active { visibility: visible; }
+.pane { position: relative; }
+/* A new pane waits here, out of sight, until it's placed in a tab. */
+#terminals > .pane { position: absolute; inset: 0; visibility: hidden; }
+#terminals { overflow: hidden; }
 
 .term-host { position: absolute; inset: 0; padding: 6px 6px 6px 22px; }
 .xterm, .xterm .xterm-viewport { background-color: transparent !important; }
@@ -711,3 +713,23 @@ button:disabled { opacity: 0.5; }
 .palette li .detail { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
 .palette li kbd { flex: none; }
 .palette li.empty { color: var(--muted); cursor: default; }
+
+/* ---- Split panes ---- */
+.group { position: absolute; inset: 0; display: flex; visibility: hidden; }
+.group.active { visibility: visible; }
+.group > .pane, .split > .pane { position: relative; flex: 1 1 0; min-width: 0; min-height: 0; }
+.split { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
+.split.split-row { flex-direction: row; }
+.split.split-column { flex-direction: column; }
+.divider { flex: none; background: var(--border); position: relative; z-index: 2; }
+.split.split-row > .divider { width: 1px; cursor: col-resize; }
+.split.split-column > .divider { height: 1px; cursor: row-resize; }
+/* A wider invisible grip around the 1px line. */
+.divider::after { content: ''; position: absolute; inset: -4px; }
+.divider:hover, .split.dragging > .divider { background: var(--accent); }
+.split.dragging { user-select: none; }
+.group.has-split .pane:not(.focused) .term-host { opacity: 0.62; }
+.group.has-split .pane.focused::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+  background: var(--accent); z-index: 3; pointer-events: none;
+}

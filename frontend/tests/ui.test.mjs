@@ -47,7 +47,7 @@ async function open(opts = {}) {
   return page
 }
 
-const screen = (page) => page.evaluate(() => document.querySelector('.pane.active .xterm-rows')?.innerText ?? '')
+const screen = (page) => page.evaluate(() => document.querySelector('.group.active .pane.focused .xterm-rows')?.innerText ?? '')
 async function type(page, text) {
   await page.keyboard.type(text)
   await page.keyboard.press('Enter')
@@ -169,8 +169,8 @@ test('tabs are saved and come back after a restart', async () => {
   const session = await page.evaluate(() => window.__fake.session)
   await page.close()
   const data = JSON.parse(session)
-  assert.equal(data.tabs.length, 1)
-  assert.equal(data.tabs[0].cwd, '/srv')
+  assert.equal(data.groups.length, 1)
+  assert.equal(data.groups[0].tab.cwd, '/srv')
 
   const again = await open({ session })
   assert.match(await screen(again), /remember-me[\s\S]*restored from your last session/)
@@ -253,5 +253,62 @@ test('Settings has a sidebar with pages', async () => {
   await page.click('.settings-nav button[data-page="privacy"]')
   assert.equal(await page.locator('section[data-page="appearance"]').isVisible(), false)
   assert.equal(await page.getByText('Keep a private problem log').isVisible(), true)
+  await page.close()
+})
+
+test('split panes: ⌘D right, ⇧⌘D down, focus moves, ⌘W closes one pane, layout is saved', async () => {
+  const page = await open()
+  await type(page, 'echo left pane')
+  await page.evaluate(() => window.__emit('menu', 'splitRight'))
+  await page.waitForTimeout(300)
+  assert.equal(await page.locator('.group.active .pane').count(), 2)
+  assert.equal(await page.locator('.tab').count(), 1)
+  assert.match(await page.locator('.tab.active').innerText(), /⊞2/)
+  await type(page, 'echo right pane')
+  assert.match(await screen(page), /right pane/)
+  assert.doesNotMatch(await screen(page), /left pane/)
+
+  // Side by side: the new pane is to the right of the first.
+  const [a, b] = await page.locator('.group.active .pane').evaluateAll((ps) => ps.map((p) => p.getBoundingClientRect().toJSON()))
+  assert.ok(b.left >= a.right - 2 && Math.abs(a.top - b.top) < 2, 'side by side')
+
+  await page.waitForTimeout(200)
+  await page.evaluate(() => window.__emit('menu', 'splitDown'))
+  await page.waitForTimeout(300)
+  const rects = await page.locator('.group.active .pane').evaluateAll((ps) => ps.map((p) => p.getBoundingClientRect().toJSON()))
+  assert.equal(rects.length, 3)
+  assert.ok(rects[2].top >= rects[1].bottom - 2 && Math.abs(rects[2].left - rects[1].left) < 2, 'third pane below the second')
+
+  // Saved layout keeps the splits.
+  await page.evaluate(() => window.dispatchEvent(new Event('beforeunload')))
+  await page.waitForTimeout(100)
+  const saved = JSON.parse(await page.evaluate(() => window.__fake.session))
+  assert.equal(saved.version, 2)
+  assert.equal(saved.groups[0].dir, 'row')
+  assert.equal(saved.groups[0].b.dir, 'column')
+
+  // Click the first pane to focus it; ⌘W closes just that pane.
+  await page.locator('.group.active .pane').first().click()
+  await page.waitForTimeout(100)
+  assert.match(await screen(page), /left pane/)
+  await page.evaluate(() => window.__emit('menu', 'closeTab'))
+  await page.waitForTimeout(300)
+  assert.equal(await page.locator('.group.active .pane').count(), 2)
+  assert.equal(await page.locator('.tab').count(), 1)
+  await page.close()
+})
+
+test('a saved split layout comes back after a restart', async () => {
+  const session = JSON.stringify({ version: 2, active: 0, groups: [
+    { dir: 'column', ratio: 0.3, a: { dir: 'row', ratio: 0.5, a: { tab: { cwd: '/a' } }, b: { tab: { cwd: '/b' } } }, b: { tab: { cwd: '/c' } } },
+  ] })
+  const page = await open({ session })
+  await page.waitForTimeout(300)
+  const rects = await page.locator('.group.active .pane').evaluateAll((ps) => ps.map((p) => p.getBoundingClientRect().toJSON()))
+  assert.equal(rects.length, 3)
+  // a | b on top (30%), c below across the whole width.
+  assert.ok(Math.abs(rects[0].top - rects[1].top) < 2 && rects[1].left > rects[0].left)
+  assert.ok(rects[2].top >= rects[0].bottom - 2 && rects[2].width > rects[0].width * 1.8)
+  assert.ok(rects[0].height < rects[2].height, 'top row is the smaller part')
   await page.close()
 })
