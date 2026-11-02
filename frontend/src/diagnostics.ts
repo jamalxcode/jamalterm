@@ -1,6 +1,6 @@
 // Help → Copy Diagnostics: shows the whole report first, and copies only
 // when you press Copy. jamalterm never sends it anywhere.
-import { Diagnostics, ShowProblemLog, LogProblem } from '../wailsjs/go/main/App'
+import { Diagnostics, ShowProblemLog, LogProblem } from './backend'
 import { el, copyText, toast } from './util'
 
 export async function showDiagnostics(onClose: () => void) {

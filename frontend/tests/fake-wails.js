@@ -57,7 +57,7 @@
     Settings: () => state.settings,
     SaveSettings: (s) => { state.settings = s; emit('settings:changed', s); return s },
     ShellName: () => 'zsh', HomeDir: () => '/home/u', GPUOff: () => true, Version: () => 'test',
-    StartDir: () => '', IsPrimaryWindow: () => true,
+    StartDir: () => '', IsPrimaryWindow: () => true, WindowID: () => 0,
     LoadSession: () => state.session,
     SaveSession: (d) => { state.session = d },
     AIProviders: () => providers,
@@ -79,12 +79,13 @@
       }, 20)
     },
   }
-  window.go = { main: { App: new Proxy(app, {
-    get: (t, k) => (...args) => { calls.push([k, ...args]); return Promise.resolve(typeof t[k] === 'function' ? t[k](...args) : undefined) },
-  }) } }
-  window.runtime = new Proxy({
-    EventsOnMultiple: (name, cb) => { (listeners[name] ||= []).push(cb); return () => {} },
-    EventsEmit: (name, data) => emit(name, data),
-  }, { get: (t, k) => t[k] || (() => {}) })
+  // src/backend.ts uses this instead of the real Go side.
+  window.__jtFake = {
+    App: new Proxy(app, {
+      get: (t, k) => (...args) => { calls.push([k, ...args]); return Promise.resolve(typeof t[k] === 'function' ? t[k](...args) : undefined) },
+    }),
+    on: (name, cb) => { (listeners[name] ||= []).push(cb); return () => {} },
+    setTitle: (t) => { state.title = t },
+  }
   window.__emit = emit
 })()

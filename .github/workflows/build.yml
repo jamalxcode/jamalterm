@@ -51,9 +51,6 @@ jobs:
           elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then V="${GITHUB_REF_NAME#v}"
           else V="0.0.0-dev.${GITHUB_SHA::7}"; fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
-          # The Info.plist version comes from wails.json.
-          plistv="${V%%-*}"
-          jq --arg v "$plistv" '.info.productVersion = $v' wails.json > wails.tmp && mv wails.tmp wails.json
 
       - name: Test (macOS zsh, bash 3.2, tcsh)
         run: |
@@ -61,9 +58,6 @@ jobs:
           # Show whether the real-Keychain tests ran or were skipped.
           go test -v -count=1 -run 'NativeKeychain|KeysMoveFromSecurityTool' ./internal/settings/
         env: { CGO_ENABLED: "1" }
-
-      - name: Install Wails
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.0
 
       - name: Build the frontend
         working-directory: frontend
@@ -73,8 +67,15 @@ jobs:
           node -e "require('rollup')" 2>/dev/null || npm install --no-save "@rollup/rollup-darwin-$(uname -m | sed 's/x86_64/x64/')"
           npm run build
 
+      - name: Bindings are up to date
+        # frontend/bindings must match App's methods (make bindings).
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
+          wails3 generate bindings -clean -ts -i -d frontend/bindings
+          git diff --exit-code -- frontend/bindings
+
       - name: Build jamalterm.app (Apple silicon + Intel)
-        run: wails build -s -platform darwin/universal -clean -trimpath -ldflags "-X main.version=${{ steps.v.outputs.version }}"
+        run: scripts/build-mac.sh "${{ steps.v.outputs.version }}"
 
       - name: Sign (ad hoc)
         # Not notarized: that needs a paid Apple Developer account.
@@ -82,6 +83,7 @@ jobs:
           codesign --force --deep --sign - build/bin/jamalterm.app
           codesign --verify --deep --strict build/bin/jamalterm.app
           lipo -archs build/bin/jamalterm.app/Contents/MacOS/jamalterm
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" build/bin/jamalterm.app/Contents/Info.plist
 
       - name: Make the disk image
         run: |

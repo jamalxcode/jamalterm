@@ -8,7 +8,7 @@ import { SerializeAddon } from '@xterm/addon-serialize'
 import { ClipboardAddon, type ClipboardSelectionType } from '@xterm/addon-clipboard'
 import { ImageAddon } from '@xterm/addon-image'
 
-import { Start, Write, Resize, CloseTab, OpenURL, GitBranch, Ack, ResolvePath, OpenPath } from '../wailsjs/go/main/App'
+import { Start, Write, Resize, CloseTab, OpenURL, GitBranch, Ack, ResolvePath, OpenPath } from './backend'
 import { type Theme, bgAt } from './themes'
 import { b64ToBytes, b64ToText, el, escapeHtml, toast, copyText, duration, relTime } from './util'
 import type { Settings } from './types'

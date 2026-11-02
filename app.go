@@ -12,9 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
-
-	"github.com/wailsapp/wails/v2/pkg/menu"
+	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"jamalterm/internal/ai"
 	"jamalterm/internal/diag"
@@ -53,9 +51,11 @@ type aiEvent struct {
 }
 
 // App is the bridge between the window and the shells, settings and AI.
-// Its exported methods are callable from TypeScript (frontend/wailsjs).
+// It is a Wails service: its exported methods are callable from TypeScript
+// (frontend/bindings, used through frontend/src/backend.ts).
 type App struct {
-	ctx context.Context
+	ctx context.Context // the app's: cancelled when it quits
+	app *application.App
 
 	store   *settings.Store
 	secrets *settings.Secrets
@@ -71,11 +71,21 @@ type App struct {
 	// blurAtLaunch: the window was created translucent (blur behind).
 	blurAtLaunch bool
 	// providerItems are the AI menu's "Use Claude / ChatGPT / DeepSeek".
-	providerItems map[string]*menu.MenuItem
-	// primary: the first jamalterm window, which restores and saves tabs
-	// (extra windows from ⌘N start fresh).
+	providerItems map[string]*application.MenuItem
+	// primary: this copy of jamalterm restores and saves tabs (a second
+	// copy started by hand doesn't).
 	primary  bool
 	lockFile *os.File
+
+	// Windows (windows.go): which window owns each tab and AI question,
+	// each window's saved tabs, and what new windows start with.
+	nextWin     int
+	owner       map[int]string    // tab id → window name
+	aiOwner     map[string]string // AI request id → window name
+	winSessions map[string]string // window name → its tabs (JSON)
+	restoreFor  map[string]string // window name → tabs to reopen
+	startDirs   map[string]string // window name → first tab's folder
+	quitting    bool
 }
 
 type toolReply struct {
@@ -92,8 +102,16 @@ func NewApp() *App {
 		pumps:    map[int]*shell.Pump{},
 		toolWait: map[string]chan toolReply{},
 
-		providerItems: map[string]*menu.MenuItem{},
+		providerItems: map[string]*application.MenuItem{},
+		owner:         map[int]string{},
+		aiOwner:       map[string]string{},
+		winSessions:   map[string]string{},
+		restoreFor:    map[string]string{},
+		startDirs:     map[string]string{},
 	}
+	a.ctx = context.Background()
+	a.primary = a.takeInstanceLock()
+	update.KeepPreviousIn = filepath.Join(a.configDir(), "previous")
 	var loadErr error
 	a.cfg, loadErr = store.Load()
 	a.log = diag.New(filepath.Join(filepath.Dir(store.Path()), "problems.log"))
@@ -103,10 +121,10 @@ func NewApp() *App {
 	}
 	a.ai = ai.New(a.secrets.APIKey, func() string { return a.Settings().AIModel })
 	a.ai.OnUsage(func(id string, u ai.Usage) {
-		runtime.EventsEmit(a.ctx, "ai:usage", map[string]any{"id": id, "model": u.Model, "input": u.Input, "output": u.Output})
+		a.emitTo(a.aiWindow(id), "ai:usage", map[string]any{"id": id, "model": u.Model, "input": u.Input, "output": u.Output})
 	})
 	a.ai.OnRedact(func(id string, n int) {
-		runtime.EventsEmit(a.ctx, "ai:redacted", map[string]any{"id": id, "count": n})
+		a.emitTo(a.aiWindow(id), "ai:redacted", map[string]any{"id": id, "count": n})
 	})
 	a.ai.Configure(
 		func() string { return a.Settings().AIProvider },
@@ -127,25 +145,50 @@ func NewApp() *App {
 	return a
 }
 
-func (a *App) startup(ctx context.Context) {
+// ServiceStartup runs when the app starts (Wails service).
+func (a *App) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
 	a.ctx = ctx
-	a.primary = a.takeInstanceLock()
-	update.KeepPreviousIn = filepath.Join(a.configDir(), "previous")
-	a.applyWindowOpacity()
+	return nil
 }
 
-// applyWindowOpacity makes the window itself see-through when the
-// opacity setting is below 100; the page then draws its own
-// semi-transparent background.
-func (a *App) applyWindowOpacity() { a.SetWindowOpacity(a.Settings().Opacity) }
+// window finds a window by name (nil if it closed).
+func (a *App) window(name string) application.Window {
+	if name == "" || a.app == nil {
+		return nil
+	}
+	w, _ := a.app.Window.GetByName(name)
+	return w
+}
 
-// SetWindowOpacity switches the window between solid and see-through
-// (live preview from Settings; nothing is saved).
-func (a *App) SetWindowOpacity(percent int) {
+func (a *App) aiWindow(reqID string) application.Window {
+	a.mu.Lock()
+	name := a.aiOwner[reqID]
+	a.mu.Unlock()
+	return a.window(name)
+}
+
+// applyWindowOpacity makes every window see-through when the opacity
+// setting is below 100; the page then draws its own semi-transparent
+// background.
+func (a *App) applyWindowOpacity() {
+	for _, w := range a.windows() {
+		setOpacity(w, a.Settings().Opacity)
+	}
+}
+
+func setOpacity(w application.Window, percent int) {
 	if percent < 100 {
-		runtime.WindowSetBackgroundColour(a.ctx, 0, 0, 0, 0)
+		w.SetBackgroundColour(application.NewRGBA(0, 0, 0, 0))
 	} else {
-		runtime.WindowSetBackgroundColour(a.ctx, 21, 22, 30, 255)
+		w.SetBackgroundColour(application.NewRGBA(21, 22, 30, 255))
+	}
+}
+
+// SetWindowOpacity switches the calling window between solid and
+// see-through (live preview from Settings; nothing is saved).
+func (a *App) SetWindowOpacity(ctx context.Context, percent int) {
+	if w := winOf(ctx); w != nil {
+		setOpacity(w, percent)
 	}
 }
 
@@ -153,7 +196,7 @@ func (a *App) SetWindowOpacity(percent int) {
 // (it can only change at launch).
 func (a *App) BlurActive() bool { return a.blurAtLaunch }
 
-func (a *App) shutdown(ctx context.Context) {
+func (a *App) shutdown() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for _, s := range a.sessions {
@@ -164,9 +207,13 @@ func (a *App) shutdown(ctx context.Context) {
 // ---- Shells (one per tab) ---------------------------------------------------
 
 // Start launches a shell for tab id. cwd is where it starts ("" = home).
-func (a *App) Start(id, cols, rows int, cwd string) error {
+func (a *App) Start(ctx context.Context, id, cols, rows int, cwd string) error {
+	win := winOf(ctx)
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if win != nil {
+		a.owner[id] = win.Name()
+	}
 	if s, ok := a.sessions[id]; ok {
 		select {
 		case <-s.Done():
@@ -184,7 +231,7 @@ func (a *App) Start(id, cols, rows int, cwd string) error {
 	// acknowledgements (Ack), so heavy output can't freeze the app.
 	pump := shell.NewPump(func(b []byte) {
 		// Base64 keeps multi-byte characters split across batches intact.
-		runtime.EventsEmit(a.ctx, eventData, ptyData{ID: id, Data: base64.StdEncoding.EncodeToString(b)})
+		a.emitTo(win, eventData, ptyData{ID: id, Data: base64.StdEncoding.EncodeToString(b)})
 	})
 	s, err := shell.Start(shell.Options{
 		Shell:       cfg.Shell,
@@ -200,7 +247,7 @@ func (a *App) Start(id, cols, rows int, cwd string) error {
 			if errors.As(err, &ee) {
 				code = ee.ExitCode()
 			}
-			runtime.EventsEmit(a.ctx, eventExit, ptyExit{ID: id, Code: code})
+			a.emitTo(win, eventExit, ptyExit{ID: id, Code: code})
 		},
 	})
 	if err != nil {
@@ -243,6 +290,7 @@ func (a *App) CloseTab(id int) {
 	p := a.pumps[id]
 	delete(a.sessions, id)
 	delete(a.pumps, id)
+	delete(a.owner, id)
 	a.mu.Unlock()
 	if p != nil {
 		p.Close() // never leave the shell blocked waiting for the window
@@ -301,7 +349,7 @@ func (a *App) SaveSettings(cfg settings.Settings) (settings.Settings, error) {
 	a.log.SetEnabled(saved.KeepProblemLog)
 	a.applyWindowOpacity()
 	a.refreshProviderMenu()
-	runtime.EventsEmit(a.ctx, eventSettings, saved)
+	a.emitTo(nil, eventSettings, saved)
 	return saved, nil
 }
 
@@ -330,10 +378,7 @@ func (a *App) SetAIProvider(id string) error {
 func (a *App) refreshProviderMenu() {
 	current := a.Settings().AIProvider
 	for id, item := range a.providerItems {
-		item.Checked = id == current
-	}
-	if a.ctx != nil {
-		runtime.MenuUpdateApplicationMenu(a.ctx)
+		item.SetChecked(id == current)
 	}
 }
 
@@ -342,7 +387,7 @@ func (a *App) refreshProviderMenu() {
 func (a *App) SignInOpenRouter() error {
 	ctx, cancel := context.WithTimeout(a.ctx, 6*time.Minute)
 	defer cancel()
-	key, err := ai.OpenRouterSignIn(ctx, func(u string) { runtime.BrowserOpenURL(a.ctx, u) })
+	key, err := ai.OpenRouterSignIn(ctx, func(u string) { a.OpenURL(u) })
 	if err != nil {
 		return a.problem("openrouter sign-in", err)
 	}
@@ -381,10 +426,21 @@ func (a *App) SetAPIKey(key string) error { return a.problem("keychain", a.secre
 // ---- AI ---------------------------------------------------------------------
 
 // AIAsk starts a question; the answer streams back as ai:* events.
-func (a *App) AIAsk(req ai.Request) {
+func (a *App) AIAsk(ctx context.Context, req ai.Request) {
+	win := winOf(ctx)
+	if win != nil {
+		a.mu.Lock()
+		a.aiOwner[req.ID] = win.Name()
+		a.mu.Unlock()
+	}
 	go func() {
+		defer func() {
+			a.mu.Lock()
+			delete(a.aiOwner, req.ID)
+			a.mu.Unlock()
+		}()
 		text, err := a.ai.Ask(a.ctx, req, func(delta string) {
-			runtime.EventsEmit(a.ctx, eventAIDelta, aiEvent{ID: req.ID, Text: delta})
+			a.emitTo(win, eventAIDelta, aiEvent{ID: req.ID, Text: delta})
 		}, func(call ai.ToolCall) (string, bool) {
 			return a.runTool(req.ID, call)
 		})
@@ -395,10 +451,10 @@ func (a *App) AIAsk(req ai.Request) {
 				// The error only: never the question or the answer.
 				a.log.Problem("ai", "%s: %v", a.Settings().AIProvider, err)
 			}
-			runtime.EventsEmit(a.ctx, eventAIError, aiEvent{ID: req.ID, Error: err.Error()})
+			a.emitTo(win, eventAIError, aiEvent{ID: req.ID, Error: err.Error()})
 			return
 		}
-		runtime.EventsEmit(a.ctx, eventAIDone, aiEvent{ID: req.ID, Text: text})
+		a.emitTo(win, eventAIDone, aiEvent{ID: req.ID, Text: text})
 	}()
 }
 
@@ -414,7 +470,7 @@ func (a *App) runTool(reqID string, call ai.ToolCall) (string, bool) {
 		delete(a.toolWait, call.ID)
 		a.mu.Unlock()
 	}()
-	runtime.EventsEmit(a.ctx, eventAITool, map[string]any{"id": reqID, "toolId": call.ID, "command": call.Command, "run": call.Run})
+	a.emitTo(a.aiWindow(reqID), eventAITool, map[string]any{"id": reqID, "toolId": call.ID, "command": call.Command, "run": call.Run})
 	select {
 	case r := <-ch:
 		return r.result, r.isError
@@ -465,37 +521,6 @@ func (a *App) takeInstanceLock() bool {
 	return true
 }
 
-// IsPrimaryWindow: this window restores and saves tabs.
-func (a *App) IsPrimaryWindow() bool { return a.primary }
-
-// SaveSession stores the tabs (JSON from the window). Only the first
-// window saves. The file can contain terminal output, so it's 0600.
-func (a *App) SaveSession(data string) error {
-	if !a.primary {
-		return nil
-	}
-	tmp := a.sessionFile() + ".tmp"
-	if err := os.WriteFile(tmp, []byte(data), 0o600); err != nil {
-		return a.problem("session", err)
-	}
-	return a.problem("session", os.Rename(tmp, a.sessionFile()))
-}
-
-// LoadSession returns the saved tabs ("" if none or not the first window).
-func (a *App) LoadSession() string {
-	if !a.primary || !a.Settings().RestoreSession {
-		return ""
-	}
-	data, err := os.ReadFile(a.sessionFile())
-	if err != nil {
-		return ""
-	}
-	return string(data)
-}
-
-// ForgetSession deletes saved tabs and output (Settings → Shell).
-func (a *App) ForgetSession() { os.Remove(a.sessionFile()) }
-
 // ---- Updates ------------------------------------------------------------------
 
 // UpdateInfo tells the frontend whether a newer jamalterm exists.
@@ -536,7 +561,8 @@ func (a *App) CheckForUpdate() (UpdateInfo, error) {
 // InstallUpdate downloads and installs the release found by
 // CheckForUpdate. With relaunch it restarts jamalterm right away (tabs are
 // restored); without, the new version starts next time.
-func (a *App) InstallUpdate(relaunch bool) error {
+func (a *App) InstallUpdate(ctx context.Context, relaunch bool) error {
+	win := winOf(ctx)
 	a.mu.Lock()
 	rel := a.release
 	a.mu.Unlock()
@@ -548,7 +574,7 @@ func (a *App) InstallUpdate(relaunch bool) error {
 		return err
 	}
 	err = update.Install(a.ctx, *rel, app, func(done, total int64) {
-		runtime.EventsEmit(a.ctx, eventProgress, map[string]int64{"done": done, "total": total})
+		a.emitTo(win, eventProgress, map[string]int64{"done": done, "total": total})
 	})
 	if err != nil {
 		return a.problem("update", err)
@@ -561,7 +587,7 @@ func (a *App) InstallUpdate(relaunch bool) error {
 	}
 	go func() {
 		time.Sleep(200 * time.Millisecond)
-		runtime.Quit(a.ctx)
+		a.app.Quit()
 	}()
 	return nil
 }
@@ -593,7 +619,7 @@ func (a *App) RevertUpdate() error {
 	}
 	go func() {
 		time.Sleep(200 * time.Millisecond)
-		runtime.Quit(a.ctx)
+		a.app.Quit()
 	}()
 	return nil
 }
@@ -601,11 +627,7 @@ func (a *App) RevertUpdate() error {
 // ---- Window -----------------------------------------------------------------
 
 // Quit closes the app (after the last tab closes).
-func (a *App) Quit() { runtime.Quit(a.ctx) }
+func (a *App) Quit() { a.app.Quit() }
 
 // OpenURL opens a link in the default browser.
-func (a *App) OpenURL(url string) { runtime.BrowserOpenURL(a.ctx, url) }
-
-func (a *App) menu(cmd string) func(_ *menuData) {
-	return func(_ *menuData) { runtime.EventsEmit(a.ctx, eventMenu, cmd) }
-}
+func (a *App) OpenURL(url string) { a.problem("browser", a.app.Browser.OpenURL(url)) }

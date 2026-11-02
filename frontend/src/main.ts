@@ -3,8 +3,8 @@ import '@fontsource/jetbrains-mono/400.css'
 import '@fontsource/jetbrains-mono/700.css'
 import './style.css'
 
-import { Settings, SaveSettings, ShowProblemLog, ShellName, HomeDir, Quit, Version, GPUOff, SetWindowOpacity, SaveSession, LoadSession, IsPrimaryWindow, NewWindow, StartDir, Notify } from '../wailsjs/go/main/App'
-import { EventsOn, WindowSetTitle } from '../wailsjs/runtime/runtime'
+import { Settings, SaveSettings, ShowProblemLog, ShellName, HomeDir, CloseWindow, WindowID, Version, GPUOff, SetWindowOpacity, SaveSession, LoadSession, IsPrimaryWindow, NewWindow, StartDir, Notify } from './backend'
+import { EventsOn, WindowSetTitle } from './backend'
 import { Tab, setGpuOff, type SavedTab } from './tab'
 import { themeById, applyChrome } from './themes'
 import { AIPanel, CommandBar } from './ai'
@@ -264,7 +264,7 @@ function closeGroup(g = groupOf(active)) {
   g.el.remove()
   sessionDirty = true
   if (!groups.length) {
-    void saveSessionNow().then(() => Quit()) // nothing to reopen next time
+    void saveSessionNow().then(() => CloseWindow()) // the last window closing quits
     return
   }
   activate(groups[Math.min(i, groups.length - 1)].focused)
@@ -393,7 +393,10 @@ async function about() {
       <tr><td><kbd>⏎</kbd> in browse mode</td><td>run that command again</td></tr>
       <tr><td><kbd>⌘I</kbd></td><td>ask Claude</td></tr>
       <tr><td><kbd>⌘J</kbd></td><td>command from plain English</td></tr>
-      <tr><td><kbd>⌘T</kbd> <kbd>⌘W</kbd></td><td>new / close tab</td></tr>
+      <tr><td><kbd>⇧⌘P</kbd></td><td>command palette: every action and setting</td></tr>
+      <tr><td><kbd>⌘D</kbd> <kbd>⇧⌘D</kbd></td><td>split right / down</td></tr>
+      <tr><td><kbd>⌘T</kbd> <kbd>⌘N</kbd></td><td>new tab / new window</td></tr>
+      <tr><td><kbd>⌘W</kbd> <kbd>⇧⌘W</kbd></td><td>close pane / tab</td></tr>
     </table>
     <button class="primary">OK</button></div>`
   box.hidden = false
@@ -518,6 +521,8 @@ document.getElementById('ai-button')!.addEventListener('click', () => runMenu('a
 // ---- Start --------------------------------------------------------------------
 
 async function boot() {
+  // Tab numbers are unique across windows.
+  nextId = (await WindowID()) * 100000 + 1
   await loadProviders()
   cfg = await Settings()
   applySettings(cfg)

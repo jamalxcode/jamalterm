@@ -16,12 +16,14 @@ let server, base, browser
 before(async () => {
   server = createServer(async (req, res) => {
     const path = join(dist, decodeURIComponent(req.url.split('?')[0]) === '/' ? 'index.html' : decodeURIComponent(req.url.split('?')[0]))
+    let body
     try {
-      res.writeHead(200, { 'Content-Type': types[extname(path)] || 'application/octet-stream' })
-      res.end(await readFile(path))
+      body = await readFile(path)
     } catch {
-      res.writeHead(404).end()
+      return void res.writeHead(404).end() // e.g. the Wails runtime asking for the Go side
     }
+    res.writeHead(200, { 'Content-Type': types[extname(path)] || 'application/octet-stream' })
+    res.end(body)
   })
   await new Promise((r) => server.listen(0, '127.0.0.1', r))
   base = `http://127.0.0.1:${server.address().port}/`
@@ -114,7 +116,7 @@ test('vi prompt keys clear the line with Esc cc', async () => {
 test('tabs: new tab, numbers, failed command shows ✕', async () => {
   const page = await open()
   await type(page, 'false')
-  await page.evaluate(() => window.runtime.EventsEmit('menu', 'newTab'))
+  await page.evaluate(() => window.__emit('menu', 'newTab'))
   await page.waitForTimeout(300)
   const tabs = await page.$$eval('.tab', (els) => els.map((e) => ({ cls: e.className, num: e.querySelector('.num')?.textContent, state: e.querySelector('.state')?.textContent })))
   assert.equal(tabs.length, 2)
@@ -135,7 +137,7 @@ test('OSC 52 copies to the clipboard', async () => {
 
 test('AI panel streams an answer and shows the model and tokens', async () => {
   const page = await open()
-  await page.evaluate(() => window.runtime.EventsEmit('menu', 'aiPanel'))
+  await page.evaluate(() => window.__emit('menu', 'aiPanel'))
   await page.waitForSelector('#ai-panel:not([hidden])')
   await page.fill('#ai-panel textarea', 'what happened?')
   await page.keyboard.press('Enter')
@@ -148,7 +150,7 @@ test('AI panel streams an answer and shows the model and tokens', async () => {
 test('AI asking to run a command waits for the user to click Run', async () => {
   const page = await open()
   await page.evaluate(() => (window.__fake.aiTool = { command: 'echo from-ai', run: true }))
-  await page.evaluate(() => window.runtime.EventsEmit('menu', 'aiPanel'))
+  await page.evaluate(() => window.__emit('menu', 'aiPanel'))
   await page.fill('#ai-panel textarea', 'run hello')
   await page.keyboard.press('Enter')
   await page.waitForSelector('.tool-card.ask')

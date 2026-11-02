@@ -1,5 +1,5 @@
-import { CheckForUpdate, InstallUpdate, OpenURL, Version, PreviousVersion, RevertUpdate } from '../wailsjs/go/main/App'
-import { EventsOn } from '../wailsjs/runtime/runtime'
+import { CheckForUpdate, InstallUpdate, OpenURL, Version, PreviousVersion, RevertUpdate } from './backend'
+import { EventsOn } from './backend'
 import { el, toast } from './util'
 import type { UpdateInfo } from './types'
 

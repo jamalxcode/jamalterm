@@ -1,5 +1,5 @@
-import { AIAsk, AICancel, AIReset, HasAPIKey, AIToolResult, SetAIProvider, SignInOpenRouter } from '../wailsjs/go/main/App'
-import { EventsOn } from '../wailsjs/runtime/runtime'
+import { AIAsk, AICancel, AIReset, HasAPIKey, AIToolResult, SetAIProvider, SignInOpenRouter } from './backend'
+import { EventsOn } from './backend'
 import type { Tab, Block } from './tab'
 import { providers, providerInfo } from './providers'
 import { el, renderMarkdown, copyText, toast, SIGN_IN_COMMAND } from './util'

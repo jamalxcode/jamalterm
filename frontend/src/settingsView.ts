@@ -1,4 +1,4 @@
-import { SaveSettings, SetAPIKey, HasSavedAPIKey, AnthropicAccount, BlurActive, ForgetSession, SetProviderKey, HasSavedProviderKey, ListProviderModels, SignInOpenRouter, ShowProblemLog } from '../wailsjs/go/main/App'
+import { SaveSettings, SetAPIKey, HasSavedAPIKey, AnthropicAccount, BlurActive, ForgetSession, SetProviderKey, HasSavedProviderKey, ListProviderModels, SignInOpenRouter, ShowProblemLog } from './backend'
 import { themes } from './themes'
 import { providers, providerInfo, modelOf, setModelOf } from './providers'
 import { el, toast, SIGN_IN_COMMAND, SIGN_OUT_COMMAND } from './util'
@@ -270,7 +270,7 @@ export class SettingsView {
       load.addEventListener('click', async () => {
         if (key.value.trim()) await SetProviderKey(id, key.value.trim()) // save first so the list can load
         try {
-          const list = await ListProviderModels(id)
+          const list = (await ListProviderModels(id)) ?? []
           datalist.textContent = ''
           for (const m of list) datalist.append(el('option', { value: m }))
           modelHelp.textContent = list.length ? `${list.length} models available — click the field to choose (newest first): ${list.slice(0, 4).join(', ')}…` : 'No chat models found for this key.'

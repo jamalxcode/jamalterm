@@ -1,4 +1,4 @@
-import { AIProviders } from '../wailsjs/go/main/App'
+import { AIProviders } from './backend'
 import type { ProviderInfo, Settings } from './types'
 
 // The assistants come from one list in Go (internal/ai/openai.go): the
@@ -6,7 +6,7 @@ import type { ProviderInfo, Settings } from './types'
 export let providers: ProviderInfo[] = []
 
 export async function loadProviders() {
-  providers = await AIProviders()
+  providers = (await AIProviders()) ?? []
 }
 
 export function providerInfo(id: string): ProviderInfo | undefined {

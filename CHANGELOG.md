@@ -1,5 +1,28 @@
 # Changelog
 
+## 3.0.0
+
+**Real windows and split panes**
+- **⌘N** now opens a real window in the same app (before, each window was a separate copy of jamalterm). **⌘`** switches between windows
+- All your windows come back after a restart or update, each with its tabs, splits and recent output
+- **Split panes**: ⌘D splits right, ⇧⌘D splits down; drag the divider to resize, double-click it to even out
+- Move between panes with ⌘] / ⌘[, ⌥⌘ arrows, or a click. ⌘W closes a pane, ⇧⌘W the whole tab
+
+**Command palette**
+- **⇧⌘P**: type a few letters of any action, setting, theme, assistant or tab. Settings you can switch on and off flip right there; others open Settings at the right place
+
+**Settings**
+- Now in pages with a sidebar: Appearance, Shell, AI, Privacy, Updates
+
+**Private diagnostics**
+- **Help → Copy Diagnostics…** shows a report for when something goes wrong, and copies it only when you press Copy. Nothing is ever sent anywhere
+- It's built from a small problem log on your Mac: errors only, never commands, output, questions or keys. Secrets, your home folder, email addresses and the computer's name are removed before anything is written
+- Turn the log off (which deletes it) in Settings → Privacy
+
+**Under the hood**
+- Moved to Wails v3. jamalterm now needs macOS 12 (Monterey) or newer
+
+
 ## 2.0.0
 
 **Tabs survive restarts**

@@ -14,7 +14,7 @@ The app isn't notarized by Apple (that needs a paid developer account), so macOS
 xattr -dr com.apple.quarantine /Applications/jamalterm.app
 ```
 
-Or try to open it, then click **Open Anyway** in System Settings → Privacy & Security. Universal build: Apple silicon and Intel, macOS 10.15+.
+Or try to open it, then click **Open Anyway** in System Settings → Privacy & Security. Universal build: Apple silicon and Intel, macOS 12 (Monterey) or newer.
 
 ### Updating
 
@@ -52,12 +52,15 @@ To connect Claude, click **Sign in with Anthropic** in Settings (⌘,) or the AI
 
 ### Everything else
 
-- Tabs and their recent output come back after a restart or update. Turn this off, or forget saved tabs, in Settings → Shell.
-- ⌘N opens a new window. You get a notification when a long command (10 s or more, adjustable) finishes while jamalterm is in the background.
+- **⇧⌘P command palette**: type a few letters of any action, setting, theme, assistant or tab and press ⏎.
+- **Split panes**: ⌘D splits right, ⇧⌘D splits down. Drag the line between panes to resize (double-click it to even them out). ⌘] / ⌘[ or ⌥⌘ arrows move between panes, or click one. ⌘W closes a pane, ⇧⌘W the whole tab.
+- **Windows**: ⌘N opens a new window in the current folder, ⌘` switches windows. Every window, with its tabs, splits and recent output, comes back after a restart or update. Turn this off in Settings → Shell; forget saved tabs in Settings → Privacy.
+- You get a notification when a long command (10 s or more, adjustable) finishes while jamalterm is in the background.
 - ⌘-click file paths in the output to open them. Programs can copy to your clipboard, also over SSH/tmux (OSC 52), and show pictures (iTerm2 image protocol, Sixel).
+- **Privacy**: jamalterm sends nothing anywhere on its own. If something goes wrong, **Help → Copy Diagnostics…** shows a report (version, macOS, settings and recent errors, with secrets, your home folder, email addresses and the computer's name removed) and copies it only when you press Copy. The problem log behind it stays on your Mac, holds errors only (never commands, output, questions or keys), and can be turned off in Settings → Privacy.
 - Before anything is sent to an AI, secrets in the terminal text (API keys, tokens, passwords, private keys) are replaced with `[hidden secret]`. A per-tab switch keeps a tab's output out of AI requests entirely.
 
-- Tabs: ⌘T, ⌘W, ⌘1–9, ⇧⌘[ / ⇧⌘]. New tabs open in the current folder.
+- Tabs: ⌘T, ⇧⌘W, ⌘1–9, ⇧⌘[ / ⇧⌘]. New tabs open in the current folder.
 - ⌘F find, ⌘K clear, ⌘= / ⌘- / ⌘0 font size.
 - 10 themes (Jamal Night, Catppuccin, Dracula, Tokyo Night, One Dark, Nord, Gruvbox, Solarized dark and light, GitHub Light), with a font, cursor style and blink setting.
 - See-through window: Settings → Window opacity (30–100%), with optional blur of what's behind.
@@ -85,19 +88,17 @@ To connect Claude, click **Sign in with Anthropic** in Settings (⌘,) or the AI
 
 ## Develop
 
-Requires Go 1.25+, Node 20+, and the Xcode command-line tools.
+Built with [Wails v3](https://v3.wails.io). Requires Go 1.26+, Node 20+, and the Xcode command-line tools.
 
 ```bash
-go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.0
+make mac && open build/bin/jamalterm.app
 ```
 
 ```bash
-~/go/bin/wails dev
+make test
 ```
 
-```bash
-go test ./...
-```
+On Linux (for development), install GTK 3 and WebKitGTK 4.1 (`libgtk-3-dev libwebkit2gtk-4.1-dev`) and run `make linux`; shortcuts use Ctrl+Shift instead of ⌘. After changing the Go methods the window calls, regenerate `frontend/bindings` with `make bindings` (needs `go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0`).
 
 The Go tests start real zsh, bash, tcsh, fish and sh sessions and check the integration marks, exit codes and folders. The AI tests use fake streaming servers, and the Keychain tests run on the macOS build machine. The UI tests run the real interface in Chromium with a fake Go side:
 
