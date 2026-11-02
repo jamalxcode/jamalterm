@@ -1,5 +1,42 @@
 # Changelog
 
+## 3.1.0
+
+**Nothing lost by accident**
+- Quitting, closing a window, or closing a tab or pane while a program is running (vim, a build, ssh…) asks first and names what's running
+- When a window's page reloads (View → Reload Window, or if it crashes) its shells keep running and reconnect, with their recent output
+
+**Privacy and security**
+- Password prompts turn on macOS **Secure Keyboard Entry** (other apps can't read your typing) and show a 🔒; or keep it on all the time from the jamalterm menu
+- Updates are installed only with a **build proof** (Sigstore): GitHub's build service proves it made exactly that download from jamalterm's own workflow
+- **Local AI**: Ollama or LM Studio on your Mac. No key, and your questions never leave the computer
+- Optional: a stable signing certificate (`scripts/make-signing-cert.sh`) so macOS stops asking about the Keychain after updates
+
+**Over ssh**
+- **Shell → Enable Browse Mode on This Server**: browse mode in the remote bash or zsh for that session, without writing anything there
+- Lines that look like a prompt (`user@host:~$ make`) can be put back on the prompt even without it
+- **Host colors**: tabs connected to machines you name get a color and always show the machine's name
+- **Broadcast typing** (⌥⌘I) to every pane in a tab
+
+**Terminal**
+- Links programs print (OSC 8) open with ⌘-click
+- Font ligatures (Settings → Appearance)
+- The kitty keyboard protocol: fish, neovim and helix can tell Esc from Alt+key and Shift+Enter from Enter
+- Find shows "2 of 7"
+
+**Accessibility**
+- The focused pane has a frame and a corner notch, not just a color
+- Every theme is checked for readable contrast; Gruvbox's red and Solarized Light's green, yellow and cyan are a touch darker or lighter to pass
+
+**Updates**
+- A **Beta** update channel (Settings → Updates) for getting test versions first
+
+**Under the hood**
+- Every build is smoke-tested on a real Mac (screenshots, real shortcuts, timings, memory)
+- Starts faster: the icon font no longer holds up the first tab
+- One command list drives the menu bar, the palette and the shortcuts
+
+
 ## 3.0.0
 
 **Real windows and split panes**

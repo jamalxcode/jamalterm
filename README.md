@@ -18,7 +18,14 @@ Or try to open it, then click **Open Anyway** in System Settings → Privacy & S
 
 ### Updating
 
-You only install by hand once. After that, jamalterm checks GitHub at launch and every 6 hours. When there's a new version, a card appears: click **Update & Restart**. The app downloads the new version, checks it against the release's SHA-256 checksums, its code signature and its bundle id, swaps itself in place, and restarts. Open tabs close. You can also use **jamalterm → Check for Updates…** at any time, and turn automatic checks off in Settings.
+You only install by hand once. After that, jamalterm checks GitHub at launch and every 6 hours and offers new versions. Before installing one it checks:
+
+- the SHA-256 checksum, the code signature and the bundle id;
+- since 3.1, a **build proof**: a Sigstore attestation that GitHub's own build service made exactly that file from this repository's workflow. A release without one isn't installed.
+
+Your tabs come back after the update, and **jamalterm → Go Back to Previous Version** undoes it. Settings → Updates has a **Beta** channel if you'd like test versions first.
+
+**Optional, once:** to stop macOS asking about the Keychain after every update, run `scripts/make-signing-cert.sh` on your Mac (it needs the GitHub CLI). It makes a free self-signed certificate and saves it as a GitHub secret, so every release is signed the same way. With a paid Apple Developer ID (add `MAC_SIGNING_P12` and the `APPLE_*` secrets), releases are also notarized and the `xattr` step goes away.
 
 ## Using it
 
@@ -55,15 +62,23 @@ To connect Claude, click **Sign in with Anthropic** in Settings (⌘,) or the AI
 - **⇧⌘P command palette**: type a few letters of any action, setting, theme, assistant or tab and press ⏎.
 - **Split panes**: ⌘D splits right, ⇧⌘D splits down. Drag the line between panes to resize (double-click it to even them out). ⌘] / ⌘[ or ⌥⌘ arrows move between panes, or click one. ⌘W closes a pane, ⇧⌘W the whole tab.
 - **Windows**: ⌘N opens a new window in the current folder, ⌘` switches windows. Every window, with its tabs, splits and recent output, comes back after a restart or update. Turn this off in Settings → Shell; forget saved tabs in Settings → Privacy.
+- **Nothing gets lost by accident**: quitting, closing a window, or closing a tab or pane while a program runs (vim, a build, ssh) asks first and names what's running. If a window's page reloads (View → Reload Window, ⇧⌘R) its shells keep running and reconnect.
+- **Password prompts are protected**: when a program asks for a password (sudo, ssh…), macOS Secure Keyboard Entry turns on so other apps can't read your typing, and a 🔒 shows. jamalterm menu → Secure Keyboard Entry keeps it on all the time.
+- **Over ssh**: Shell → Enable Browse Mode on This Server turns browse mode on in the remote bash or zsh for that session (nothing is written to the server). Without it, a line that looks like a prompt (`user@host:~$ make`) can still be put back on the prompt with ⏎.
+- **Host colors** (Settings → Appearance): tabs connected to machines you name (`prod-*`) get a color and always show the machine's name.
+- **Broadcast typing** (⌥⌘I) to every pane in a tab, for running the same thing on several servers.
 - You get a notification when a long command (10 s or more, adjustable) finishes while jamalterm is in the background.
 - ⌘-click file paths in the output to open them. Programs can copy to your clipboard, also over SSH/tmux (OSC 52), and show pictures (iTerm2 image protocol, Sixel).
 - **Privacy**: jamalterm sends nothing anywhere on its own. If something goes wrong, **Help → Copy Diagnostics…** shows a report (version, macOS, settings and recent errors, with secrets, your home folder, email addresses and the computer's name removed) and copies it only when you press Copy. The problem log behind it stays on your Mac, holds errors only (never commands, output, questions or keys), and can be turned off in Settings → Privacy.
+- **Local AI**: pick *Local model on this Mac* in Settings → AI to use Ollama or LM Studio. No key, and questions never leave your computer.
 - Before anything is sent to an AI, secrets in the terminal text (API keys, tokens, passwords, private keys) are replaced with `[hidden secret]`. A per-tab switch keeps a tab's output out of AI requests entirely.
 
 - Tabs: ⌘T, ⇧⌘W, ⌘1–9, ⇧⌘[ / ⇧⌘]. New tabs open in the current folder.
 - ⌘F find, ⌘K clear, ⌘= / ⌘- / ⌘0 font size.
 - 10 themes (Jamal Night, Catppuccin, Dracula, Tokyo Night, One Dark, Nord, Gruvbox, Solarized dark and light, GitHub Light), with a font, cursor style and blink setting.
 - See-through window: Settings → Window opacity (30–100%), with optional blur of what's behind.
+- Font ligatures (=> != ->) for fonts that have them; clickable links that programs print (OSC 8, ⌘-click); the kitty keyboard protocol, so fish, neovim and helix can tell Esc from Alt and Shift+Enter from Enter.
+- Every theme is checked for readable contrast (WCAG), and the focused pane has a frame and a corner notch, not just a color.
 - Option works as Meta (⌥B / ⌥F jump words). Turn it off in Settings.
 - Nerd Font icons (Powerlevel10k, eza, starship…) show up with any font. The icon set is built in.
 - If you'd rather ↑ go to shell history at an empty prompt, turn that off in Settings. ⌘↑ always starts browse mode.
@@ -106,7 +121,7 @@ The Go tests start real zsh, bash, tcsh, fish and sh sessions and check the inte
 cd frontend && npm run build && npm run test:ui
 ```
 
-Every push builds the app on GitHub Actions. To publish a release with the `.dmg`, run the *Build macOS app* workflow with a version number (Actions → Run workflow), or push a tag like `v1.2.0`.
+Every push builds the app on GitHub Actions, runs a smoke test of the real app on a Mac (screenshots, real ⌘ shortcuts, launch time, output speed and memory are in the run's summary and artifacts), and proves the build with Sigstore. To publish a test version, tick *prerelease* (only the Beta channel gets it). To publish a release with the `.dmg`, run the *Build macOS app* workflow with a version number (Actions → Run workflow), or push a tag like `v1.2.0`.
 
 Debug switches: `JAMALTERM_NO_GPU=1` draws without WebGL; `JAMALTERM_ANTHROPIC_BASE_URL` points AI requests at another server.
 
