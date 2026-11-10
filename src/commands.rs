@@ -10,6 +10,8 @@ use egui::Key;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Cmd {
+    Settings,
+    Palette,
     NewWindow,
     NewTab,
     SplitRight,
@@ -21,6 +23,10 @@ pub enum Cmd {
     CloseWindow,
     Copy,
     Paste,
+    SelectAll,
+    /// ⌘E: the selected text becomes what Find looks for.
+    FindSelection,
+    ToggleTabBar,
     Find,
     FindNext,
     FindPrevious,
@@ -45,6 +51,8 @@ pub enum Cmd {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Menu {
+    /// The jamalterm menu (Settings…).
+    App,
     Shell,
     Edit,
     View,
@@ -109,6 +117,7 @@ const fn tab(n: u8, key: Key) -> Entry {
 }
 
 pub const TABLE: &[Entry] = &[
+    e(Cmd::Settings, "Settings…", Menu::App, Key::Comma, false),
     e(Cmd::NewWindow, "New Window", Menu::Shell, Key::N, false),
     e(Cmd::NewTab, "New Tab", Menu::Shell, Key::T, false),
     e(
@@ -136,6 +145,7 @@ pub const TABLE: &[Entry] = &[
         keyed: false,
         ..e(Cmd::Paste, "Paste", Menu::Edit, Key::V, false)
     },
+    e(Cmd::SelectAll, "Select All", Menu::Edit, Key::A, false),
     e(Cmd::Find, "Find…", Menu::Edit, Key::F, false),
     e(Cmd::FindNext, "Find Next", Menu::Edit, Key::G, false),
     e(Cmd::FindPrevious, "Find Previous", Menu::Edit, Key::G, true),
@@ -146,7 +156,17 @@ pub const TABLE: &[Entry] = &[
         Key::ArrowUp,
         false,
     ),
+    e(
+        Cmd::FindSelection,
+        "Use Selection for Find",
+        Menu::Edit,
+        Key::E,
+        false,
+    ),
     e(Cmd::Clear, "Clear Scrollback", Menu::Edit, Key::K, false),
+    e(Cmd::Palette, "Command Palette…", Menu::View, Key::P, true),
+    // "Hide Tab Bar" while it's shown (the menu says what it'll do).
+    e(Cmd::ToggleTabBar, "Show Tab Bar", Menu::View, Key::T, true),
     e(Cmd::Bigger, "Bigger", Menu::View, Key::Equals, false),
     e(Cmd::Smaller, "Smaller", Menu::View, Key::Minus, false),
     e(Cmd::ActualSize, "Actual Size", Menu::View, Key::Num0, false),

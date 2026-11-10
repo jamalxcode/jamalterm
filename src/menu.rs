@@ -6,20 +6,35 @@
 use crate::commands::{self, Cmd, Menu};
 use muda::accelerator::{Accelerator, Code, Modifiers};
 use muda::{AboutMetadata, IsMenuItem, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
+use std::cell::RefCell;
 use std::sync::mpsc;
 
 pub struct MacMenu {
     _bar: muda::Menu,
     rx: mpsc::Receiver<Cmd>,
-    /// ⌘W, titled "Close Pane" while the tab is split.
-    close: Option<MenuItem>,
-    split: std::cell::Cell<bool>,
+    /// Every command's item, to retitle ("Close Pane", "Hide Tab Bar"…).
+    by_cmd: Vec<(Cmd, MenuItem, RefCell<String>)>,
 }
+
+/// A separator goes before these (groups within a menu).
+const BREAK_BEFORE: &[Cmd] = &[
+    Cmd::SplitRight,
+    Cmd::ClosePane,
+    Cmd::Find,
+    Cmd::Browse,
+    Cmd::Bigger,
+    Cmd::PreviousPane,
+    Cmd::MoveTabToNewWindow,
+];
 
 fn code(key: egui::Key) -> Option<Code> {
     use egui::Key as K;
     Some(match key {
         K::T => Code::KeyT,
+        K::A => Code::KeyA,
+        K::E => Code::KeyE,
+        K::P => Code::KeyP,
+        K::Comma => Code::Comma,
         K::N => Code::KeyN,
         K::W => Code::KeyW,
         K::C => Code::KeyC,
@@ -41,26 +56,16 @@ fn code(key: egui::Key) -> Option<Code> {
     })
 }
 
-fn items(menu: Menu) -> Vec<MenuItem> {
-    commands::TABLE
-        .iter()
-        .filter(|e| e.menu == Some(menu))
-        .map(|e| {
-            let mut mods = Modifiers::META;
-            if e.shift {
-                mods |= Modifiers::SHIFT;
-            }
-            if e.alt {
-                mods |= Modifiers::ALT;
-            }
-            let accel = e.key.and_then(code).map(|c| Accelerator::new(mods, c));
-            MenuItem::with_id(commands::id(e.cmd), e.title, true, accel)
-        })
-        .collect()
-}
-
-fn refs(v: &[MenuItem]) -> Vec<&dyn IsMenuItem> {
-    v.iter().map(|i| i as &dyn IsMenuItem).collect()
+fn item(e: &commands::Entry) -> MenuItem {
+    let mut mods = Modifiers::META;
+    if e.shift {
+        mods |= Modifiers::SHIFT;
+    }
+    if e.alt {
+        mods |= Modifiers::ALT;
+    }
+    let accel = e.key.and_then(code).map(|c| Accelerator::new(mods, c));
+    MenuItem::with_id(commands::id(e.cmd), e.title, true, accel)
 }
 
 impl MacMenu {
@@ -77,87 +82,103 @@ impl MacMenu {
         }));
 
         let sep = PredefinedMenuItem::separator;
+        let all: Vec<(Cmd, Menu, MenuItem)> = commands::TABLE
+            .iter()
+            .filter_map(|e| Some((e.cmd, e.menu?, item(e))))
+            .collect();
+        // A menu's items with separators between the groups.
+        let seps: Vec<PredefinedMenuItem> = (0..BREAK_BEFORE.len()).map(|_| sep()).collect();
+        let menu = |m: Menu| -> Vec<&dyn IsMenuItem> {
+            let mut v: Vec<&dyn IsMenuItem> = vec![];
+            for (cmd, menu, it) in &all {
+                if *menu != m {
+                    continue;
+                }
+                if let Some(i) = BREAK_BEFORE.iter().position(|c| c == cmd)
+                    && !v.is_empty()
+                {
+                    v.push(&seps[i]);
+                }
+                v.push(it);
+            }
+            v
+        };
+
         let about = AboutMetadata {
             name: Some("jamalterm".into()),
             version: Some(env!("CARGO_PKG_VERSION").into()),
             ..Default::default()
         };
-        let app = Submenu::with_items(
-            "jamalterm",
-            true,
-            &[
-                &PredefinedMenuItem::about(Some("About jamalterm"), Some(about)),
-                &sep(),
-                &PredefinedMenuItem::services(None),
-                &sep(),
-                &PredefinedMenuItem::hide(Some("Hide jamalterm")),
-                &PredefinedMenuItem::hide_others(None),
-                &PredefinedMenuItem::show_all(None),
-                &sep(),
-                &PredefinedMenuItem::quit(Some("Quit jamalterm")),
-            ],
-        )
-        .ok()?;
+        let (about, s0, s1, s2, s3) = (
+            PredefinedMenuItem::about(Some("About jamalterm"), Some(about)),
+            sep(),
+            sep(),
+            sep(),
+            sep(),
+        );
+        let (services, hide, others, show, quit) = (
+            PredefinedMenuItem::services(None),
+            PredefinedMenuItem::hide(Some("Hide jamalterm")),
+            PredefinedMenuItem::hide_others(None),
+            PredefinedMenuItem::show_all(None),
+            PredefinedMenuItem::quit(Some("Quit jamalterm")),
+        );
+        let mut app_items: Vec<&dyn IsMenuItem> = vec![&about, &s0];
+        app_items.extend(menu(Menu::App)); // Settings…
+        app_items.extend([
+            &s1 as &dyn IsMenuItem,
+            &services,
+            &s2,
+            &hide,
+            &others,
+            &show,
+            &s3,
+            &quit,
+        ]);
+        let app = Submenu::with_items("jamalterm", true, &app_items).ok()?;
+        let shell = Submenu::with_items("Shell", true, &menu(Menu::Shell)).ok()?;
+        let edit = Submenu::with_items("Edit", true, &menu(Menu::Edit)).ok()?;
 
-        let shell = items(Menu::Shell);
-        let close = shell
-            .iter()
-            .find(|i| i.id().as_ref() == commands::id(Cmd::ClosePane))
-            .cloned();
-        let shell = Submenu::with_items("Shell", true, &refs(&shell)).ok()?;
-
-        // Edit: Copy, Paste | Find… Find Next, Find Previous | Browse, Clear.
-        let edit_items = items(Menu::Edit);
-        let mut edit: Vec<&dyn IsMenuItem> = vec![];
-        let (s1, s2) = (sep(), sep());
-        for (i, it) in edit_items.iter().enumerate() {
-            if i == 2 {
-                edit.push(&s1);
-            }
-            if i == 5 {
-                edit.push(&s2);
-            }
-            edit.push(it);
-        }
-        let edit = Submenu::with_items("Edit", true, &edit).ok()?;
-
-        let view = items(Menu::View);
         let full = PredefinedMenuItem::fullscreen(Some("Enter Full Screen"));
-        let mut view_refs = refs(&view);
-        let s3 = sep();
-        view_refs.extend([&s3 as &dyn IsMenuItem, &full]);
-        let view = Submenu::with_items("View", true, &view_refs).ok()?;
+        let s4 = sep();
+        let mut view = menu(Menu::View);
+        view.extend([&s4 as &dyn IsMenuItem, &full]);
+        let view = Submenu::with_items("View", true, &view).ok()?;
 
-        let win = items(Menu::Window);
-        let (min, zoom, s4, s5, front) = (
+        let (min, zoom, s5, s6, front) = (
             PredefinedMenuItem::minimize(None),
             PredefinedMenuItem::maximize(Some("Zoom")),
             sep(),
             sep(),
             PredefinedMenuItem::bring_all_to_front(None),
         );
-        let mut win_refs: Vec<&dyn IsMenuItem> = vec![&min, &zoom, &s4];
-        win_refs.extend(refs(&win));
-        win_refs.extend([&s5 as &dyn IsMenuItem, &front]);
-        let window = Submenu::with_items("Window", true, &win_refs).ok()?;
+        let mut win: Vec<&dyn IsMenuItem> = vec![&min, &zoom, &s5];
+        win.extend(menu(Menu::Window));
+        win.extend([&s6 as &dyn IsMenuItem, &front]);
+        let window = Submenu::with_items("Window", true, &win).ok()?;
 
         let bar = muda::Menu::with_items(&[&app, &shell, &edit, &view, &window]).ok()?;
         bar.init_for_nsapp();
         window.set_as_windows_menu_for_nsapp();
+        let by_cmd = all
+            .iter()
+            .map(|(c, _, it)| (*c, it.clone(), RefCell::new(it.text())))
+            .collect();
         Some(MacMenu {
             _bar: bar,
             rx,
-            close,
-            split: std::cell::Cell::new(false),
+            by_cmd,
         })
     }
 
-    /// Menu items say what they'll do: ⌘W is "Close Pane" in a split tab.
-    pub fn set_split(&self, split: bool) {
-        if self.split.replace(split) != split
-            && let Some(c) = &self.close
+    /// Menu items say what they'll do ("Close Pane" in a split tab, "Hide
+    /// Tab Bar" while it's shown): retitles an item when that changes.
+    pub fn set_title(&self, cmd: Cmd, title: &str) {
+        if let Some((_, it, now)) = self.by_cmd.iter().find(|(c, ..)| *c == cmd)
+            && *now.borrow() != title
         {
-            c.set_text(if split { "Close Pane" } else { "Close Tab" });
+            it.set_text(title);
+            *now.borrow_mut() = title.to_string();
         }
     }
 

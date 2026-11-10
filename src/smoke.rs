@@ -40,6 +40,12 @@ pub struct Smoke {
     pub tab_rects: Vec<egui::Rect>,
     /// A pane id a step remembers to check later.
     marker: u64,
+    /// The palette and Settings are open; the current theme (from the app).
+    pub palette_open: bool,
+    pub settings_open: bool,
+    pub theme: String,
+    /// Asks the app to close Settings (its keys can't be typed from here).
+    pub close_settings: bool,
     /// Done: the app should quit.
     pub quit: bool,
     /// How many windows are open (from the app each frame).
@@ -70,6 +76,14 @@ fn cmd_mods() -> egui::Modifiers {
             command: true,
             ..egui::Modifiers::NONE
         }
+    }
+}
+
+/// ⇧ and the shortcut key (⇧⌘ on a Mac; Ctrl+Shift elsewhere anyway).
+fn cmd_shift() -> egui::Modifiers {
+    egui::Modifiers {
+        shift: true,
+        ..cmd_mods()
     }
 }
 
@@ -245,6 +259,93 @@ const STEPS: &[Step] = &[
         limit: Duration::from_secs(5),
     },
     Step {
+        name: "⇧⌘P opens the command palette",
+        act: |s, _, _, _| s.press(egui::Key::P, cmd_shift()),
+        done: |s, _, _| s.palette_open.then(|| (true, String::new())),
+        limit: Duration::from_secs(3),
+    },
+    Step {
+        name: "(type in the palette)",
+        act: |s, _, _, _| s.keys.push(egui::Event::Text("split right".into())),
+        done: |_, _, _| None,
+        limit: Duration::from_millis(300),
+    },
+    Step {
+        name: "(screenshot: palette)",
+        act: |s, ctx, _, _| s.shot(ctx, "palette"),
+        done: |_, _, _| None,
+        limit: Duration::from_millis(800),
+    },
+    Step {
+        name: "⏎ in the palette runs the command",
+        act: |s, _, _, _| s.press(egui::Key::Enter, egui::Modifiers::NONE),
+        done: |s, tabs, a| {
+            (tabs[a].tree().count() == 2).then(|| {
+                (
+                    !s.palette_open,
+                    "Split Pane Right: 2 panes, palette closed".into(),
+                )
+            })
+        },
+        limit: Duration::from_secs(10),
+    },
+    Step {
+        name: "(⌘W closes that pane)",
+        act: |s, _, _, _| s.press(egui::Key::W, cmd_mods()),
+        done: |_, tabs, a| (tabs[a].tree().count() == 1).then(|| (true, String::new())),
+        limit: Duration::from_secs(3),
+    },
+    Step {
+        name: "a theme from the palette applies and is saved",
+        act: |s, _, _, _| {
+            s.press(egui::Key::P, cmd_shift());
+            s.script.push_back(vec![]);
+            s.script
+                .push_back(vec![egui::Event::Text("theme solarized light".into())]);
+            s.script.push_back(vec![]);
+            s.script.push_back(vec![
+                egui::Event::Key {
+                    key: egui::Key::Enter,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::Key {
+                    key: egui::Key::Enter,
+                    physical_key: None,
+                    pressed: false,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]);
+        },
+        done: |s, _, _| {
+            let saved = crate::settings::load(&s.dir.join("settings.json"));
+            (s.theme == "solarized-light" || saved.theme == "solarized-light")
+                .then(|| (saved.theme == s.theme, format!("theme {}", s.theme)))
+        },
+        limit: Duration::from_secs(5),
+    },
+    Step {
+        name: "⌘, opens Settings",
+        act: |s, _, _, _| s.press(egui::Key::Comma, cmd_mods()),
+        done: |s, _, _| s.settings_open.then(|| (true, "its own window".into())),
+        limit: Duration::from_secs(3),
+    },
+    Step {
+        name: "(Settings stays open a moment)",
+        act: |_, _, _, _| {},
+        done: |_, _, _| None,
+        limit: Duration::from_millis(600),
+    },
+    Step {
+        name: "Settings closes",
+        act: |s, _, _, _| s.close_settings = true,
+        done: |s, _, _| (!s.settings_open).then(|| (true, String::new())),
+        limit: Duration::from_secs(3),
+    },
+    Step {
         name: "⌘T opens a tab",
         act: |s, _, _, _| s.press(egui::Key::T, cmd_mods()),
         done: |_, tabs, _| (tabs.len() == 2).then(|| (true, "2 tabs".into())),
@@ -397,6 +498,10 @@ impl Smoke {
             windows: 1,
             cmds: vec![],
             quit: false,
+            palette_open: false,
+            settings_open: false,
+            theme: String::new(),
+            close_settings: false,
             script: Default::default(),
             tab_rects: vec![],
             marker: 0,
@@ -409,8 +514,9 @@ impl Smoke {
         })
     }
 
-    /// Saves a screenshot of the next frame as <dir>/<name>.png.
-    fn shot(&self, ctx: &egui::Context, name: &str) {
+    /// Saves a screenshot of the next frame as <dir>/<name>.png (the
+    /// window `ctx` belongs to).
+    pub fn shot(&self, ctx: &egui::Context, name: &str) {
         let path = self.dir.join(format!("{name}.png"));
         ctx.request_screenshot(move |img| {
             if let Err(e) = save_png(&path, &img) {

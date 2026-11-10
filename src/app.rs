@@ -4,6 +4,7 @@ use crate::browse::{self, Action, Browse};
 use crate::commands::{self, Cmd};
 use crate::find::Find;
 use crate::input::{is_app_shortcut, key_bytes, paste_bytes};
+use crate::palette;
 use crate::panes::{self, Dir, Node};
 use crate::restore;
 use crate::session::Session;
@@ -13,6 +14,7 @@ use crate::tabdrag;
 use crate::themes::{self, Theme};
 use crate::view::{self, Look};
 use alacritty_terminal::grid::{Dimensions, Scroll};
+use alacritty_terminal::index::{Column, Line, Point, Side};
 use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::TermMode;
 use egui::{Color32, Key, RichText, Sense, Vec2};
@@ -234,6 +236,8 @@ pub struct Win {
     frame: Option<restore::Frame>,
     /// Where it should open (a restored window's frame).
     open_at: Option<restore::Frame>,
+    /// The command palette (⇧⌘P), when open.
+    palette: Option<palette::Palette>,
     /// The tab being dragged (its place in the bar), and the pointer's last
     /// position in this window.
     tab_drag: Option<usize>,
@@ -258,6 +262,7 @@ impl Win {
             exiting: false,
             frame: None,
             open_at: None,
+            palette: None,
             tab_drag: None,
             drag_pos: None,
             root: false,
@@ -278,6 +283,14 @@ pub struct App {
     pending: Vec<Cmd>,
     /// Quitting: every window closes, and the session keeps them all.
     quitting: bool,
+    /// The Settings window (⌘,), open at this pane.
+    settings_open: Option<palette::Pane>,
+    /// Bring the Settings window to the front next frame.
+    focus_settings: bool,
+    /// The tab bar was hidden with View → Hide Tab Bar (even with tabs).
+    tab_bar_hidden: bool,
+    /// What was run from the palette lately (shown first).
+    recent: Vec<palette::Action>,
     /// The next pane's id.
     next_id: u64,
     settings: Settings,
@@ -322,6 +335,10 @@ impl App {
             front: 1,
             pending: vec![],
             quitting: false,
+            settings_open: None,
+            focus_settings: false,
+            tab_bar_hidden: false,
+            recent: vec![],
             next_id: 1,
             theme,
             home: dirs::home_dir()
@@ -604,6 +621,248 @@ impl App {
         // The emptied windows close at the end of the frame.
     }
 
+    /// The Settings window, while open (its own native window).
+    fn settings_window(&mut self, ctx: &egui::Context) {
+        let Some(mut pane) = self.settings_open else {
+            return;
+        };
+        let vp = egui::ViewportId::from_hash_of("jamalterm-settings");
+        if std::mem::take(&mut self.focus_settings) {
+            ctx.send_viewport_cmd_to(vp, egui::ViewportCommand::Focus);
+        }
+        // ⌘W (a menu key equivalent) closes it when it's in front.
+        if self.front == SETTINGS {
+            let cmds = std::mem::take(&mut self.pending);
+            if cmds
+                .iter()
+                .any(|c| matches!(c, Cmd::ClosePane | Cmd::CloseTab | Cmd::CloseWindow))
+            {
+                self.close_settings();
+                return;
+            }
+            self.pending = cmds; // anything else: for the terminal window
+            self.front = self.w.id;
+        }
+        let builder = egui::ViewportBuilder::default()
+            .with_title(pane.name()) // the window title names the pane
+            .with_inner_size([560.0, 520.0])
+            .with_min_inner_size([420.0, 320.0]);
+        let mut settings = self.settings.clone();
+        let mut out = None;
+        let mut close = false;
+        let mut focused = false;
+        ctx.show_viewport_immediate(vp, builder, |ui, _| {
+            let ctx = ui.ctx().clone();
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(pane.name().into()));
+            ctx.input(|i| {
+                close = i.viewport().close_requested()
+                    || i.key_pressed(Key::Escape)
+                    || (i.modifiers.command && i.key_pressed(Key::W));
+                focused = i.viewport().focused == Some(true);
+            });
+            egui::CentralPanel::default().show(ui, |ui| {
+                out = Some(crate::prefs::show(ui, &mut settings, &mut pane));
+            });
+        });
+        if focused {
+            self.front = SETTINGS;
+        }
+        self.settings_open = Some(pane);
+        if let Some(out) = out {
+            if out.changed {
+                self.settings = settings;
+                self.settings_changed();
+            }
+            // Hovering a theme shows it everywhere; moving away puts yours back.
+            let want = out.preview.unwrap_or(self.settings.theme.as_str());
+            if self.theme.id != want {
+                self.theme = themes::by_id(want);
+            }
+        }
+        if close {
+            self.close_settings();
+        }
+    }
+
+    fn close_settings(&mut self) {
+        self.settings_open = None;
+        self.theme = themes::by_id(&self.settings.theme);
+        if self.front == SETTINGS {
+            self.front = self.w.id;
+        }
+    }
+
+    /// The tab bar shows with two or more tabs, or always when chosen (View
+    /// → Show Tab Bar); Hide Tab Bar hides it even with several tabs.
+    fn tab_bar_shown(&self) -> bool {
+        !self.tab_bar_hidden && (self.w.tabs.len() > 1 || self.settings.show_tab_bar)
+    }
+
+    /// Opens Settings (at a pane), or brings it to the front.
+    fn open_settings(&mut self, pane: Option<palette::Pane>) {
+        let now = self.settings_open.unwrap_or_default();
+        self.settings_open = Some(pane.unwrap_or(now));
+        self.focus_settings = true;
+    }
+
+    /// A window's viewport (to bring it forward).
+    fn viewport_of(w: &Win) -> egui::ViewportId {
+        if w.root {
+            egui::ViewportId::ROOT
+        } else {
+            egui::ViewportId::from_hash_of(("jamalterm-window", w.id))
+        }
+    }
+
+    /// Settings changed: saved at once and applied (no Save button).
+    fn settings_changed(&mut self) {
+        self.settings = self.settings.clone().normalized();
+        self.theme = themes::by_id(&self.settings.theme);
+        if let Err(e) = settings::save(&self.settings_path, &self.settings) {
+            eprintln!("jamalterm: settings weren't saved: {e}");
+        }
+    }
+
+    /// Runs what was picked in the palette.
+    fn run_action(&mut self, ctx: &egui::Context, a: palette::Action) {
+        self.recent.retain(|r| *r != a);
+        self.recent.insert(0, a.clone());
+        self.recent.truncate(5);
+        match a {
+            palette::Action::Cmd(c) => self.run(ctx, c),
+            palette::Action::Toggle(i) => {
+                let t = &palette::TOGGLES[i];
+                let v = (t.field)(&mut self.settings);
+                *v = !*v;
+                self.settings_changed();
+            }
+            palette::Action::Theme(id) => {
+                self.settings.theme = id.to_string();
+                self.settings_changed();
+            }
+            palette::Action::Tab(win, i) => {
+                if win == self.w.id {
+                    self.w.active = i.min(self.w.tabs.len().saturating_sub(1));
+                } else if let Some(w) = self.others.iter_mut().find(|w| w.id == win) {
+                    w.active = i.min(w.tabs.len().saturating_sub(1));
+                    let vp = App::viewport_of(w);
+                    ctx.send_viewport_cmd_to(vp, egui::ViewportCommand::Focus);
+                }
+            }
+            palette::Action::Settings(p) => self.open_settings(Some(p)),
+        }
+    }
+
+    /// The palette over the window: a box to type in and what matches.
+    fn palette_ui(&mut self, ctx: &egui::Context) {
+        let Some(mut p) = self.w.palette.take() else {
+            return;
+        };
+        let mut items = palette::items(&self.settings);
+        // Every tab, in every window.
+        let many = !self.others.is_empty();
+        let mut wins: Vec<&Win> = std::iter::once(&self.w).chain(&self.others).collect();
+        wins.sort_by_key(|w| (!w.root, w.id));
+        for (wn, w) in wins.iter().enumerate() {
+            for (i, t) in w.tabs.iter().enumerate() {
+                let name = tab_name(&t.folder(&self.home), &t.program(&self.shell_name));
+                let title = if many {
+                    format!("Tab {}: {name} (window {})", i + 1, wn + 1)
+                } else {
+                    format!("Tab {}: {name}", i + 1)
+                };
+                items.push(palette::Item {
+                    title,
+                    group: "Tab",
+                    keys: String::new(),
+                    action: palette::Action::Tab(w.id, i),
+                });
+            }
+        }
+        let shown = palette::filter(&items, &p.query, &self.recent);
+        let (up, down, enter, esc) = ctx.input_mut(|i| {
+            (
+                i.consume_key(egui::Modifiers::NONE, Key::ArrowUp),
+                i.consume_key(egui::Modifiers::NONE, Key::ArrowDown),
+                i.key_pressed(Key::Enter),
+                i.key_pressed(Key::Escape),
+            )
+        });
+        if down && p.selected + 1 < shown.len() {
+            p.selected += 1;
+        }
+        if up {
+            p.selected = p.selected.saturating_sub(1);
+        }
+        let mut chosen = None;
+        let mut close = esc;
+        let width = (ctx.content_rect().width() - 40.0).clamp(240.0, 560.0);
+        egui::Area::new(egui::Id::unique("palette"))
+            .anchor(egui::Align2::CENTER_TOP, Vec2::new(0.0, 48.0))
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_width(width);
+                    let edit = ui.add(
+                        egui::TextEdit::singleline(&mut p.query)
+                            .hint_text("Type a command, setting, theme or tab")
+                            .desired_width(f32::INFINITY),
+                    );
+                    if p.focus {
+                        edit.request_focus();
+                        p.focus = false;
+                    }
+                    if edit.changed() {
+                        p.selected = 0;
+                    }
+                    ui.separator();
+                    if shown.is_empty() {
+                        ui.label("Nothing matches");
+                    }
+                    egui::ScrollArea::vertical()
+                        .max_height(320.0)
+                        .show(ui, |ui| {
+                            for (n, it) in shown.iter().enumerate().take(50) {
+                                let sel = n == p.selected;
+                                let r = ui
+                                    .horizontal(|ui| {
+                                        let l = ui.selectable_label(sel, it.title.as_str());
+                                        ui.with_layout(
+                                            egui::Layout::right_to_left(egui::Align::Center),
+                                            |ui| {
+                                                ui.weak(it.group);
+                                                if !it.keys.is_empty() {
+                                                    ui.monospace(it.keys.as_str());
+                                                }
+                                            },
+                                        );
+                                        l
+                                    })
+                                    .inner;
+                                if sel {
+                                    r.scroll_to_me(None);
+                                }
+                                if r.clicked() {
+                                    chosen = Some(it.action.clone());
+                                }
+                            }
+                        });
+                });
+            });
+        if enter && let Some(it) = shown.get(p.selected) {
+            chosen = Some(it.action.clone());
+        }
+        if chosen.is_some() {
+            close = true;
+        }
+        if !close {
+            self.w.palette = Some(p);
+        }
+        if let Some(a) = chosen {
+            self.run_action(ctx, a);
+        }
+    }
+
     /// Quits: saves every window as it is, then closes the app.
     fn quit(&mut self, ctx: &egui::Context) {
         self.quitting = true;
@@ -644,6 +903,48 @@ impl App {
     fn run(&mut self, ctx: &egui::Context, cmd: Cmd) {
         match cmd {
             Cmd::NewTab => self.new_tab(ctx, None),
+            Cmd::Settings => self.open_settings(None),
+            Cmd::Palette => {
+                self.w.palette = Some(palette::Palette {
+                    focus: true,
+                    ..Default::default()
+                });
+            }
+            Cmd::SelectAll => {
+                if let Some(p) = self.pane() {
+                    let mut s = p.session.screen.lock().unwrap();
+                    let top = Point::new(Line(-(s.term.grid().history_size() as i32)), Column(0));
+                    let bottom = Point::new(
+                        Line(s.term.screen_lines() as i32 - 1),
+                        Column(s.term.columns() - 1),
+                    );
+                    let mut sel = Selection::new(SelectionType::Simple, top, Side::Left);
+                    sel.update(bottom, Side::Right);
+                    s.term.selection = Some(sel);
+                }
+            }
+            Cmd::FindSelection => {
+                let text = self
+                    .pane()
+                    .and_then(|p| p.session.screen.lock().unwrap().term.selection_to_string());
+                if let Some(t) = text.and_then(|t| t.lines().next().map(str::to_string))
+                    && !t.trim().is_empty()
+                {
+                    let f = self.w.find.get_or_insert_with(Find::default);
+                    f.query = t;
+                    self.w.focus_find = true;
+                }
+            }
+            Cmd::ToggleTabBar => {
+                if self.tab_bar_shown() {
+                    self.settings.show_tab_bar = false;
+                    self.tab_bar_hidden = true;
+                } else {
+                    self.settings.show_tab_bar = true;
+                    self.tab_bar_hidden = false;
+                }
+                let _ = settings::save(&self.settings_path, &self.settings);
+            }
             Cmd::NewWindow => self.new_window(ctx),
             Cmd::CloseWindow => self.close_window(ctx),
             Cmd::MoveTabToNewWindow => self.move_tab_to_new_window(),
@@ -1164,6 +1465,15 @@ impl eframe::App for App {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        // The tab bar, palette and Settings are light or dark with the theme.
+        let look = if self.theme.light {
+            egui::Theme::Light
+        } else {
+            egui::Theme::Dark
+        };
+        if ctx.theme() != look {
+            ctx.set_theme(look);
+        }
         // Menu bar choices (and their key equivalents) on a Mac go to the
         // window in front.
         #[cfg(target_os = "macos")]
@@ -1173,17 +1483,27 @@ impl eframe::App for App {
         let ids: Vec<u64> = std::iter::once(self.w.id)
             .chain(self.others.iter().map(|w| w.id))
             .collect();
-        if !ids.contains(&self.front) {
+        if !ids.contains(&self.front) && !(self.front == SETTINGS && self.settings_open.is_some()) {
             self.front = self.w.id;
         }
 
         // The first window (eframe's root viewport).
         self.window_ui(ui);
+        if self
+            .smoke
+            .as_mut()
+            .is_some_and(|s| std::mem::take(&mut s.close_settings))
+        {
+            self.close_settings();
+        }
         if self.w.root
             && let Some(smoke) = self.smoke.as_mut()
         {
             smoke.find_status = self.w.find.as_ref().map(|f| f.status());
             smoke.windows = 1 + self.others.len();
+            smoke.palette_open = self.w.palette.is_some();
+            smoke.settings_open = self.settings_open.is_some();
+            smoke.theme = self.settings.theme.clone();
             smoke.step(&ctx, &self.w.tabs, self.w.active);
         }
 
@@ -1217,6 +1537,8 @@ impl eframe::App for App {
                 i += 1;
             }
         }
+
+        self.settings_window(&ctx);
 
         // The first window closed (or lost its last tab) while others are
         // open: it takes over another window's tabs, so the app goes on.
@@ -1401,7 +1723,7 @@ impl App {
             return;
         }
 
-        if self.w.tabs.len() > 1 || self.settings.show_tab_bar {
+        if self.tab_bar_shown() {
             egui::Panel::top("tabs").show(ui, |ui| self.tab_bar(&ctx, ui));
         }
         if self.w.tabs.is_empty() {
@@ -1410,6 +1732,10 @@ impl App {
 
         if self.w.find.is_some() {
             egui::Panel::top("find").show(ui, |ui| self.find_bar(ui));
+        }
+        self.palette_ui(&ctx);
+        if self.w.tabs.is_empty() {
+            return;
         }
 
         // Browse mode's key bar.
@@ -1642,10 +1968,26 @@ impl App {
         if self.front == self.w.id
             && let Some(m) = &self.menu
         {
-            m.set_split(self.w.tabs[self.w.active].tree().count() > 1);
+            let split = self.w.tabs[self.w.active].tree().count() > 1;
+            m.set_title(
+                Cmd::ClosePane,
+                if split { "Close Pane" } else { "Close Tab" },
+            );
+            let shown = self.w.tabs.len() > 1 || self.settings.show_tab_bar;
+            m.set_title(
+                Cmd::ToggleTabBar,
+                if shown {
+                    "Hide Tab Bar"
+                } else {
+                    "Show Tab Bar"
+                },
+            );
         }
     }
 }
+
+/// `App::front` while the Settings window is in front.
+const SETTINGS: u64 = 0;
 
 /// A tab's tree as it's saved.
 fn save_node(n: &Node<Pane>, focus: u64) -> restore::SavedNode {
