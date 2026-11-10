@@ -10,6 +10,7 @@ mod input;
 mod marks;
 #[cfg(target_os = "macos")]
 mod menu;
+mod panes;
 mod session;
 mod settings;
 mod shell;

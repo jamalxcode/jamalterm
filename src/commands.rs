@@ -11,6 +11,11 @@ use egui::Key;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Cmd {
     NewTab,
+    SplitRight,
+    SplitDown,
+    /// ⌘W: the focused pane, or the tab when it isn't split.
+    ClosePane,
+    /// ⌥⌘W: the tab with all its panes.
     CloseTab,
     Copy,
     Paste,
@@ -24,6 +29,12 @@ pub enum Cmd {
     ActualSize,
     PreviousTab,
     NextTab,
+    PreviousPane,
+    NextPane,
+    PaneLeft,
+    PaneRight,
+    PaneUp,
+    PaneDown,
     /// ⌘1–⌘9 (a key only: the menu lists no tabs that aren't open).
     Tab(u8),
 }
@@ -44,6 +55,8 @@ pub struct Entry {
     pub key: Key,
     /// ⇧ as well as ⌘ (on a Mac; elsewhere ⇧ is always part of the shortcut).
     pub shift: bool,
+    /// ⌥ as well.
+    pub alt: bool,
     /// The keyboard looks this one up (Copy and Paste come as their own
     /// events from the system, so they're only menu items).
     pub keyed: bool,
@@ -56,7 +69,16 @@ const fn e(cmd: Cmd, title: &'static str, menu: Menu, key: Key, shift: bool) -> 
         menu: Some(menu),
         key,
         shift,
+        alt: false,
         keyed: true,
+    }
+}
+
+/// An entry whose shortcut has ⌥ too.
+const fn alt(cmd: Cmd, title: &'static str, menu: Menu, key: Key) -> Entry {
+    Entry {
+        alt: true,
+        ..e(cmd, title, menu, key, false)
     }
 }
 
@@ -67,13 +89,29 @@ const fn tab(n: u8, key: Key) -> Entry {
         menu: None,
         key,
         shift: false,
+        alt: false,
         keyed: true,
     }
 }
 
 pub const TABLE: &[Entry] = &[
     e(Cmd::NewTab, "New Tab", Menu::Shell, Key::T, false),
-    e(Cmd::CloseTab, "Close Tab", Menu::Shell, Key::W, false),
+    e(
+        Cmd::SplitRight,
+        "Split Pane Right",
+        Menu::Shell,
+        Key::D,
+        false,
+    ),
+    e(Cmd::SplitDown, "Split Pane Down", Menu::Shell, Key::D, true),
+    // "Close Pane" while the tab is split (the menu says what it'll do).
+    e(Cmd::ClosePane, "Close Tab", Menu::Shell, Key::W, false),
+    alt(
+        Cmd::CloseTab,
+        "Close Tab and Its Panes",
+        Menu::Shell,
+        Key::W,
+    ),
     Entry {
         keyed: false,
         ..e(Cmd::Copy, "Copy", Menu::Edit, Key::C, false)
@@ -110,6 +148,39 @@ pub const TABLE: &[Entry] = &[
         Key::CloseBracket,
         true,
     ),
+    e(
+        Cmd::PreviousPane,
+        "Select Previous Pane",
+        Menu::Window,
+        Key::OpenBracket,
+        false,
+    ),
+    e(
+        Cmd::NextPane,
+        "Select Next Pane",
+        Menu::Window,
+        Key::CloseBracket,
+        false,
+    ),
+    alt(
+        Cmd::PaneLeft,
+        "Select Pane on the Left",
+        Menu::Window,
+        Key::ArrowLeft,
+    ),
+    alt(
+        Cmd::PaneRight,
+        "Select Pane on the Right",
+        Menu::Window,
+        Key::ArrowRight,
+    ),
+    alt(Cmd::PaneUp, "Select Pane Above", Menu::Window, Key::ArrowUp),
+    alt(
+        Cmd::PaneDown,
+        "Select Pane Below",
+        Menu::Window,
+        Key::ArrowDown,
+    ),
     tab(1, Key::Num1),
     tab(2, Key::Num2),
     tab(3, Key::Num3),
@@ -123,12 +194,12 @@ pub const TABLE: &[Entry] = &[
 
 /// The command for a shortcut key. `shift` is None where ⇧ is always held
 /// (Ctrl+Shift on Linux): the first entry for the key wins there.
-pub fn for_key(key: Key, shift: Option<bool>) -> Option<Cmd> {
+pub fn for_key(key: Key, shift: Option<bool>, alt: bool) -> Option<Cmd> {
     // ⌘+ (⇧⌘=) is Bigger too, as in every Mac app.
     let key = if key == Key::Plus { Key::Equals } else { key };
     TABLE
         .iter()
-        .filter(|e| e.keyed && e.key == key)
+        .filter(|e| e.keyed && e.key == key && e.alt == alt)
         .find(|e| shift.is_none_or(|s| e.shift == s || e.key == Key::Equals))
         .map(|e| e.cmd)
 }
@@ -148,18 +219,38 @@ mod tests {
 
     #[test]
     fn keys_find_their_commands() {
-        assert_eq!(for_key(Key::T, Some(false)), Some(Cmd::NewTab));
-        assert_eq!(for_key(Key::G, Some(false)), Some(Cmd::FindNext));
-        assert_eq!(for_key(Key::G, Some(true)), Some(Cmd::FindPrevious));
-        assert_eq!(for_key(Key::G, None), Some(Cmd::FindNext), "Linux: ⇧ held");
-        assert_eq!(for_key(Key::Plus, Some(true)), Some(Cmd::Bigger));
-        assert_eq!(for_key(Key::Equals, Some(false)), Some(Cmd::Bigger));
-        assert_eq!(for_key(Key::CloseBracket, Some(true)), Some(Cmd::NextTab));
-        assert_eq!(for_key(Key::CloseBracket, None), Some(Cmd::NextTab));
-        assert_eq!(for_key(Key::CloseBracket, Some(false)), None);
-        assert_eq!(for_key(Key::Num3, Some(false)), Some(Cmd::Tab(3)));
-        assert_eq!(for_key(Key::C, Some(false)), None, "Copy is the system's");
-        assert_eq!(for_key(Key::Q, Some(false)), None);
+        assert_eq!(for_key(Key::T, Some(false), false), Some(Cmd::NewTab));
+        assert_eq!(for_key(Key::G, Some(false), false), Some(Cmd::FindNext));
+        assert_eq!(for_key(Key::G, Some(true), false), Some(Cmd::FindPrevious));
+        assert_eq!(
+            for_key(Key::G, None, false),
+            Some(Cmd::FindNext),
+            "Linux: ⇧ held"
+        );
+        assert_eq!(for_key(Key::Plus, Some(true), false), Some(Cmd::Bigger));
+        assert_eq!(for_key(Key::Equals, Some(false), false), Some(Cmd::Bigger));
+        assert_eq!(
+            for_key(Key::CloseBracket, Some(true), false),
+            Some(Cmd::NextTab)
+        );
+        assert_eq!(for_key(Key::CloseBracket, None, false), Some(Cmd::NextTab));
+        assert_eq!(for_key(Key::CloseBracket, Some(false), false), None);
+        assert_eq!(for_key(Key::Num3, Some(false), false), Some(Cmd::Tab(3)));
+        assert_eq!(
+            for_key(Key::C, Some(false), false),
+            None,
+            "Copy is the system's"
+        );
+        assert_eq!(for_key(Key::Q, Some(false), false), None);
+        assert_eq!(for_key(Key::W, Some(false), false), Some(Cmd::ClosePane));
+        assert_eq!(for_key(Key::W, Some(false), true), Some(Cmd::CloseTab));
+        assert_eq!(for_key(Key::ArrowUp, Some(false), false), Some(Cmd::Browse));
+        assert_eq!(for_key(Key::ArrowUp, Some(false), true), Some(Cmd::PaneUp));
+        assert_eq!(for_key(Key::D, Some(true), false), Some(Cmd::SplitDown));
+        assert_eq!(
+            for_key(Key::OpenBracket, Some(false), false),
+            Some(Cmd::PreviousPane)
+        );
     }
 
     #[test]
@@ -168,7 +259,7 @@ mod tests {
             assert_eq!(by_id(&id(a.cmd)), Some(a.cmd));
             for b in &TABLE[i + 1..] {
                 assert!(
-                    !(a.key == b.key && a.shift == b.shift),
+                    !(a.key == b.key && a.shift == b.shift && a.alt == b.alt),
                     "{:?} and {:?} share a shortcut",
                     a.cmd,
                     b.cmd

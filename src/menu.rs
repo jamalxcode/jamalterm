@@ -11,6 +11,9 @@ use std::sync::mpsc;
 pub struct MacMenu {
     _bar: muda::Menu,
     rx: mpsc::Receiver<Cmd>,
+    /// ⌘W, titled "Close Pane" while the tab is split.
+    close: Option<MenuItem>,
+    split: std::cell::Cell<bool>,
 }
 
 fn code(key: egui::Key) -> Option<Code> {
@@ -23,7 +26,11 @@ fn code(key: egui::Key) -> Option<Code> {
         K::F => Code::KeyF,
         K::G => Code::KeyG,
         K::K => Code::KeyK,
+        K::D => Code::KeyD,
         K::ArrowUp => Code::ArrowUp,
+        K::ArrowDown => Code::ArrowDown,
+        K::ArrowLeft => Code::ArrowLeft,
+        K::ArrowRight => Code::ArrowRight,
         K::Equals => Code::Equal,
         K::Minus => Code::Minus,
         K::Num0 => Code::Digit0,
@@ -38,11 +45,13 @@ fn items(menu: Menu) -> Vec<MenuItem> {
         .iter()
         .filter(|e| e.menu == Some(menu))
         .map(|e| {
-            let mods = if e.shift {
-                Modifiers::META | Modifiers::SHIFT
-            } else {
-                Modifiers::META
-            };
+            let mut mods = Modifiers::META;
+            if e.shift {
+                mods |= Modifiers::SHIFT;
+            }
+            if e.alt {
+                mods |= Modifiers::ALT;
+            }
             let accel = code(e.key).map(|c| Accelerator::new(mods, c));
             MenuItem::with_id(commands::id(e.cmd), e.title, true, accel)
         })
@@ -90,6 +99,10 @@ impl MacMenu {
         .ok()?;
 
         let shell = items(Menu::Shell);
+        let close = shell
+            .iter()
+            .find(|i| i.id().as_ref() == commands::id(Cmd::ClosePane))
+            .cloned();
         let shell = Submenu::with_items("Shell", true, &refs(&shell)).ok()?;
 
         // Edit: Copy, Paste | Find… Find Next, Find Previous | Browse, Clear.
@@ -130,7 +143,21 @@ impl MacMenu {
         let bar = muda::Menu::with_items(&[&app, &shell, &edit, &view, &window]).ok()?;
         bar.init_for_nsapp();
         window.set_as_windows_menu_for_nsapp();
-        Some(MacMenu { _bar: bar, rx })
+        Some(MacMenu {
+            _bar: bar,
+            rx,
+            close,
+            split: std::cell::Cell::new(false),
+        })
+    }
+
+    /// Menu items say what they'll do: ⌘W is "Close Pane" in a split tab.
+    pub fn set_split(&self, split: bool) {
+        if self.split.replace(split) != split
+            && let Some(c) = &self.close
+        {
+            c.set_text(if split { "Close Pane" } else { "Close Tab" });
+        }
     }
 
     /// Commands chosen since the last frame.

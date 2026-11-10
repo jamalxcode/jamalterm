@@ -60,6 +60,7 @@ fn cmd_mods() -> egui::Modifiers {
 
 fn blocks(tabs: &[Tab], active: usize) -> Vec<crate::session::Block> {
     tabs[active]
+        .pane()
         .session
         .screen
         .lock()
@@ -75,6 +76,7 @@ const STEPS: &[Step] = &[
         act: |_, _, _, _| {},
         done: |_, tabs, a| {
             tabs[a]
+                .pane()
                 .session
                 .screen
                 .lock()
@@ -97,7 +99,7 @@ const STEPS: &[Step] = &[
     },
     Step {
         name: "a command and its ✓",
-        act: |_, _, tabs, a| tabs[a].session.write(b"echo smoke-ok\r"),
+        act: |_, _, tabs, a| tabs[a].pane().session.write(b"echo smoke-ok\r"),
         done: |_, tabs, a| {
             blocks(tabs, a)
                 .iter()
@@ -108,7 +110,7 @@ const STEPS: &[Step] = &[
     },
     Step {
         name: "a failed command and its ✕",
-        act: |_, _, tabs, a| tabs[a].session.write(b"false\r"),
+        act: |_, _, tabs, a| tabs[a].pane().session.write(b"false\r"),
         done: |_, tabs, a| {
             blocks(tabs, a)
                 .iter()
@@ -121,8 +123,8 @@ const STEPS: &[Step] = &[
         name: "↑ at an empty prompt starts browse mode",
         act: |s, _, _, _| s.press(egui::Key::ArrowUp, egui::Modifiers::NONE),
         done: |_, tabs, a| {
-            let row = tabs[a].browse.as_ref()?.row;
-            let line = tabs[a].session.screen.lock().unwrap().line_text(row);
+            let row = tabs[a].pane().browse.as_ref()?.row;
+            let line = tabs[a].pane().session.screen.lock().unwrap().line_text(row);
             Some((line.ends_with("false"), format!("cursor on {line:?}")))
         },
         limit: Duration::from_secs(5),
@@ -141,7 +143,7 @@ const STEPS: &[Step] = &[
                 .iter()
                 .filter(|b| b.command == "false")
                 .count();
-            (runs >= 2).then(|| (tabs[a].browse.is_none(), format!("ran {runs} times")))
+            (runs >= 2).then(|| (tabs[a].pane().browse.is_none(), format!("ran {runs} times")))
         },
         limit: Duration::from_secs(10),
     },
@@ -178,6 +180,54 @@ const STEPS: &[Step] = &[
         act: |s, _, _, _| s.press(egui::Key::Escape, egui::Modifiers::NONE),
         done: |s, _, _| s.find_status.is_none().then(|| (true, String::new())),
         limit: Duration::from_secs(2),
+    },
+    Step {
+        name: "⌘D splits the pane",
+        act: |s, _, _, _| s.press(egui::Key::D, cmd_mods()),
+        done: |_, tabs, a| {
+            let t = &tabs[a];
+            let n = t.tree().count();
+            let ready = t.pane().session.screen.lock().unwrap().prompt_seen;
+            (n == 2 && ready && t.focus == t.panes()[1].id)
+                .then(|| (true, "2 panes, the new one focused".into()))
+        },
+        limit: Duration::from_secs(15),
+    },
+    Step {
+        name: "typing goes to the focused pane",
+        act: |s, _, _, _| {
+            s.keys.push(egui::Event::Text("echo pane-two".into()));
+            s.press(egui::Key::Enter, egui::Modifiers::NONE);
+        },
+        done: |_, tabs, a| {
+            let has = |i: usize| {
+                tabs[a].panes()[i]
+                    .session
+                    .screen
+                    .lock()
+                    .unwrap()
+                    .commands
+                    .blocks
+                    .iter()
+                    .any(|b| b.command == "echo pane-two" && b.exit == Some(0))
+            };
+            has(1).then(|| (!has(0), "only in the new pane".into()))
+        },
+        limit: Duration::from_secs(10),
+    },
+    Step {
+        name: "(screenshot: split panes)",
+        act: |s, ctx, _, _| s.shot(ctx, "split"),
+        done: |_, _, _| None,
+        limit: Duration::from_millis(800),
+    },
+    Step {
+        name: "⌘W closes the pane, not the tab",
+        act: |s, _, _, _| s.press(egui::Key::W, cmd_mods()),
+        done: |_, tabs, a| {
+            (tabs.len() == 1 && tabs[a].tree().count() == 1).then(|| (true, "1 tab, 1 pane".into()))
+        },
+        limit: Duration::from_secs(5),
     },
     Step {
         name: "⌘T opens a tab",
