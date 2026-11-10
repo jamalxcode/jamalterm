@@ -652,3 +652,19 @@ test('Settings → Updates always shows what the last check found', async () => 
   assert.equal(await page.locator('.update-status button:has-text("Install 9.9.9")').count(), 1)
   await page.context().close()
 })
+
+test('input methods: composed text (Japanese, accents) reaches the shell', async () => {
+  const page = await open()
+  await page.locator('.pane.focused .xterm-helper-textarea').focus()
+  const cdp = await page.context().newCDPSession(page)
+  await page.evaluate(() => (window.__calls.length = 0))
+  await cdp.send('Input.imeSetComposition', { text: 'にほん', selectionStart: 3, selectionEnd: 3 })
+  await cdp.send('Input.insertText', { text: '日本' })
+  await page.waitForTimeout(150)
+  assert.match(await lastWrite(page), /日本/)
+  await cdp.send('Input.insertText', { text: 'é' })
+  await page.waitForTimeout(100)
+  assert.match(await lastWrite(page), /日本é/)
+  await page.close()
+})
+

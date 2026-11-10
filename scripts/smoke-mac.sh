@@ -58,8 +58,13 @@ if boot:
     lines += ["", "Start-up (ms since the page began loading): " + " · ".join(f"{k} {v}" for k, v in boot.items())]
 # Loose limits: they catch big slowdowns, not noise.
 slow = []
-if (r.get("launchMs") or 0) > 20000: slow.append(f"launch took {r['launchMs']} ms (limit 20000)")
+if (r.get("launchMs") or 0) > 10000: slow.append(f"launch took {r['launchMs']} ms (budget 10000)")
 if (r.get("seqMs") or 0) > 15000: slow.append(f"200,000 lines took {r['seqMs']} ms (limit 15000)")
+# Memory budget, measured with one window and two panes (app + web views).
+import re
+m = re.search(r"app_mb=(\d+) web_mb=(\d+)", mem)
+if m and int(m.group(1)) > 400: slow.append(f"the app uses {m.group(1)} MB (budget 400)")
+if m and int(m.group(2)) > 900: slow.append(f"the web views use {m.group(2)} MB (budget 900)")
 for m in slow:
     lines.append(f"\n❌ Too slow: {m}")
 summary = "\n".join(lines)

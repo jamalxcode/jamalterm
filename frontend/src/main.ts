@@ -20,7 +20,7 @@ import { SmokeMode } from './backend'
 import { Group, type Dir, type SavedNode, type PaneNode } from './panes'
 import { loadProviders, providerInfo, modelOf } from './providers'
 import { el, isMac, toast, duration } from './util'
-import { LastCrash, DismissCrash, Confirm, OpenSettingsAt, SetMenuState, BusyTabs, QuitNow, CloseWindowNow, SetActiveTab, LiveTabs, RemoteSetupLine, Write } from './backend'
+import { OpenURL, LastCrash, DismissCrash, Confirm, OpenSettingsAt, SetMenuState, BusyTabs, QuitNow, CloseWindowNow, SetActiveTab, LiveTabs, RemoteSetupLine, Write } from './backend'
 import type { Settings as Prefs } from './types'
 
 let cfg: Prefs
@@ -273,7 +273,12 @@ function activate(tab: Tab) {
   if (active && active !== tab) active.exitBrowse()
   active = tab
   const g = groupOf(tab)
-  for (const x of groups) x.setActive(x === g)
+  for (const x of groups) {
+    x.setActive(x === g)
+    // GPU drawing only for the panes you can see (browsers allow few
+    // WebGL contexts, and hidden ones only use memory).
+    for (const p of x.tabs()) p.setVisible(x === g)
+  }
   g?.setFocused(tab)
   void SetActiveTab(tab.id)
   requestAnimationFrame(() => {
@@ -521,6 +526,12 @@ function runMenu(cmd: string) {
       if (!sel || !aiReady()) return sel ? undefined : toast('Select some text first')
       void ai.show().then(() => ai.send(`Explain this:\n\n${sel.slice(0, 4000)}`))
       return
+    }
+    case 'lookUp':
+    case 'searchWeb': {
+      const sel = t?.term.getSelection().trim().slice(0, 300)
+      if (!sel) return toast('Select some text first')
+      return void OpenURL(cmd === 'lookUp' ? `dict://${encodeURIComponent(sel)}` : `https://www.google.com/search?q=${encodeURIComponent(sel)}`)
     }
     case 'findNext': return find.next()
     case 'findPrevious': return find.next(true)

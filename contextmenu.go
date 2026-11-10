@@ -17,6 +17,9 @@ func (a *App) registerContextMenu() {
 	}
 	item("Select All", "selectAll")
 	m.AddSeparator()
+	item("Look Up in Dictionary", "lookUp")
+	item("Search with Google", "searchWeb")
+	m.AddSeparator()
 	item("Ask AI About the Selection", "aiAskSelection")
 	item("Find Selection", "findSelection")
 	m.AddSeparator()

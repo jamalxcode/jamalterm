@@ -354,9 +354,19 @@ export class Tab {
 
   private webgl: WebglAddon | null = null
 
+  private visible = true
+
+  /** Shown or hidden with its tab: only visible panes use the GPU. */
+  setVisible(on: boolean) {
+    if (this.visible === on) return
+    this.visible = on
+    this.setRenderer(this.hooks.settings().ligatures)
+    if (on) this.redrawGlyphs()
+  }
+
   private setRenderer(ligatures: boolean) {
     this.pane.classList.toggle('ligatures', ligatures)
-    const wantGpu = !gpuOff && !ligatures
+    const wantGpu = !gpuOff && !ligatures && this.visible
     if (wantGpu && !this.webgl) {
       try {
         const webgl = new WebglAddon()
