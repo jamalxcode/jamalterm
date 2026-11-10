@@ -313,6 +313,12 @@ export class Tab {
     this.pane.remove()
   }
 
+  /** Lets the tab go to another window: its shell keeps running there. */
+  detach() {
+    this.term.dispose()
+    this.pane.remove()
+  }
+
   refit() {
     if (!this.pane.isConnected || this.pane.offsetParent === null) return
     try {

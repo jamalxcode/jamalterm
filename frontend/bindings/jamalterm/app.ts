@@ -66,6 +66,13 @@ export function Ack(id: number, n: number): $CancellablePromise<void> {
 }
 
 /**
+ * Adopted returns the tab this (new) window was opened to take, once.
+ */
+export function Adopted(): $CancellablePromise<string> {
+    return $Call.ByID(1391795536);
+}
+
+/**
  * AnthropicAccount reports the `ant auth login` sign-in, if any.
  */
 export function AnthropicAccount(): $CancellablePromise<ai$0.Account> {
@@ -319,11 +326,28 @@ export function LogProblem(area: string, message: string): $CancellablePromise<v
 }
 
 /**
+ * MergeAllWindows moves every other window's tabs into the window in front,
+ * like Terminal's Window → Merge All Windows.
+ */
+export function MergeAllWindows(): $CancellablePromise<void> {
+    return $Call.ByID(1629463807);
+}
+
+/**
  * MoveKeysFromKeychain moves those keys into jamalterm's own encrypted
  * file and deletes the Keychain item. macOS asks one last time.
  */
 export function MoveKeysFromKeychain(): $CancellablePromise<number> {
     return $Call.ByID(319770844);
+}
+
+/**
+ * MoveTab hands a tab (layout JSON, its shells keep running) to another
+ * window: target is a window name, or "" for a new window. The calling
+ * window removes the tab itself (without ending its shells).
+ */
+export function MoveTab(layout: string, target: string): $CancellablePromise<void> {
+    return $Call.ByID(3862303387, layout, target);
 }
 
 /**
@@ -606,6 +630,15 @@ export function StartDir(): $CancellablePromise<string> {
 }
 
 /**
+ * TakeTab moves a tab that was dragged here from another window: the tab's
+ * shells now belong to the calling window, and the window it came from is
+ * told to let it go.
+ */
+export function TakeTab(layout: string, $from: string): $CancellablePromise<void> {
+    return $Call.ByID(971122573, layout, $from);
+}
+
+/**
  * ToTerminal sends a menu command to the terminal window last used (for
  * Settings' "Sign in", "Check now", …).
  */
@@ -657,6 +690,14 @@ export function WindowCount(): $CancellablePromise<number> {
  */
 export function WindowID(): $CancellablePromise<number> {
     return $Call.ByID(1316176016);
+}
+
+/**
+ * WindowName names the calling window (tabs dragged between windows say
+ * where they came from).
+ */
+export function WindowName(): $CancellablePromise<string> {
+    return $Call.ByID(350894710);
 }
 
 /**

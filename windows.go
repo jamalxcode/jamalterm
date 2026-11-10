@@ -114,6 +114,14 @@ func (a *App) openWindow(startDir, restore string, cascade int) application.Wind
 	if restore != "" {
 		a.restoreFor[name] = restore
 	}
+	if a.nextAdopt != "" {
+		// A tab moving here: its shells belong to this window from now on.
+		a.adoptFor[name] = a.nextAdopt
+		for _, id := range tabIDs(a.nextAdopt) {
+			a.owner[id] = name
+		}
+		a.nextAdopt = ""
+	}
 	a.mu.Unlock()
 
 	cfg := a.Settings()
@@ -201,6 +209,8 @@ func (a *App) windowClosing(name string) {
 	a.saved.Drop(name)
 	delete(a.startDirs, name)
 	delete(a.restoreFor, name)
+	delete(a.adoptFor, name)
+	delete(a.winTabs, name)
 	a.mu.Unlock()
 	for _, id := range ids {
 		a.CloseTab(id)

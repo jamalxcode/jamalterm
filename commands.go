@@ -97,6 +97,8 @@ var commands = func() []Command {
 		{ID: "paneUp", Title: "Select Pane Above", Menu: "Window", Keys: "Cmd+Option+Up", Palette: true},
 		{ID: "paneDown", Title: "Select Pane Below", Menu: "Window", Keys: "Cmd+Option+Down", Palette: true},
 		{ID: "broadcast", Title: "Broadcast Typing to All Panes", Menu: "Window", Keys: "Cmd+Option+I", Palette: true, Kind: "toggle"},
+		{ID: "moveTabToNewWindow", Title: "Move Tab to New Window", Menu: "Window", Palette: true, Sep: true},
+		{ID: "mergeAllWindows", Title: "Merge All Windows", Menu: "Window", Palette: true},
 	}
 	for i := 1; i <= 9; i++ {
 		n := fmt.Sprint(i)

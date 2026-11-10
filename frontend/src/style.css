@@ -977,3 +977,11 @@ label.check.disabled { opacity: 0.45; }
 /* "Match my wallpaper" and "Theme of the week" swatches: a dashed edge says
    they change by themselves. */
 .swatch.special { outline: 1px dashed color-mix(in srgb, var(--fg) 40%, transparent); outline-offset: -4px; }
+
+/* Dragging tabs: where it will land, and the tab being dragged. */
+.tab.dragging { opacity: 0.45; }
+.tab.drop-before::before, .tab.drop-after::after {
+  content: ""; position: absolute; top: 3px; bottom: 3px; width: 3px; border-radius: 2px; background: var(--accent);
+}
+.tab.drop-before::before { left: -4px; }
+.tab.drop-after::after { right: -4px; }

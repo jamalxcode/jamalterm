@@ -82,11 +82,14 @@ type App struct {
 	// Windows (windows.go): which window owns each tab and AI question,
 	// each window's saved tabs, and what new windows start with.
 	nextWin    int
-	owner      map[int]string     // tab id → window name
-	aiOwner    map[string]string  // AI request id → window name
-	saved      *winstate.Sessions // each window's saved tabs
-	restoreFor map[string]string  // window name → tabs to reopen
-	startDirs  map[string]string  // window name → first tab's folder
+	owner      map[int]string      // tab id → window name
+	aiOwner    map[string]string   // AI request id → window name
+	saved      *winstate.Sessions  // each window's saved tabs
+	restoreFor map[string]string   // window name → tabs to reopen
+	adoptFor   map[string]string   // new window name → a tab moved into it (layout JSON)
+	nextAdopt  string              // the next window opened adopts this tab
+	winTabs    map[string][]string // window name → its tabs' names (menu bar icon, Dock menu)
+	startDirs  map[string]string   // window name → first tab's folder
 	quitting   bool
 
 	// Safety (safety.go).
@@ -123,6 +126,8 @@ func NewApp() *App {
 		aiOwner:       map[string]string{},
 		saved:         winstate.New(),
 		restoreFor:    map[string]string{},
+		adoptFor:      map[string]string{},
+		winTabs:       map[string][]string{},
 		startDirs:     map[string]string{},
 		closeOK:       map[string]bool{},
 		accepted:      map[int]bool{},
@@ -257,7 +262,8 @@ func (a *App) Start(ctx context.Context, id, cols, rows int, cwd string) error {
 	// acknowledgements (Ack), so heavy output can't freeze the app.
 	pump := shell.NewPump(func(b []byte) {
 		// Base64 keeps multi-byte characters split across batches intact.
-		a.emitTo(win, eventData, ptyData{ID: id, Data: base64.StdEncoding.EncodeToString(b)})
+		// To the window the tab is in now (tabs can move between windows).
+		a.emitTo(a.tabWindow(id, win), eventData, ptyData{ID: id, Data: base64.StdEncoding.EncodeToString(b)})
 	})
 	s, err := shell.Start(shell.Options{
 		Shell:       cfg.Shell,
@@ -273,7 +279,7 @@ func (a *App) Start(ctx context.Context, id, cols, rows int, cwd string) error {
 			if errors.As(err, &ee) {
 				code = ee.ExitCode()
 			}
-			a.emitTo(win, eventExit, ptyExit{ID: id, Code: code})
+			a.emitTo(a.tabWindow(id, win), eventExit, ptyExit{ID: id, Code: code})
 		},
 	})
 	if err != nil {
