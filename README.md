@@ -1,8 +1,10 @@
+<p align="center"><img src="docs/icon-256.png" width="128" alt="jamalterm icon"></p>
+
 # jamalterm
 
-A terminal for macOS with a **free-floating cursor** and **Claude built in**. Move up through everything you've run with the arrow keys or the mouse, press Enter, and the command runs again. Ask Claude why something failed, or describe a command in plain English.
+A terminal for macOS with a **free-floating cursor** and **AI built in**. Move up through everything you've run with the arrow keys or the mouse, press Enter, and the command runs again. Ask Claude (or ChatGPT, DeepSeek, Grok, OpenRouter, or a model running on your own Mac) why something failed, or describe a command in plain English.
 
-It runs your normal shell (zsh, bash, tcsh, fish…), so everything you already use keeps working.
+It runs your normal shell (zsh, bash, tcsh, fish…), so everything you already use keeps working, and it looks and behaves like a Mac app: the standard menus and shortcuts, a Settings window that applies changes immediately, native alerts and right-click menus, and light or dark to match your Mac. How and why it's built this way: **[docs/DESIGN.md](docs/DESIGN.md)**.
 
 ## Download
 
@@ -18,14 +20,14 @@ Or try to open it, then click **Open Anyway** in System Settings → Privacy & S
 
 ### Updating
 
-You only install by hand once. After that, jamalterm checks GitHub at launch and every 6 hours and offers new versions. Before installing one it checks:
+You only install by hand once (after that, open **jamalterm** from Applications or Spotlight). After that, jamalterm checks GitHub at launch and every 6 hours and offers new versions. Before installing one it checks:
 
 - the SHA-256 checksum, the code signature and the bundle id;
 - since 3.1, a **build proof**: a Sigstore attestation that GitHub's own build service made exactly that file from this repository's workflow. A release without one isn't installed.
 
 Your tabs come back after the update, and **jamalterm → Go Back to Previous Version** undoes it. Settings → Updates has a **Beta** channel if you'd like test versions first.
 
-**Optional, once:** to stop macOS asking about the Keychain after every update, run `scripts/make-signing-cert.sh` on your Mac (it needs the GitHub CLI). It makes a free self-signed certificate and saves it as a GitHub secret, so every release is signed the same way. With a paid Apple Developer ID (add `MAC_SIGNING_P12` and the `APPLE_*` secrets), releases are also notarized and the `xattr` step goes away.
+**Optional, once:** to sign every release with the same certificate, run `scripts/make-signing-cert.sh` on your Mac (it needs the GitHub CLI). It makes a free self-signed certificate and saves it as a GitHub secret, so every release is signed the same way. With a paid Apple Developer ID (add `MAC_SIGNING_P12` and the `APPLE_*` secrets), releases are also notarized and the `xattr` step goes away.
 
 ## Using it
 
@@ -46,7 +48,7 @@ Each command gets a dot in the margin: green for success, red for failure, and p
 
 ### AI assistant: Claude, ChatGPT, DeepSeek, Grok or OpenRouter
 
-Pick the assistant in **Settings → AI assistant**, or switch on the fly from the **AI** menu (⌥⌘1 Claude, ⌥⌘2 ChatGPT, ⌥⌘3 DeepSeek, ⌥⌘4 Grok, ⌥⌘5 OpenRouter) or the name at the top of the AI panel. Claude can use **Sign in with Anthropic** or an API key, and OpenRouter can use **Sign in with OpenRouter** (your browser approves and jamalterm saves the key) or an API key. ChatGPT, DeepSeek and Grok use an API key from [platform.openai.com](https://platform.openai.com/api-keys), [platform.deepseek.com](https://platform.deepseek.com/api_keys) or [console.x.ai](https://console.x.ai), stored in your Keychain. The model is chosen automatically (the newest general model your key can use), or you can pick one with **Show available models**. Usage is billed to that provider's API account; a ChatGPT Plus subscription doesn't cover API use.
+Pick the assistant in **Settings (⌘,) → AI**, or switch on the fly from the **AI** menu (⌥⌘1 Claude, ⌥⌘2 ChatGPT, ⌥⌘3 DeepSeek, ⌥⌘4 Grok, ⌥⌘5 OpenRouter) or the name at the top of the AI panel. Claude can use **Sign in with Anthropic** or an API key, and OpenRouter can use **Sign in with OpenRouter** (your browser approves and jamalterm saves the key) or an API key. ChatGPT, DeepSeek and Grok use an API key from [platform.openai.com](https://platform.openai.com/api-keys), [platform.deepseek.com](https://platform.deepseek.com/api_keys) or [console.x.ai](https://console.x.ai). **Local** uses Ollama or LM Studio on your Mac, with no key. The model is chosen automatically (the newest general model your key can use), or you can pick one with **Show available models**. Usage is billed to that provider's API account; a ChatGPT Plus subscription doesn't cover API use.
 
 
 | Key | What it does |
@@ -55,7 +57,9 @@ Pick the assistant in **Settings → AI assistant**, or switch on the fly from t
 | **⌘J** | Command bar: type "find big files in Downloads", get the command, press ⏎ to put it on the prompt (⌘⏎ runs it). |
 | ⇧⌘E | Explain the last error |
 
-To connect Claude, click **Sign in with Anthropic** in Settings (⌘,) or the AI panel. A tab opens, installs Anthropic's `ant` command-line tool with Homebrew if you don't have it, and signs you in with your browser (`ant auth login`). There's no key to copy, and the sign-in refreshes itself. Usage is billed to the Anthropic Console account you sign in with. You can also paste an API key from [console.anthropic.com](https://console.anthropic.com) instead. It's stored in your macOS Keychain, and a saved key takes priority over the sign-in. The default model is Claude Opus 5.5; Sonnet and Haiku are faster and cheaper options. You can turn off sending command output, or turn AI off completely.
+To connect Claude, click **Sign in with Anthropic** in Settings (⌘,) or the AI panel. A tab opens, installs Anthropic's `ant` command-line tool with Homebrew if you don't have it, and signs you in with your browser (`ant auth login`). There's no key to copy, and the sign-in refreshes itself. Usage is billed to the Anthropic Console account you sign in with. You can also paste an API key from [console.anthropic.com](https://console.anthropic.com) instead, and a saved key takes priority over the sign-in.
+
+**Where keys are kept.** API keys are stored in an encrypted file on your Mac (AES-256), readable only by your user account and tied to this computer: a copy of the file can't be opened elsewhere. jamalterm doesn't use the Keychain, so it never asks for your password. If an older version saved keys in the Keychain, Settings → AI offers to move them (macOS asks one last time), or you can simply enter them again. The default model is Claude Opus 5.5; Sonnet and Haiku are faster and cheaper options. You can turn off sending command output, or turn AI off completely.
 
 ### Everything else
 
@@ -90,10 +94,11 @@ To connect Claude, click **Sign in with Anthropic** in Settings (⌘,) or the AI
 │ frontend/src/   xterm.js terminal, tabs, browse mode,     │
 │                 AI panel, command bar, settings           │
 ├────────────────── events / bound methods ─────────────────┤
-│ app.go, menu.go     tabs, menu bar, settings, AI bridge   │
+│ app.go, windows.go  windows, sessions, AI bridge          │
+│ commands.go         menu bar, palette and ⌘ keys (1 list)│
 │ internal/shell      PTY + your shell + shell integration  │
-│ internal/ai         Claude via the official Go SDK        │
-│ internal/settings   settings.json + Keychain              │
+│ internal/ai         Claude + OpenAI-compatible providers  │
+│ internal/settings   settings.json + encrypted API keys    │
 └───────────────────────────────────────────────────────────┘
 ```
 
@@ -115,7 +120,7 @@ make test
 
 On Linux (for development), install GTK 3 and WebKitGTK 4.1 (`libgtk-3-dev libwebkit2gtk-4.1-dev`) and run `make linux`; shortcuts use Ctrl+Shift instead of ⌘. After changing the Go methods the window calls, regenerate `frontend/bindings` with `make bindings` (needs `go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0`).
 
-The Go tests start real zsh, bash, tcsh, fish and sh sessions and check the integration marks, exit codes and folders. The AI tests use fake streaming servers, and the Keychain tests run on the macOS build machine. The UI tests run the real interface in Chromium with a fake Go side:
+The Go tests start real zsh, bash, tcsh, fish and sh sessions and check the integration marks, exit codes and folders. The AI tests use fake streaming servers, and the key tests check the encrypted file (including that a copy can't be read on another computer). The UI tests run the real interface in Chromium with a fake Go side:
 
 ```bash
 cd frontend && npm run build && npm run test:ui
@@ -128,3 +133,7 @@ Debug switches: `JAMALTERM_NO_GPU=1` draws without WebGL; `JAMALTERM_ANTHROPIC_B
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Contributing notes
+
+[CLAUDE.md](CLAUDE.md) has the conventions (build, tests, the one command table, releases); [docs/DESIGN.md](docs/DESIGN.md) has the design decisions.

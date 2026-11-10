@@ -1,5 +1,28 @@
 # Changelog
 
+## 3.2.0
+
+**A proper Mac app** (Apple's Human Interface Guidelines, Terminal.app as the model)
+- The standard menu bar: native About, Services, Hide Others / Show All; Shell menu like Terminal's (⌘W close tab or pane, ⇧⌘W close window); Edit has Find Next ⌘G, Find Previous ⇧⌘G and Use Selection for Find ⌘E; the Window menu lists your windows; Help has the search field
+- Menu items say what they'll do: "Close Pane" or "Close Tab", "Show Tab Bar" or "Hide Tab Bar"
+- **Settings is its own window** (⌘,) with a toolbar of panes, and changes apply immediately: no Save button
+- Confirmations are native macOS alerts, worded like Terminal's, with Cancel as the default
+- Right-click in the terminal for Copy, Paste, Select All, Ask AI About the Selection, Split Pane and Clear Scrollback
+- The window frame follows macOS: light or dark, and your accent color (the terminal keeps its theme; Settings → Appearance → Window frame to change it)
+- With one tab, the title bar shows "~/folder — zsh" and the tab bar appears with the second tab, like Terminal (View → Show Tab Bar keeps it)
+- Windows reopen at their size and position
+- Respects Reduce Motion, Reduce Transparency and Increase Contrast; keyboard focus is always visible
+
+**AI panel**
+- A lighter, raised card, so it never looks like part of the terminal
+
+**API keys: no more Keychain**
+- Keys are kept in an encrypted file on your Mac (AES-256), readable only by you and useless if copied to another computer
+- jamalterm never asks for your password anymore. Keys an older version saved in the Keychain: Settings → AI → *Move Keys from Keychain…* (macOS asks one last time), or enter them again
+
+**New icon**
+
+
 ## 3.1.0
 
 **Nothing lost by accident**
