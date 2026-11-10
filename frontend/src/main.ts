@@ -20,7 +20,7 @@ import { runSmoke } from './smoke'
 import { SmokeMode } from './backend'
 import { Group, type Dir, type SavedNode, type PaneNode } from './panes'
 import { loadProviders, providerInfo, modelOf } from './providers'
-import { el, isMac, toast, duration } from './util'
+import { el, isMac, toast, duration, quotePath, stored, store } from './util'
 import { OpenURL, Confirm, OpenSettingsAt, SetMenuState, BusyTabs, QuitNow, CloseWindowNow, SetActiveTab, LiveTabs, RemoteSetupLine, Write } from './backend'
 import type { Settings as Prefs } from './types'
 
@@ -37,6 +37,7 @@ let nextId = 1
 
 const tabsEl = document.getElementById('tabs')!
 const termsEl = document.getElementById('terminals')!
+termsEl.setAttribute('data-file-drop-target', '') // files dropped here are typed as paths
 const hintEl = document.getElementById('hint')!
 const findEl = document.getElementById('find')!
 document.body.classList.toggle('mac', isMac)
@@ -50,6 +51,7 @@ const hooks = {
       sshTipShown.add(t)
       toast('Browse mode on that server: Shell → Enable Browse Mode on This Server (once you\'re logged in)')
     }
+    rememberFolder(t.cwd)
     renderTabs()
     if (t === active) updateChrome()
     else syncMenu() // the Window menu names every tab
@@ -397,6 +399,7 @@ function renderTabs() {
   groups.forEach((g, i) => {
     const t = g.focused
     const status = t.status
+    let item_proj = ''
     // Folder first; while something runs, its name leads.
     const label = el('span', { class: 'label' })
     const run = t.runningName
@@ -408,6 +411,9 @@ function renderTabs() {
     if (g.count > 1) label.append(el('span', { class: 'panes', title: `Split into ${g.count} panes (⌘] next pane)`, text: ` · ${g.count} panes` }))
     if (g.broadcast) label.append(el('span', { class: 'broadcast', title: 'Typing goes to every pane in this tab (⌥⌘I)', text: ' 📣' }))
     const hc = hostColor(t)
+    if (!hc && cfg.projectColors && t.repo) {
+      item_proj = projectColor(t.repo)
+    }
     if (hc) {
       // The machine's name, always as text; the color is extra.
       const chip = el('span', { class: 'host', title: `Connected to ${hc.host}`, text: `@${hc.host}` })
@@ -431,7 +437,8 @@ function renderTabs() {
     const icon = status === 'idle' ? null
       : el('i', { class: `state ${status}`, title: STATUS_TEXT[status], 'aria-label': STATUS_TEXT[status] }, status === 'failed' ? '!' : '')
     const num = el('span', { class: 'num', text: String(i + 1) })
-    const item = el('div', { class: `tab ${g.has(active!) ? 'active' : ''} ${status}`, title: tip }, ...(i < 9 ? [num] : []), ...(icon ? [icon] : []), label, close)
+    const item = el('div', { class: `tab ${g.has(active!) ? 'active' : ''} ${status}${item_proj ? ' proj' : ''}`, title: tip }, ...(i < 9 ? [num] : []), ...(icon ? [icon] : []), label, close)
+    if (item_proj) item.style.setProperty('--proj', `var(--${item_proj})`)
     item.addEventListener('mousedown', (e) => {
       if (e.button === 1) closeGroup(g)
       else if (e.target !== close) activate(g.focused)
@@ -455,6 +462,37 @@ async function closeWindow() {
 }
 
 /** Tells the menu bar what its items would do here. */
+// ---- Recent folders (⇧⌘O) and project colors ---------------------------------
+
+/** Folders you've worked in, newest first (shared by all windows). */
+function recentFolders(): string[] {
+  try { return JSON.parse(stored('jt-folders') ?? '[]') } catch { return [] }
+}
+function rememberFolder(dir: string) {
+  if (!dir || dir === '/') return
+  const list = recentFolders()
+  if (list[0] === dir) return
+  store('jt-folders', JSON.stringify([dir, ...list.filter((d) => d !== dir)].slice(0, 30)))
+}
+function openRecentFolder() {
+  const pretty = (d: string) => (d === home ? '~' : home && d.startsWith(home + '/') ? '~' + d.slice(home.length) : d)
+  const items = recentFolders().map((d) => ({
+    title: d === home ? 'Home' : d.split('/').filter(Boolean).pop() ?? d,
+    group: 'Folder', detail: pretty(d), run: () => newTab(d),
+  }))
+  if (!items.length) return toast('No folders yet: cd somewhere first')
+  palette.openList(items, 'Open a folder in a new tab…')
+}
+
+/** Each git repository gets its own tab color (the folder name is always
+ * shown too). Red is left for failures. */
+const PROJECT_COLORS = ['blue', 'green', 'yellow', 'magenta', 'cyan']
+export function projectColor(repo: string): string {
+  let h = 0
+  for (const ch of repo) h = (h * 31 + ch.charCodeAt(0)) >>> 0
+  return PROJECT_COLORS[h % PROJECT_COLORS.length]
+}
+
 /** A name people can read, for the window title and the Window menu:
  * "Home — zsh", "jamalterm — vim". Never just symbols like "~ — ~". */
 function tabName(t: Tab | undefined): string {
@@ -572,6 +610,7 @@ function runMenu(cmd: string) {
     case 'revertUpdate': return void updater.offerRevert()
     case 'settings': return void OpenSettingsAt('', '')
     case 'newTab': return void newTab()
+    case 'recentFolders': return openRecentFolder()
     case 'newWindow': return void NewWindow(active?.cwd ?? '')
     case 'closeTab': return closeTab()
     case 'nextTab': return cycle(1)
@@ -669,6 +708,12 @@ EventsOn('secure:input', (on: boolean) => {
 })
 
 EventsOn('settings:changed', (s: Prefs) => applySettings(s))
+// Files dropped on the window: their paths go on the prompt, quoted.
+EventsOn('files:dropped', (files: string[]) => {
+  if (!active || !files?.length) return
+  active.input(files.map(quotePath).join(' ') + ' ')
+  active.term.focus()
+})
 // Hovering a theme in Settings shows it here for a moment; "" = back to yours.
 EventsOn('theme:preview', (id: string) => {
   if (!cfg) return

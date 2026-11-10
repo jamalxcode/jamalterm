@@ -24,15 +24,16 @@ import (
 
 // Events sent to the frontend.
 const (
-	eventData     = "pty:data"         // {id, data(base64)}
-	eventExit     = "pty:exit"         // {id, code}
-	eventMenu     = "menu"             // menu command name
-	eventSettings = "settings:changed" // Settings
-	eventAIDelta  = "ai:delta"         // {id, text}
-	eventAIDone   = "ai:done"          // {id, text}
-	eventAIError  = "ai:error"         // {id, error}
-	eventProgress = "update:progress"  // {done, total}
-	eventAITool   = "ai:tool"          // {id, toolId, command, run}
+	eventData         = "pty:data"         // {id, data(base64)}
+	eventExit         = "pty:exit"         // {id, code}
+	eventMenu         = "menu"             // menu command name
+	eventSettings     = "settings:changed" // Settings
+	eventFilesDropped = "files:dropped"    // paths dropped on a window
+	eventAIDelta      = "ai:delta"         // {id, text}
+	eventAIDone       = "ai:done"          // {id, text}
+	eventAIError      = "ai:error"         // {id, error}
+	eventProgress     = "update:progress"  // {done, total}
+	eventAITool       = "ai:tool"          // {id, toolId, command, run}
 )
 
 type ptyData struct {
@@ -675,4 +676,14 @@ const eventThemePreview = "theme:preview"
 // PreviewTheme shows a theme in every terminal window without saving it.
 func (a *App) PreviewTheme(id string) {
 	a.emitTo(nil, eventThemePreview, id)
+}
+
+// GitRepo names the git repository dir is in ("" outside one), for project
+// tab colors.
+func (a *App) GitRepo(dir string) string {
+	root := shell.GitRoot(dir)
+	if root == "" {
+		return ""
+	}
+	return filepath.Base(root)
 }

@@ -12,7 +12,7 @@
       opacity: 100, blur: true, scrollback: 10000, shell: '', shellIntegration: true, arrowBrowse: true, restoreSession: true,
       promptKeys: 'emacs', notifyLongCommands: true, notifyAfterSeconds: 10, screenReader: false, confirmRerun: false,
       optionIsMeta: true, autoUpdate: false, keepProblemLog: true, aiEnabled: true, aiProvider: 'anthropic', aiModel: 'claude-opus-5-5',
-      openaiModel: '', deepseekModel: '', xaiModel: '', openrouterModel: '', localUrl: 'http://localhost:11434/v1', localModel: '', ligatures: false, hostColors: [], windowFrame: 'system', showTabBar: true, aiShareOutput: true,
+      openaiModel: '', deepseekModel: '', xaiModel: '', openrouterModel: '', localUrl: 'http://localhost:11434/v1', localModel: '', ligatures: false, hostColors: [], windowFrame: 'system', showTabBar: true, aiShareOutput: true, projectColors: true, finishMoments: true, finishSound: false, cursorEffect: 'none',
     }, window.__settings || {}),
     session: window.__session || '',
     live: window.__live || [],
@@ -86,7 +86,7 @@
     UpdateStatus: () => state.updateStatus || { current: 'test', checkedAt: 0, latest: '', available: false, error: '', channel: 'stable' },
     CheckForUpdate: () => { state.updateStatus = { current: 'test', checkedAt: Date.now(), latest: '9.9.9', available: true, error: '', channel: 'stable' }; return { available: true, current: 'test', latest: '9.9.9', notes: '', url: '', canInstall: false, reason: 'dev build' } },
     Diagnostics: () => 'jamalterm diagnostics\nVersion:   test\nRecent problems: none\n',
-    GitBranch: () => '', ResolvePath: () => '', PreviousVersion: () => '',
+    GitBranch: () => '', GitRepo: (dir) => (state.repo && dir.includes(state.repo) ? state.repo : ''), ResolvePath: () => '', PreviousVersion: () => '',
     Start: (id, cols, rows, cwd) => { state.shells[id] = { cwd: cwd || '/home/u', line: '' }; setTimeout(() => prompt(id), 10) },
     Write: (id, data) => write(id, data),
     AIAsk: (req) => {

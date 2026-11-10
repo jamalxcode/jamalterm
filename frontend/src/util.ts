@@ -168,3 +168,9 @@ export function store(k: string, v: string) {
     /* unavailable */
   }
 }
+
+/** A path the shell reads as one word: as is when safe, else in single
+ * quotes (Terminal does the same when you drop a file). */
+export function quotePath(p: string): string {
+  return /^[\w@%+=:,./~-]+$/.test(p) ? p : `'${p.replace(/'/g, `'\\''`)}'`
+}

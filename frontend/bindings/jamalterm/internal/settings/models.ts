@@ -60,6 +60,24 @@ export interface Settings {
     "ligatures": boolean;
 
     /**
+     * ProjectColors gives each git repository's tabs their own color (the
+     * folder name is always shown too).
+     */
+    "projectColors": boolean;
+
+    /**
+     * FinishMoments shows "✓ done in 3m" when a command that took over a
+     * minute ends; FinishSound also plays a soft sound.
+     */
+    "finishMoments": boolean;
+    "finishSound": boolean;
+
+    /**
+     * CursorEffect: "none", "smooth" (glides between positions) or "glow".
+     */
+    "cursorEffect": string;
+
+    /**
      * HostColors marks tabs connected to some machines (ssh) with a color
      * and the machine's name, e.g. red for "prod-*".
      */

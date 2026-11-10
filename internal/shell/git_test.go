@@ -40,3 +40,17 @@ func TestGitBranch(t *testing.T) {
 		t.Fatalf("detached = %q", got)
 	}
 }
+
+func TestGitRoot(t *testing.T) {
+	root := t.TempDir()
+	if GitRoot(root) != "" {
+		t.Fatal("not a repo")
+	}
+	repo := filepath.Join(root, "myapp")
+	sub := filepath.Join(repo, "src", "x")
+	os.MkdirAll(sub, 0o755)
+	os.Mkdir(filepath.Join(repo, ".git"), 0o755)
+	if got := GitRoot(sub); got != repo {
+		t.Fatalf("GitRoot = %q, want %q", got, repo)
+	}
+}

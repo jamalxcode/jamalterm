@@ -203,6 +203,14 @@ export function GitBranch(dir: string): $CancellablePromise<string> {
 }
 
 /**
+ * GitRepo names the git repository dir is in ("" outside one), for project
+ * tab colors.
+ */
+export function GitRepo(dir: string): $CancellablePromise<string> {
+    return $Call.ByID(2200397275, dir);
+}
+
+/**
  * HasAPIKey reports whether AI features can be used: an API key, or a
  * sign-in with an Anthropic account.
  */
@@ -391,6 +399,14 @@ export function PreviousVersion(): $CancellablePromise<string> {
  */
 export function ProblemLogPath(): $CancellablePromise<string> {
     return $Call.ByID(2102949949);
+}
+
+/**
+ * QuickLook previews a file or folder named in the terminal (Space in
+ * browse mode), like pressing Space in Finder.
+ */
+export function QuickLook(dir: string, p: string): $CancellablePromise<void> {
+    return $Call.ByID(3230307407, dir, p);
 }
 
 /**
@@ -609,6 +625,15 @@ export function UpdateStatus(): $CancellablePromise<$models.UpdateStatus> {
  */
 export function Version(): $CancellablePromise<string> {
     return $Call.ByID(2431199839);
+}
+
+/**
+ * WallpaperColors returns colors taken from the desktop picture, darkest
+ * first then the most colorful ones, as "#rrggbb" (for the "Match my
+ * wallpaper" theme). macOS only.
+ */
+export function WallpaperColors(): $CancellablePromise<string[] | null> {
+    return $Call.ByID(4198713493);
 }
 
 /**

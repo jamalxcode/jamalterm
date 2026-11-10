@@ -48,6 +48,7 @@ var commands = func() []Command {
 
 		{ID: "newWindow", Title: "New Window", Menu: "Shell", Keys: "Cmd+N", Palette: true},
 		{ID: "newTab", Title: "New Tab", Menu: "Shell", Keys: "Cmd+T", Palette: true},
+		{ID: "recentFolders", Title: "Open Recent Folder…", Menu: "Shell", Keys: "Cmd+Shift+O", Palette: true},
 		{ID: "splitRight", Title: "Split Pane Right", Menu: "Shell", Keys: "Cmd+D", Palette: true, Sep: true},
 		{ID: "splitDown", Title: "Split Pane Down", Menu: "Shell", Keys: "Cmd+Shift+D", Palette: true},
 		// ⌘W closes the pane when the tab is split ("Close Pane"), else the tab.

@@ -9,7 +9,7 @@ import { SerializeAddon } from '@xterm/addon-serialize'
 import { ClipboardAddon, type ClipboardSelectionType } from '@xterm/addon-clipboard'
 import { ImageAddon } from '@xterm/addon-image'
 
-import { Start, Attach, Write, Resize, CloseTab, OpenURL, GitBranch, Ack, ResolvePath, OpenPath } from './backend'
+import { Start, Attach, Write, Resize, CloseTab, OpenURL, GitBranch, Ack, ResolvePath, OpenPath, QuickLook, GitRepo } from './backend'
 import { type Theme } from './themes'
 import { shellQuote, once, fontStack, termTheme, guessCommand, sshTarget } from './termtext'
 import { renderOverlay, dotLine } from './overlay'
@@ -78,6 +78,8 @@ export class Tab {
   running = false // shell process alive
   private starting = false
   exited = false
+  /** The git repository this tab is in ("" outside one), for its color. */
+  repo = ''
   cwd: string
   oscTitle = ''
   blocks: Block[] = []
@@ -498,6 +500,12 @@ export class Tab {
         this.hooks.onChange(this)
       }
     })
+    GitRepo(dir).then((r) => {
+      if (dir === this.cwd && r !== this.repo) {
+        this.repo = r
+        this.hooks.onChange(this)
+      }
+    }).catch(() => undefined)
   }
 
   /** What the tab shows: running, failed (last command), exited, or idle. */
@@ -662,6 +670,16 @@ export class Tab {
       if (line >= b.prompt.line && line <= this.blockEnd(b)) return b
     }
     return undefined
+  }
+
+  /** The word (path-like, no spaces) at a position. */
+  wordAt(line: number, col: number): string {
+    const text = this.lineText(line)
+    if (!text[col] || text[col] === ' ') return ''
+    let a = col, b = col
+    while (a > 0 && text[a - 1] !== ' ') a--
+    while (b < text.length - 1 && text[b + 1] !== ' ') b++
+    return text.slice(a, b + 1)
   }
 
   lineText(line: number): string {
@@ -903,6 +921,12 @@ export class Tab {
         if (block) this.hooks.onExplain(this, block)
         else toast('Move to a command first')
         return true
+      case ' ': {
+        // Space: Quick Look the file or folder under the cursor, as in Finder.
+        const word = this.wordAt(b.row, b.col)
+        if (word) QuickLook(this.cwd, word).catch(() => toast(`No file called “${word}” here`))
+        return true
+      }
       case 'f':
         if (block?.end && block.exitCode !== 0) (this.hooks.onFix ?? this.hooks.onExplain)(this, block)
         else toast(block ? 'That command didn’t fail' : 'Move to a command first')
@@ -976,7 +1000,7 @@ export class Tab {
     const keys = allKeys
       ? '<span class="keys">Move <kbd>↑</kbd><kbd>↓</kbd></span><span class="keys">Commands <kbd>⌥↑</kbd><kbd>⌥↓</kbd></span>' +
         '<span class="keys">Run <kbd>⏎</kbd></span><span class="keys">Edit <kbd>⇧⏎</kbd></span><span class="keys">Copy <kbd>C</kbd></span>' +
-        '<span class="keys">Copy output <kbd>O</kbd></span><span class="keys">Ask AI <kbd>A</kbd></span><span class="keys">Fix it <kbd>F</kbd></span><span class="keys">Back <kbd>esc</kbd></span>' +
+        '<span class="keys">Copy output <kbd>O</kbd></span><span class="keys">Ask AI <kbd>A</kbd></span><span class="keys">Fix it <kbd>F</kbd></span><span class="keys">Quick Look <kbd>Space</kbd></span><span class="keys">Back <kbd>esc</kbd></span>' +
         '<span class="keys">Fewer keys <kbd>?</kbd></span>'
       : '<span class="keys">Run <kbd>⏎</kbd></span><span class="keys">Edit <kbd>⇧⏎</kbd></span><span class="keys">Copy <kbd>C</kbd></span>' +
         '<span class="keys">Ask AI <kbd>A</kbd></span><span class="keys">Back <kbd>esc</kbd></span><span class="keys more">More keys <kbd>?</kbd></span>'

@@ -31,6 +31,7 @@ type Bool = { [K in keyof Settings]: Settings[K] extends boolean ? K : never }[k
 export const toggles: [Bool, string, SettingsPage][] = [
   ['cursorBlink', 'Blinking cursor', 'appearance'],
   ['ligatures', 'Font ligatures (=> != …)', 'appearance'],
+  ['projectColors', 'Color tabs by project', 'appearance'],
   ['blur', 'Blur behind see-through window', 'appearance'],
   ['shellIntegration', 'Shell integration', 'shell'],
   ['arrowBrowse', '↑ at an empty prompt browses commands', 'shell'],
@@ -80,7 +81,7 @@ export function score(query: string, text: string): number {
 }
 
 /** A small symbol per kind of item, so a long list is quick to scan. */
-const ICONS: Record<string, string> = { Action: '⌘', Tab: '▭', Theme: '◐', Setting: '⚙', AI: '✦' }
+const ICONS: Record<string, string> = { Action: '⌘', Tab: '▭', Theme: '◐', Setting: '⚙', AI: '✦', Folder: '▸' }
 
 const RECENT = 'palette.recent'
 function recent(): string[] {
@@ -98,6 +99,8 @@ export class Palette {
   /** Headings shown before item n when nothing is typed ("Recent", "Tabs"…). */
   private heads = new Map<number, string>()
   private sel = 0
+  /** A one-off list instead of everything (e.g. recent folders). */
+  private custom: PaletteItem[] | null = null
 
   constructor(private host: PaletteHost) {
     this.root.append(el('div', { class: 'palette' }, this.input, this.list))
@@ -113,7 +116,20 @@ export class Palette {
 
   open() {
     hideToast()
-    if (this.visible) return this.close()
+    if (this.visible && !this.custom) return this.close()
+    this.custom = null
+    this.input.placeholder = 'Type a command, setting, theme or tab…'
+    this.root.hidden = false
+    this.input.value = ''
+    this.filter()
+    this.input.focus()
+  }
+
+  /** Shows just these items (recent folders…), searchable the same way. */
+  openList(items: PaletteItem[], placeholder: string) {
+    hideToast()
+    this.custom = items
+    this.input.placeholder = placeholder
     this.root.hidden = false
     this.input.value = ''
     this.filter()
@@ -153,8 +169,11 @@ export class Palette {
 
   private filter() {
     const q = this.input.value.trim()
-    const all = this.items()
-    if (!q) {
+    const all = this.custom ?? this.items()
+    if (this.custom && !q) {
+      this.shown = all
+      this.heads = new Map()
+    } else if (!q) {
       const r = recent()
       const byTitle = new Map(all.map((i) => [i.title, i]))
       const first = r.map((t) => byTitle.get(t)).filter((i): i is PaletteItem => !!i).slice(0, 5)
@@ -228,7 +247,7 @@ export class Palette {
   private choose(i: number) {
     const item = this.shown[i]
     if (!item) return
-    remember(item.title)
+    if (!this.custom) remember(item.title)
     // Actions that open something else take the focus themselves.
     this.close(item.group === 'Setting' && item.title.startsWith('Turn') || item.group === 'Theme' || item.group === 'AI')
     item.run()

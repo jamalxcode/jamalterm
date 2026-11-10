@@ -161,3 +161,17 @@ func TestHostColorsCleanedUp(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
+
+func TestNewLookSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.json")
+	os.WriteFile(path, []byte(`{"theme":"nord"}`), 0o600)
+	got, _ := NewStore(path).Load()
+	if !got.ProjectColors || !got.FinishMoments || got.FinishSound || got.CursorEffect != "none" {
+		t.Fatalf("defaults for an older file: %+v", got)
+	}
+	c := Defaults()
+	c.CursorEffect = "sparkles"
+	if c.normalized().CursorEffect != "none" {
+		t.Fatal("unknown cursor effect kept")
+	}
+}

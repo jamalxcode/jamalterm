@@ -930,3 +930,7 @@ label.check.disabled { opacity: 0.45; }
 .cmd-rail .tick.bad { background: var(--red); height: 4px; }
 .cmd-rail .tick.run { background: var(--blue); }
 .cmd-rail .tick:hover { transform: scaleX(1.6); transform-origin: right; }
+
+/* Project colors: a colored edge on tabs in the same git repository. */
+.tab.proj { box-shadow: inset 3px 0 0 var(--proj), inset 0 0 0 1px color-mix(in srgb, var(--fg) 22%, transparent); }
+.tab.proj.active { box-shadow: inset 4px 0 0 var(--proj), inset 0 0 0 2px color-mix(in srgb, var(--fg) 80%, transparent), 0 2px 10px rgba(0, 0, 0, 0.35); }

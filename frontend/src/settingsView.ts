@@ -279,6 +279,7 @@ export class SettingsView {
       field('Line height', number(s.lineHeight, 1, 2, 0.05, (v) => { s.lineHeight = v; live() })),
       field('Window frame', select([['system', 'Match macOS (light or dark, your accent color)'], ['theme', 'Match the terminal theme']], s.windowFrame, (v) => { s.windowFrame = v; live() }),
         'The tab bar, panels and dialogs around the terminal. The terminal itself always uses the theme above.'),
+      el('label', { class: 'check' }, check(s.projectColors, (v) => { s.projectColors = v; live() }), ' Color tabs by project (each git repository gets its own color; the folder name is always shown too)'),
       el('label', { class: 'check' }, check(s.ligatures, (v) => { s.ligatures = v; live() }), ' Font ligatures (=> != ->) in fonts that have them, like JetBrains Mono and Fira Code (drawn without the GPU)'),
       hostColorsField(),
       ),

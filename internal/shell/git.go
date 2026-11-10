@@ -47,3 +47,14 @@ func GitBranch(dir string) string {
 	}
 	return ""
 }
+
+// GitRoot returns the folder holding .git for dir or a parent ("" when it
+// isn't in a repository).
+func GitRoot(dir string) string {
+	for d := dir; d != "" && d != "/" && d != "."; d = filepath.Dir(d) {
+		if _, err := os.Stat(filepath.Join(d, ".git")); err == nil {
+			return d
+		}
+	}
+	return ""
+}

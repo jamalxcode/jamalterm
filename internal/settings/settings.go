@@ -34,6 +34,15 @@ type Settings struct {
 	// Ligatures joins character pairs like => and != in fonts that have
 	// them (drawn without the GPU, a little slower).
 	Ligatures bool `json:"ligatures"`
+	// ProjectColors gives each git repository's tabs their own color (the
+	// folder name is always shown too).
+	ProjectColors bool `json:"projectColors"`
+	// FinishMoments shows "✓ done in 3m" when a command that took over a
+	// minute ends; FinishSound also plays a soft sound.
+	FinishMoments bool `json:"finishMoments"`
+	FinishSound   bool `json:"finishSound"`
+	// CursorEffect: "none", "smooth" (glides between positions) or "glow".
+	CursorEffect string `json:"cursorEffect"`
 	// HostColors marks tabs connected to some machines (ssh) with a color
 	// and the machine's name, e.g. red for "prod-*".
 	HostColors []HostColor `json:"hostColors"`
@@ -111,6 +120,9 @@ func Defaults() Settings {
 		WindowFrame:        "system",
 		Blur:               true,
 		CursorBlink:        true,
+		ProjectColors:      true,
+		FinishMoments:      true,
+		CursorEffect:       "none",
 		Scrollback:         10000,
 		ShellIntegration:   true,
 		ArrowBrowse:        true,
@@ -200,6 +212,11 @@ func (c Settings) normalized() Settings {
 	case "block", "bar", "underline":
 	default:
 		c.CursorStyle = d.CursorStyle
+	}
+	switch c.CursorEffect {
+	case "none", "smooth", "glow":
+	default:
+		c.CursorEffect = d.CursorEffect
 	}
 	if c.NotifyAfterSeconds < 1 || c.NotifyAfterSeconds > 3600 {
 		c.NotifyAfterSeconds = d.NotifyAfterSeconds

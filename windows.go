@@ -141,6 +141,8 @@ func (a *App) openWindow(startDir, restore string, cascade int) application.Wind
 		URL:              "/",
 		BackgroundColour: bg,
 		BackgroundType:   bgType,
+		// Files dropped on the window are typed at the prompt as paths.
+		EnableFileDrop: true,
 		Mac: application.MacWindow{
 			// Tabs sit in a transparent, standard-height title bar, centred
 			// on the window buttons (style.css: body.mac --titlebar).
@@ -162,6 +164,11 @@ func (a *App) openWindow(startDir, restore string, cascade int) application.Wind
 		opts.X, opts.Y = x+28, y+28
 	}
 	w := a.app.Window.NewWithOptions(opts)
+	w.OnWindowEvent(events.Common.WindowFilesDropped, func(e *application.WindowEvent) {
+		if files := e.Context().DroppedFiles(); len(files) > 0 {
+			a.emitTo(w, eventFilesDropped, files)
+		}
+	})
 	w.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		if a.vetoClose(w) {
 			e.Cancel()
