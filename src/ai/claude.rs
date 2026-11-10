@@ -13,15 +13,22 @@ const API_VERSION: &str = "2026-10-21";
 const FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
 
 /// The request body for a conversation.
+#[cfg(test)]
 pub fn body(model: &str, messages: &[Value], tools: bool) -> Value {
+    body_for(model, messages, tools, false)
+}
+
+/// The command bar's request: its own instructions, low effort, no tool.
+pub fn body_for(model: &str, messages: &[Value], tools: bool, command: bool) -> Value {
     let mut b = json!({
         "model": model,
         "max_tokens": 64000,
         "stream": true,
-        "system": SYSTEM,
+        "system": if command { super::COMMAND_SYSTEM } else { SYSTEM },
         "messages": messages,
-        // Terminal help: medium effort (also Claude Opus 5.5's default).
-        "output_config": {"effort": "medium"},
+        // Terminal help: medium effort (also Claude Opus 5.5's default); a
+        // single command: low.
+        "output_config": {"effort": if command { "low" } else { "medium" }},
     });
     if tools {
         b["tools"] = json!([{
@@ -175,14 +182,28 @@ pub fn ask(
     messages
         .push(json!({"role": "user", "content": [{"type": "text", "text": super::user_text(q)}]}));
     let agent = super::agent();
+    // Signed in with `ant auth login`: a short-lived token instead of a key.
+    let token = if ep.key == super::SIGNED_IN {
+        Some(super::anthropic_token()?)
+    } else {
+        None
+    };
     for _turn in 0..12 {
-        let resp = agent
+        let req = agent
             .post(format!("{}/v1/messages", ep.base))
-            .header("x-api-key", &ep.key)
             .header("anthropic-version", API_VERSION)
-            .header("anthropic-beta", FALLBACK_BETA)
-            .header("content-type", "application/json")
-            .send_json(body(&model, &messages, true))
+            .header("content-type", "application/json");
+        let req = match &token {
+            Some(t) => req.header("authorization", &format!("Bearer {t}")).header(
+                "anthropic-beta",
+                &format!("{FALLBACK_BETA},oauth-2025-04-20"),
+            ),
+            None => req
+                .header("x-api-key", &ep.key)
+                .header("anthropic-beta", FALLBACK_BETA),
+        };
+        let resp = req
+            .send_json(body_for(&model, &messages, !q.command, q.command))
             .map_err(|e| format!("Couldn't reach Anthropic ({e})."))?;
         let status = resp.status().as_u16();
         let mut body = resp.into_body();
@@ -312,6 +333,7 @@ mod tests {
             prompt: "is my key sk-ant-api03-mine0123456789abcdef ok?".into(),
             context: "$ env\nOPENAI_API_KEY=sk-proj-AbCdEfGhIjKlMnOpQrStUv".into(),
             shell: "zsh".into(),
+            ..Default::default()
         };
         let ev = run(
             endpoint(&m.base),

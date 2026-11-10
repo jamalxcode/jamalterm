@@ -260,6 +260,8 @@ pub struct Win {
     open_at: Option<restore::Frame>,
     /// The command palette (⇧⌘P), when open.
     palette: Option<palette::Palette>,
+    /// The command bar (⌘J), when open.
+    command_bar: Option<CommandBar>,
     /// Broadcast Typing (⌥⌘I): keys go to every pane of the tab.
     broadcast: bool,
     /// The finish line card ("✓ build done in 3m 12s") and until when.
@@ -292,6 +294,7 @@ impl Win {
             frame: None,
             open_at: None,
             palette: None,
+            command_bar: None,
             broadcast: false,
             finish: None,
             ai: aipanel::Chat::default(),
@@ -346,6 +349,8 @@ pub struct App {
     your_day: bool,
     /// The first-start card (shown once).
     welcome: bool,
+    /// An OpenRouter sign-in in the browser, waiting for its key.
+    sign_in: Option<mpsc::Receiver<Result<String, String>>>,
     /// Inline images' textures, by image id.
     textures: std::collections::HashMap<u64, egui::TextureHandle>,
     /// Open Recent Folder's list (recent-folders.json).
@@ -437,6 +442,7 @@ impl App {
             your_day: false,
             welcome,
             textures: Default::default(),
+            sign_in: None,
             recent_folders: crate::fun::Recent::load(&dir.join("recent-folders.json")),
             recent_path: dir.join("recent-folders.json"),
             updates: crate::updates::Updates::new(&dir, &settings.update_channel),
@@ -817,6 +823,16 @@ impl App {
         }
         self.settings_open = Some(pane);
         if let Some(out) = out {
+            if out.sign_in && self.sign_in.is_none() {
+                let (tx, rx) = mpsc::channel();
+                let wake = self.waker();
+                std::thread::spawn(move || {
+                    let r = ai::openrouter::sign_in(crate::macos::open);
+                    let _ = tx.send(r);
+                    wake();
+                });
+                self.sign_in = Some(rx);
+            }
             if let Some(act) = out.update {
                 let wake = self.waker();
                 match act {
@@ -925,6 +941,7 @@ impl App {
             self.w.ai.history.clone(),
             ai::Question {
                 prompt,
+                command: false,
                 context,
                 shell: self.shell_name.clone(),
             },
@@ -1385,6 +1402,155 @@ impl App {
         if self.smoke.is_some() || !alert::inform(title, detail) {
             self.notice = Some((title.to_string(), vec![detail.to_string()]));
         }
+    }
+
+    /// The OpenRouter sign-in finished: its key goes into the key file.
+    fn sign_in_tick(&mut self) {
+        let Some(rx) = &self.sign_in else { return };
+        let Ok(r) = rx.try_recv() else { return };
+        self.sign_in = None;
+        self.prefs.message = match r.and_then(|key| self.keys.set("openrouter", &key)) {
+            Ok(()) => "✓ Signed in to OpenRouter; its key is saved, encrypted.".into(),
+            Err(e) => {
+                crate::diag::problem("ai", &e);
+                format!("✕ {e}")
+            }
+        };
+    }
+
+    /// The command bar (⌘J): plain English in, one command typed at the
+    /// prompt (not run). A risky one says why and needs Type It Anyway.
+    fn command_bar_ui(&mut self, ctx: &egui::Context) {
+        let Some(mut bar) = self.w.command_bar.take() else {
+            return;
+        };
+        // The AI's answer, as it comes.
+        let mut finished = false;
+        if let Some(r) = &bar.running {
+            while let Ok(e) = r.events.try_recv() {
+                match e {
+                    ai::Event::Text(t) => bar.answer.push_str(&t),
+                    ai::Event::Done => finished = true,
+                    ai::Event::Error(e) => {
+                        bar.result = Some(Err(e));
+                        bar.running = None;
+                        break;
+                    }
+                    ai::Event::Tool { .. } => {
+                        let _ = r.replies.send(ai::Reply {
+                            text: "No tools here.".into(),
+                            is_error: true,
+                        });
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if finished {
+            bar.running = None;
+            bar.result = Some(ai::one_command(&bar.answer));
+            if let Some(Ok(cmd)) = &bar.result {
+                let shown = self.ai_context();
+                bar.risk = ai::risk::check(cmd, &shown);
+                if bar.risk.level.is_none() {
+                    let cmd = cmd.clone();
+                    self.type_at_prompt(&cmd, false);
+                    return; // typed: the bar closes
+                }
+            }
+        }
+        let (enter, esc) = ctx.input(|i| (i.key_pressed(Key::Enter), i.key_pressed(Key::Escape)));
+        let mut close = esc;
+        let mut ask = false;
+        let mut type_anyway = false;
+        let width = (ctx.content_rect().width() - 40.0).clamp(240.0, 560.0);
+        egui::Area::new(egui::Id::unique(("command-bar", self.w.id)))
+            .anchor(egui::Align2::CENTER_TOP, Vec2::new(0.0, 48.0))
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_width(width);
+                    let edit = ui.add(
+                        egui::TextEdit::singleline(&mut bar.text)
+                            .hint_text("Describe a command, e.g. “find big files in this folder”")
+                            .desired_width(f32::INFINITY),
+                    );
+                    if std::mem::take(&mut bar.focus) {
+                        edit.request_focus();
+                    }
+                    if enter && bar.running.is_none() && bar.result.is_none() && !bar.text.trim().is_empty() {
+                        ask = true;
+                    }
+                    if bar.running.is_some() {
+                        ui.weak("… asking the AI");
+                    }
+                    match &bar.result {
+                        Some(Err(why)) => {
+                            ui.label(format!("✕ {why}"));
+                        }
+                        Some(Ok(cmd)) => {
+                            ui.monospace(cmd.as_str());
+                            if let Some(level) = bar.risk.level {
+                                ui.label(RichText::new(format!("⚠ {}", level.words())).strong().color(ui.visuals().warn_fg_color));
+                                for r in &bar.risk.reasons {
+                                    ui.label(format!("• It {r}."));
+                                }
+                                ui.horizontal(|ui| {
+                                    if ui.button("Type It Anyway").clicked() {
+                                        type_anyway = true;
+                                    }
+                                    if ui.button("Cancel").clicked() {
+                                        close = true;
+                                    }
+                                });
+                            }
+                        }
+                        None => {
+                            ui.weak("⏎ asks the AI for one command and types it at the prompt (it isn't run). esc closes.");
+                        }
+                    }
+                });
+            });
+        if ask {
+            match self.ai_endpoint() {
+                Ok(ep) => {
+                    let context = self.ai_context();
+                    let wake = self.waker();
+                    bar.answer.clear();
+                    bar.running = Some(ai::ask(
+                        ep,
+                        Default::default(),
+                        ai::Question {
+                            prompt: bar.text.trim().to_string(),
+                            command: true,
+                            context,
+                            shell: self.shell_name.clone(),
+                        },
+                        wake,
+                    ));
+                }
+                Err(e) => bar.result = Some(Err(e)),
+            }
+        }
+        if type_anyway && let Some(Ok(cmd)) = &bar.result {
+            let cmd = cmd.clone();
+            self.type_at_prompt(&cmd, false);
+            return;
+        }
+        if close {
+            if let Some(r) = &bar.running {
+                r.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            return;
+        }
+        // Typing again after an answer starts over.
+        if bar.result.is_some() && bar.text != bar.asked {
+            bar.result = None;
+        }
+        if ask {
+            bar.asked = bar.text.clone();
+        }
+        self.w.command_bar = Some(bar);
     }
 
     /// The updater's background news.
@@ -2117,6 +2283,12 @@ impl App {
                 }
                 let _ = settings::save(&self.settings_path, &self.settings);
             }
+            Cmd::CommandBar => {
+                self.w.command_bar = Some(CommandBar {
+                    focus: true,
+                    ..Default::default()
+                });
+            }
             Cmd::AiPanel => {
                 self.w.ai_open = !self.w.ai_open;
                 if self.w.ai_open {
@@ -2494,14 +2666,14 @@ impl App {
                     } else {
                         ""
                     };
-                    let mut text = RichText::new(format!("{}  {lock}{mark}{name}", i + 1));
+                    let mut text = RichText::new(format!("{}  {lock}{mark}{name}     ", i + 1)); // room for ×
                     if i == self.w.active {
                         text = text.strong();
                     }
                     let b = ui.add(
                         egui::Button::new(text)
                             .selected(i == self.w.active)
-                            .min_size(Vec2::new(140.0, 24.0))
+                            .min_size(Vec2::new(150.0, 24.0))
                             .sense(Sense::click_and_drag()),
                     );
                     rects.push(b.rect);
@@ -2544,11 +2716,34 @@ impl App {
                     if b.drag_started() {
                         drag_started = Some(i);
                     }
-                    if ui
-                        .small_button("×")
-                        .on_hover_text("Close tab (⌘W)")
-                        .clicked()
-                    {
+                    // Its close button sits inside the tab, on the right,
+                    // shown on the tab in front and when the pointer's on it.
+                    let x = egui::Rect::from_center_size(
+                        egui::pos2(b.rect.right() - 12.0, b.rect.center().y),
+                        Vec2::splat(16.0),
+                    );
+                    let xr = ui
+                        .interact(
+                            x,
+                            egui::Id::unique(("close-tab", self.w.id, i)),
+                            Sense::click(),
+                        )
+                        .on_hover_text("Close tab (⌘W)");
+                    let pointer_on_tab = ui.rect_contains_pointer(b.rect);
+                    if i == self.w.active || pointer_on_tab {
+                        if xr.hovered() {
+                            ui.painter()
+                                .rect_filled(x, 4.0, ui.visuals().widgets.hovered.bg_fill);
+                        }
+                        ui.painter().text(
+                            x.center(),
+                            egui::Align2::CENTER_CENTER,
+                            "×",
+                            egui::FontId::proportional(14.0),
+                            ui.visuals().text_color(),
+                        );
+                    }
+                    if xr.clicked() {
                         close = Some(i);
                     }
                 }
@@ -2810,6 +3005,7 @@ impl eframe::App for App {
         self.diagnostics_window(&ctx);
         self.your_day_window(&ctx);
         self.update_tick();
+        self.sign_in_tick();
         self.finished_commands();
         self.prune_textures();
         #[cfg(target_os = "macos")]
@@ -3097,6 +3293,7 @@ impl App {
             egui::Panel::top("find").show(ui, |ui| self.find_bar(ui));
         }
         self.palette_ui(&ctx);
+        self.command_bar_ui(&ctx);
         if self.w.tabs.is_empty() {
             return;
         }
@@ -3773,6 +3970,19 @@ fn sticky_header(
 
 /// `App::front` while the Settings window is in front.
 const SETTINGS: u64 = 0;
+
+/// The command bar's state (⌘J).
+#[derive(Default)]
+pub struct CommandBar {
+    text: String,
+    /// The text that was asked (typing again starts over).
+    asked: String,
+    focus: bool,
+    running: Option<ai::Running>,
+    answer: String,
+    result: Option<Result<String, String>>,
+    risk: ai::risk::Risk,
+}
 
 /// A tab's tree as it's saved.
 fn save_node(n: &Node<Pane>, focus: u64) -> restore::SavedNode {

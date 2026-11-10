@@ -38,6 +38,7 @@ fn code(key: egui::Key) -> Option<Code> {
         K::A => Code::KeyA,
         K::O => Code::KeyO,
         K::I => Code::KeyI,
+        K::J => Code::KeyJ,
         K::E => Code::KeyE,
         K::P => Code::KeyP,
         K::Comma => Code::Comma,

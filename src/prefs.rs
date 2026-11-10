@@ -19,6 +19,8 @@ pub struct Out {
     pub changed: bool,
     /// A button in the Updates pane.
     pub update: Option<UpdateAct>,
+    /// Sign In with OpenRouter was clicked.
+    pub sign_in: bool,
     /// The theme under the pointer, to show for now.
     pub preview: Option<&'static str>,
 }
@@ -57,6 +59,7 @@ pub fn show(
     updates: &UpdatesInfo,
 ) -> Out {
     let mut update = None;
+    let mut sign_in = false;
     let before = s.clone();
     let mut preview = None;
 
@@ -77,7 +80,7 @@ pub fn show(
         match pane {
             Pane::Appearance => appearance(ui, s, &mut preview),
             Pane::Shell => shell(ui, s),
-            Pane::Ai => ai_pane(ui, s, keys, st),
+            Pane::Ai => sign_in = ai_pane(ui, s, keys, st),
             Pane::Privacy => privacy(ui, s),
             Pane::Updates => update = updates_pane(ui, s, updates),
         }
@@ -85,6 +88,7 @@ pub fn show(
     Out {
         changed: *s != before,
         update,
+        sign_in,
         preview,
     }
 }
@@ -187,10 +191,11 @@ fn appearance(ui: &mut Ui, s: &mut Settings, preview: &mut Option<&'static str>)
         });
 }
 
-fn ai_pane(ui: &mut Ui, s: &mut Settings, keys: &mut Keys, st: &mut State) {
+fn ai_pane(ui: &mut Ui, s: &mut Settings, keys: &mut Keys, st: &mut State) -> bool {
+    let mut sign_in = false;
     toggles(ui, s, Pane::Ai, false);
     if !s.ai_enabled {
-        return;
+        return false;
     }
     ui.add_space(8.0);
     ui.label(RichText::new("Assistant").strong());
@@ -250,6 +255,27 @@ fn ai_pane(ui: &mut Ui, s: &mut Settings, keys: &mut Keys, st: &mut State) {
             }
         });
         ui.weak(format!("Make one at {}. {}", p.key_where, p.billing));
+        if p.id == "openrouter"
+            && ui
+                .button("Sign In with OpenRouter…")
+                .on_hover_text(
+                    "Approve in your browser; OpenRouter sends back a key for your account",
+                )
+                .clicked()
+        {
+            sign_in = true;
+            st.message = "Waiting for you to approve in the browser…".into();
+        }
+        if p.id == "anthropic" && !keys.saved(p.id) {
+            match ai::anthropic_profile() {
+                Some(profile) => {
+                    ui.label(format!("✓ Signed in with Anthropic (`ant auth login`, profile {profile}): no key needed."));
+                }
+                None => {
+                    ui.weak("Or sign in with your Anthropic account: run `ant auth login` in a terminal.");
+                }
+            }
+        }
         if !keys.saved(p.id) && keys.get(p.id).is_some() {
             ui.weak(format!("Using ${env} from your environment."));
         }
@@ -272,6 +298,7 @@ fn ai_pane(ui: &mut Ui, s: &mut Settings, keys: &mut Keys, st: &mut State) {
     if !st.message.is_empty() {
         ui.label(st.message.as_str());
     }
+    sign_in
 }
 
 /// Looks for a local model server (Ollama, LM Studio) and uses the first

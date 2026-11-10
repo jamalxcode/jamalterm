@@ -729,6 +729,44 @@ const STEPS: &[Step] = &[
         limit: Duration::from_secs(15),
     },
     Step {
+        name: "⌘J: plain English becomes a command at the prompt (not run)",
+        act: |s, _, _, _| {
+            s.press(egui::Key::J, cmd_mods());
+            s.script.push_back(vec![]);
+            s.script
+                .push_back(vec![egui::Event::Text("say hello".into())]);
+            s.script.push_back(vec![egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }]);
+        },
+        done: |_, tabs, a| {
+            let s = tabs[a].pane().session.screen.lock().unwrap();
+            let line = s.line_text(s.abs_cursor_line());
+            let ran = s
+                .commands
+                .blocks
+                .iter()
+                .any(|b| b.command.contains("from-the-bar"));
+            line.contains("echo from-the-bar")
+                .then(|| (!ran, format!("prompt: {line:?}")))
+        },
+        limit: Duration::from_secs(10),
+    },
+    Step {
+        name: "(clear the prompt)",
+        act: |_, _, tabs, a| tabs[a].pane().session.write(b"\x05\x15"),
+        done: |_, tabs, a| {
+            let s = tabs[a].pane().session.screen.lock().unwrap();
+            (!s.line_text(s.abs_cursor_line()).contains("from-the-bar"))
+                .then(|| (true, String::new()))
+        },
+        limit: Duration::from_secs(3),
+    },
+    Step {
         name: "(⌘I hides it)",
         act: |s, _, _, _| s.press(egui::Key::I, cmd_mods()),
         done: |s, _, _| (!s.ai_open).then(|| (true, String::new())),
@@ -1082,7 +1120,20 @@ fn stand_in_ai(requests: Arc<Mutex<Vec<String>>>) -> String {
             let start = ev(
                 serde_json::json!({"type":"message_start","message":{"model":"stand-in-model"}}),
             );
-            let reply = if n == 0 {
+            let body_text = String::from_utf8_lossy(&body).to_string();
+            let reply = if body_text.contains("You turn a request in plain English") {
+                // The command bar: one command.
+                start
+                    + &ev(
+                        serde_json::json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
+                    )
+                    + &ev(
+                        serde_json::json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"echo from-the-bar"}}),
+                    )
+                    + &ev(
+                        serde_json::json!({"type":"message_delta","delta":{"stop_reason":"end_turn"}}),
+                    )
+            } else if n == 0 {
                 start
                     + &ev(
                         serde_json::json!({"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_smoke","name":"type_in_terminal","input":{}}}),

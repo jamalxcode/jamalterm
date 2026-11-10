@@ -103,8 +103,14 @@ pub fn resolve_model(ep: &Endpoint) -> Result<String, String> {
     })
 }
 
-pub fn body(model: &str, messages: &[Value], tools: bool) -> Value {
-    let mut all = vec![json!({"role": "system", "content": SYSTEM})];
+/// The command bar's request: its own instructions, no tool.
+pub fn body_for(model: &str, messages: &[Value], tools: bool, command: bool) -> Value {
+    let system = if command {
+        super::COMMAND_SYSTEM
+    } else {
+        SYSTEM
+    };
+    let mut all = vec![json!({"role": "system", "content": system})];
     all.extend(messages.iter().cloned());
     let mut b = json!({"model": model, "stream": true, "messages": all});
     if tools {
@@ -200,7 +206,7 @@ pub fn ask(
             .header("authorization", &format!("Bearer {}", ep.key))
             .header("content-type", "application/json")
             .header("x-title", "jamalterm")
-            .send_json(body(&model, &messages, tools))
+            .send_json(body_for(&model, &messages, tools && !q.command, q.command))
             .map_err(|e| format!("Couldn't reach {name} ({e})."))?;
         let status = resp.status().as_u16();
         let mut b = resp.into_body();

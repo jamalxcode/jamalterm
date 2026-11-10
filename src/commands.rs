@@ -40,6 +40,8 @@ pub enum Cmd {
     Palette,
     /// ⌘I: show or hide the AI panel.
     AiPanel,
+    /// ⌘J: describe a command in plain English; the AI types it.
+    CommandBar,
     NewWindow,
     NewTab,
     SplitRight,
@@ -228,6 +230,13 @@ pub const TABLE: &[Entry] = &[
     ),
     e(Cmd::Palette, "Command Palette…", Menu::View, Key::P, true),
     e(Cmd::AiPanel, "Show AI Panel", Menu::View, Key::I, false),
+    e(
+        Cmd::CommandBar,
+        "Command from English…",
+        Menu::View,
+        Key::J,
+        false,
+    ),
     // "Hide Tab Bar" while it's shown (the menu says what it'll do).
     e(Cmd::ToggleTabBar, "Show Tab Bar", Menu::View, Key::T, true),
     e(Cmd::Bigger, "Bigger", Menu::View, Key::Equals, false),
