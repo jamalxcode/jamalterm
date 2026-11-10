@@ -278,8 +278,9 @@ func (s *Secrets) cipher(create bool) (cipher.AEAD, error) {
 	return cipher.NewGCM(block)
 }
 
-// excludeFromBackups keeps a file out of Time Machine (macOS).
-func excludeFromBackups(path string) {
+// excludeFromBackups keeps a file out of Time Machine (macOS). Tests
+// replace it (tmutil can be slow or blocked on build machines).
+var excludeFromBackups = func(path string) {
 	if runtime.GOOS == "darwin" {
 		exec.Command("/usr/bin/tmutil", "addexclusion", path).Run()
 	}

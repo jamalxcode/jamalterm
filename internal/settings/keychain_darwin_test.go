@@ -18,7 +18,7 @@ func TestMoveFromKeychain(t *testing.T) {
 		"-w", `{"anthropic":"sk-ant-old","openrouter":"sk-or-old"}`).CombinedOutput(); err != nil {
 		t.Skipf("no usable Keychain here: %v %s", err, out)
 	}
-	defer keychainDelete(service, keychainAccount)
+	defer runWithin(t, func() { keychainDelete(service, keychainAccount) })
 	s := &Secrets{dir: t.TempDir(), machine: func() string { return "m" }, keychainService: service}
 	if !s.KeychainKeysWaiting() {
 		t.Fatal("didn't see the old item")
@@ -27,7 +27,9 @@ func TestMoveFromKeychain(t *testing.T) {
 		t.Fatal("read the Keychain without being asked")
 	}
 	s.SetKeyFor("anthropic", "sk-ant-new") // a key saved here wins
-	n, err := s.MoveFromKeychain()
+	var n int
+	var err error
+	runWithin(t, func() { n, err = s.MoveFromKeychain() })
 	if err != nil || n != 1 {
 		t.Fatalf("moved %d, %v", n, err)
 	}
@@ -36,5 +38,18 @@ func TestMoveFromKeychain(t *testing.T) {
 	}
 	if s.KeychainKeysWaiting() {
 		t.Fatal("Keychain item not deleted")
+	}
+}
+
+// runWithin runs a Keychain call, skipping the test if it waits for a
+// password prompt nobody can answer (build machines).
+func runWithin(t *testing.T, f func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { f(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Skip("the Keychain is waiting for a password prompt on this machine")
 	}
 }

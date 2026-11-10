@@ -67,6 +67,8 @@ func TestProviderKeysAreSeparate(t *testing.T) {
 	}
 }
 
+func init() { excludeFromBackups = func(string) {} }
+
 func testSecrets(dir, machine string) *Secrets {
 	return &Secrets{dir: dir, machine: func() string { return machine }, keychainService: "jamalterm-test-none"}
 }
