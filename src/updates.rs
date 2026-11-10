@@ -81,6 +81,18 @@ impl Updates {
         if self.busy() {
             return;
         }
+        // A test build (from CI, not a release) never updates itself: every
+        // release would look newer and replace what's being tested.
+        if test_build(update::current_version()) {
+            if manual {
+                self.say = Some(format!(
+                    "jamalterm {} is a test build: it doesn't update itself. Install a release to get updates.",
+                    update::current_version()
+                ));
+            }
+            self.next_check = Instant::now() + Duration::from_secs(6 * 3600);
+            return;
+        }
         self.manual = manual;
         self.status.state = State::Checking;
         let (tx, rx) = mpsc::channel();
@@ -252,6 +264,11 @@ impl Updates {
     }
 }
 
+/// A build that isn't a release: "0.0.0-dev.abc1234" (CI) or "…-dev".
+pub fn test_build(version: &str) -> bool {
+    version.starts_with("0.0.0") || version.ends_with("-dev") || version.contains("-dev.")
+}
+
 /// The CHANGELOG built into the app.
 const CHANGELOG: &str = include_str!("../CHANGELOG.md");
 
@@ -316,6 +333,14 @@ mod tests {
         // progress, so only "at most once" is checked here.
         let _ = whats_new(dir.path());
         assert!(whats_new(dir.path()).is_none(), "once");
+    }
+
+    #[test]
+    fn test_builds_never_update() {
+        assert!(test_build("0.0.0-dev.abc1234"));
+        assert!(test_build("4.0.0-dev"));
+        assert!(!test_build("4.0.0"));
+        assert!(!test_build("4.0.0-beta.1"));
     }
 
     #[test]

@@ -6,7 +6,7 @@ A terminal for macOS with a **free-floating cursor** and **AI built in**. Move u
 
 It runs your normal shell (zsh, bash, tcsh, fish…), so everything you already use keeps working, and it looks and behaves like a Mac app: the standard menus and shortcuts, a Settings window that applies changes immediately, native alerts and right-click menus, and light or dark to match your Mac. How and why it's built this way: **[docs/DESIGN.md](docs/DESIGN.md)**.
 
-> **jamalterm is being rewritten in Rust with a native interface (4.x).** The app to download and use is still **3.5.0** (below); it keeps updating itself as before. The Rust version on `main` already runs your shell with tabs, themes and the ✓/✕ command marks; [docs/DESIGN.md](docs/DESIGN.md#0-rust-port-4x-in-progress) lists what's ported and what's next. There are no releases until it does everything 3.5.0 does.
+> **jamalterm 4.x is written in Rust with a native interface.** It does everything 3.5.0 did (see the [CHANGELOG](CHANGELOG.md)); [docs/DESIGN.md](docs/DESIGN.md#0-rust-port-4x) records how. Releases come from GitHub Actions with a Sigstore build proof the app checks before updating.
 
 ## Download
 

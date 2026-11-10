@@ -1,6 +1,6 @@
 # jamalterm
 
-A macOS terminal with browse mode (re-run past commands), split panes and an AI panel. **Being rewritten in Rust with a native UI** (4.x). The last Go/Wails release is 3.5.0; its code is in git history (tag `v3.5.0`) and its behaviour, recorded in **docs/DESIGN.md**, is the spec to port. Read DESIGN.md before changing behaviour, and update it in the same commit when you make or change a decision.
+A macOS terminal with browse mode (re-run past commands), split panes and an AI panel. **Written in Rust with a native UI** (4.x). The last Go/Wails release is 3.5.0; its code is in git history (tag `v3.5.0`), and its behaviour, recorded in **docs/DESIGN.md**, was the spec for the port. Read DESIGN.md before changing behaviour, and update it in the same commit when you make or change a decision.
 
 ## Layout (Rust, `src/`)
 

@@ -4,7 +4,7 @@ This file records how jamalterm is built and why. Each section says what was dec
 
 <p align="center"><img src="icon-256.png" width="128" alt="jamalterm icon"></p>
 
-## 0. Rust port (4.x, in progress)
+## 0. Rust port (4.x)
 
 **Decision (2026-11-10, the owner's choice):** rewrite jamalterm entirely in Rust with a native UI, on main. 3.5.0 (Go + Wails + TypeScript/xterm.js) is the last release of the old app and stays what users run until the Rust app matches it. Releases are off until then.
 
@@ -54,6 +54,9 @@ eframe/egui (native window, OpenGL)        one thread per shell
   - *Pure Rust:* the verifier uses RustCrypto (p256, p384, x509-cert); sigstore-rs was rejected (experimental, C crypto, tokio). Sigstore's `trusted_root.json` is **built in** (`resources/sigstore/`), not fetched over TUF; rotating Sigstore keys means updating that file in a release. Rekor v2 (Ed25519) logs aren't supported yet: such a bundle is refused with a message pointing to the release page. Tested against the real 3.5.0 bundle and many tamperings; CI checks each release's proof with the same code before publishing.
 - **Releases are back:** a commit titled `Release X.Y.Z` (or `-beta.N`) builds, proves (`attest-build-provenance`), checks and publishes in one run, as in 3.x (see the release skill). A release build gets its version from `scripts/build-mac.sh` (`JAMALTERM_VERSION`).
 
+- **Phase 9:** the sticky header and scrollbar marks are drawn over each pane (`sticky_header`, `scrollbar` in app.rs); inline images (`images.rs`) take as many lines as their height needs and scroll with the text like the marks; the kitty keyboard encoding is `input::kitty_bytes` (alacritty_terminal handles the protocol's modes); input methods use egui's IME events with the cursor as the IME position; each pane is an AccessKit terminal whose text is the screen. The command bar asks in command mode (3.x's prompt, low effort, no tool, no history) and types the one command it gets, through the same risk check. Esc never reaches the shell while the find bar, palette or a question is open.
+- **Ligatures aren't possible yet:** egui lays text out glyph by glyph without OpenType shaping, so a font's `calt` ligatures can't be drawn. A shaper (rustybuzz) with our own glyph drawing would be needed; the setting stays in settings.json.
+
 ### Status (what works / what's left)
 | Area | 4.x Rust |
 |---|---|
@@ -62,17 +65,18 @@ eframe/egui (native window, OpenGL)        one thread per shell
 | Themes (10), JetBrains Mono + Nerd symbols, cursor styles, scrollback, selection, copy/paste, ⌘K, font size | ✅ phase 1 |
 | settings.json compatibility, self-test, CI on Mac and Linux | ✅ phase 1 |
 | Browse mode (the free-floating cursor, ⌥↑↓ between commands, ⏎ re-run asking when it ran elsewhere, ⇧⏎ edit, C/O copy, key bar), marks that stay put when the scrollback is full | ✅ phase 2 |
-| Sticky header, scrollbar markers | ⏳ |
+| Sticky header, scrollbar markers, Fix it (header and F in browse mode), Quick Look (Space), drop files, Open Recent Folder (⇧⌘O), ⌘-click links and paths, Enable Browse Mode on This Server, Broadcast Typing (⌥⌘I) | ✅ phase 9 |
 | Split panes (⌘D, ⇧⌘D, dividers, ⌘[ ⌘], ⌥⌘ arrows), multiple windows (⌘N, ⇧⌘W), moving tabs (drag, Move Tab to New Window, Merge All Windows), session restore (3.x file) | ✅ phase 3 |
 | Native Mac menu bar (one command table), find (⌘F, ⌘G/⇧⌘G, "3 of 17") | ✅ phase 2 |
 | Command palette (⇧⌘P), right-click menu (native on a Mac), Settings window (⌘,: Appearance, Shell), asking before closing running programs (native alert) | ✅ phase 4 |
 | AI panel (⌘I), the type/run tool with risk checks, secret hiding, providers (Claude, ChatGPT, DeepSeek, Grok, OpenRouter, Local), "Why did it fail?" | ✅ phase 5 |
-| Command bar (English → command), Fix it on failed commands, OpenRouter and Anthropic sign-in | ⏳ |
+| Command bar (⌘J, English → command), OpenRouter sign-in, Claude through an `ant auth login` sign-in | ✅ phase 9 |
 | Encrypted keys (3.x file) | ✅ phase 5 |
 | Secure Keyboard Entry, problem log, diagnostics, crash reports | ✅ phase 6 |
 | Updater with Sigstore check, What's new, Beta channel, releases | ✅ phase 7 |
 | Menu bar icon, Dock menu, notifications, finish line, Your Day stats, project and host colors, cursor effects, wallpaper theme, Theme of the week, first-start card | ✅ phase 8 |
-| OSC 8 links, images, kitty keyboard, ligatures, input methods, VoiceOver | ⏳ |
+| OSC 8 links, inline images (iTerm2 protocol), kitty keyboard (flags 1 and 8), input methods, VoiceOver (AccessKit) | ✅ phase 9 |
+| **Not done:** font ligatures (egui draws text without shaping, so `=>` can't become one glyph; the setting is kept for 3.x); Sixel and kitty graphics images; Rekor v2 build proofs | — |
 
 ## 1. What jamalterm is
 

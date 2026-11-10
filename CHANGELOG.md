@@ -1,8 +1,14 @@
 # Changelog
 
-## 4.0.0 (in progress, not released)
+## 4.0.0
 
-**Rewritten in Rust, with a native interface.** No web view: lighter and faster to start. So far: your shell with jamalterm's hooks, tabs, the 10 themes, the ✓/✕ command marks, scrollback, selection, copy and paste, and your existing settings. Now also: **browse mode** (↑ at an empty prompt), **find** (⌘F, ⌘G), the **Mac menu bar**, and ✓/✕ marks that stay on their commands when the scrollback is full. Then **split panes**, **several windows**, **tabs you can drag** (to reorder, or out into another window), and your **windows coming back** after a restart, from the same session file as 3.x. Then the **command palette** (⇧⌘P), the **Settings window** (⌘,), the **right-click menu**, and a question before closing anything with a program still running. Then the **AI panel** (⌘I) with Claude, ChatGPT, DeepSeek, Grok, OpenRouter or a local model, and your API keys from 3.x, still in their encrypted file. Then Secure Keyboard Entry (on by itself at password prompts), a private problem log, Help → Copy Diagnostics, and a notice after a crash. Then the menu bar icon and Dock menu, notifications and the finish line when long commands end, Your Day in jamalterm, project colors on tabs, Smooth and Glow cursors, and the wallpaper theme. Then updates again: checked against GitHub's Sigstore build proof before installing, installed when you quit, with Go Back to Previous Version and a Beta channel. The rest of 3.5.0 comes back before this is released.
+**Rewritten in Rust, with a native interface.** No web view: lighter, faster to start, and your settings, saved windows and API keys from 3.x carry over.
+- Everything from 3.5.0: browse mode, find, split panes, several windows, tabs you can drag between windows, windows that come back after a restart, the command palette, Settings, the right-click menu, and a question before closing anything still running
+- The AI panel (⌘I) with Claude, ChatGPT, DeepSeek, Grok, OpenRouter or a local model, and Command from English (⌘J); risky commands still need a second click
+- API keys stay in their encrypted file, never the Keychain; Secure Keyboard Entry turns on by itself at password prompts
+- Updates are checked against GitHub's build proof before installing, installed when you quit, with Go Back to Previous Version and a Beta channel
+- New: a sticky header naming the command whose output you're reading, marks beside the scrollbar, inline images, the kitty keyboard protocol, Broadcast Typing (⌥⌘I), and Smooth or Glow cursors
+- Not yet: font ligatures
 
 ## 3.5.0
 
