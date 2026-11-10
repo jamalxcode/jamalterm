@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.3.1
+
+- The Window menu lists only the tabs that are open, each with its name ("Tab 2: jamalterm — vim"), instead of always showing Select Tab 1–9
+- Windows are named in words ("Home — zsh"), so the list of windows in the Window menu no longer shows "~ — ~"
+
 ## 3.3.0
 
 **Updates you can see**

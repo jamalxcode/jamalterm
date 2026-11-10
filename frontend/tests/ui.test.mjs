@@ -483,6 +483,20 @@ test('one tab: no tab bar, the window title instead (like Terminal)', async () =
   await page.close()
 })
 
+test('Window menu lists only the open tabs, by name; the window title is words', async () => {
+  const page = await open()
+  const lastMenu = () => page.evaluate(() => window.__calls.filter((c) => c[0] === 'SetMenuState').pop()[1])
+  assert.deepEqual((await lastMenu()).tabs, ['Home — zsh'], 'one tab, named, not "~ — ~"')
+  assert.equal(await page.evaluate(() => window.__fake.title), 'Home — zsh')
+  await page.evaluate(() => window.__emit('menu', 'newTab'))
+  await page.waitForTimeout(200)
+  await type(page, 'cd /srv')
+  await page.waitForTimeout(150)
+  assert.deepEqual((await lastMenu()).tabs, ['Home — zsh', 'srv — zsh'], 'two tabs: two entries')
+  assert.equal(await page.evaluate(() => window.__fake.title), 'srv — zsh')
+  await page.close()
+})
+
 test('kitty keyboard protocol: on when a program asks, off when it pops', async () => {
   const page = await open()
   const writes = async (keys) => {

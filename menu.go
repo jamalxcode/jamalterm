@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"jamalterm/internal/ai"
 
@@ -65,6 +67,9 @@ func (a *App) buildMenu() *application.Menu {
 				it = sub.Add(c.Title)
 			}
 			a.menuItems[c.ID] = it
+			if _, ok := tabMenuLabel([]string{""}, tabNumber(c.ID)); !ok && tabNumber(c.ID) > 0 {
+				it.SetHidden(true) // until the window says how many tabs it has
+			}
 			if k := keysHere(c.Keys); k != "" {
 				it.SetAccelerator(k)
 			}
@@ -95,6 +100,30 @@ type MenuState struct {
 	Split     bool `json:"split"`
 	TabBar    bool `json:"tabBar"`
 	Broadcast bool `json:"broadcast"`
+	// Tabs names the window's tabs in order ("Home — zsh"). The Window menu
+	// lists only these, so there's no "Select Tab 7" with two tabs open.
+	Tabs []string `json:"tabs"`
+}
+
+// tabNumber is n for the "tabN" commands, else 0.
+func tabNumber(id string) int {
+	if len(id) == 4 && strings.HasPrefix(id, "tab") && id[3] >= '1' && id[3] <= '9' {
+		return int(id[3] - '0')
+	}
+	return 0
+}
+
+// tabMenuLabel is what the Window menu shows for tab n (from 1); ok is false
+// when the window has fewer tabs, and the item is hidden.
+func tabMenuLabel(tabs []string, n int) (label string, ok bool) {
+	if n < 1 || n > len(tabs) {
+		return "", false
+	}
+	name := strings.TrimSpace(tabs[n-1])
+	if name == "" {
+		return fmt.Sprintf("Tab %d", n), true
+	}
+	return fmt.Sprintf("Tab %d: %s", n, name), true
 }
 
 // SetMenuState updates the menu bar for the window in front.
@@ -120,5 +149,14 @@ func (a *App) SetMenuState(ctx context.Context, s MenuState) {
 	}
 	if it := a.menuItems["broadcast"]; it != nil {
 		it.SetChecked(s.Broadcast)
+	}
+	for n := 1; n <= 9; n++ {
+		if it := a.menuItems[fmt.Sprintf("tab%d", n)]; it != nil {
+			label, ok := tabMenuLabel(s.Tabs, n)
+			if ok {
+				it.SetLabel(label)
+			}
+			it.SetHidden(!ok)
+		}
 	}
 }

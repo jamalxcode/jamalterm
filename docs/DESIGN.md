@@ -111,8 +111,10 @@ The menus are built from one table, `commands.go`, which also feeds the command 
 | **Edit** | Undo, Redo, Cut, Copy, Paste (system items), Select All ⌘A, Find… ⌘F, Find Next ⌘G, Find Previous ⇧⌘G, Use Selection for Find ⌘E |
 | **View** | Show/Hide Tab Bar ⇧⌘T, Command Palette… ⇧⌘P, Browse Commands ⌘↑, Previous/Next Command ⇧⌘↑/↓, Bigger ⌘=, Smaller ⌘-, Default Font Size ⌘0, Enter Full Screen ⌃⌘F (system item), Reload Window ⇧⌘R |
 | **AI** | Ask AI… ⌘I, Command from English… ⌘J, Explain Last Error ⇧⌘E, Use Claude / ChatGPT / DeepSeek / Grok / OpenRouter / Local (⌥⌘1–6) |
-| **Window** | Minimize ⌘M, Zoom (system items), Show Previous/Next Tab ⇧⌘[ / ⇧⌘], Select Previous/Next Pane ⌘[ / ⌘], panes by direction ⌥⌘arrows, Broadcast Typing ⌥⌘I, Select Tab 1–9 ⌘1–9, Bring All to Front, then the list of windows (added by macOS) |
+| **Window** | Minimize ⌘M, Zoom (system items), Show Previous/Next Tab ⇧⌘[ / ⇧⌘], Select Previous/Next Pane ⌘[ / ⌘], panes by direction ⌥⌘arrows, Broadcast Typing ⌥⌘I, one item per open tab ("Tab 2: jamalterm — vim", ⌘1–9; only as many as the window has), Bring All to Front, then the list of windows (added by macOS) |
 | **Help** | The search field (added by macOS), jamalterm Help, Keyboard Shortcuts, Copy Diagnostics…, Show Problem Log |
+
+**Names are words, not symbols.** A window is titled after its tab with the focus, as "folder — program" ("Home — zsh", "jamalterm — vim"), so the Window menu's list of windows reads clearly; "~ — ~" was rejected.
 
 **Menu items say what they'll do.** "Close Pane" vs "Close Tab", "Show/Hide Tab Bar", and the Broadcast checkmark update from the window in front (`SetMenuState`).
 

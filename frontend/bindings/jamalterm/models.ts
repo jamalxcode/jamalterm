@@ -64,6 +64,12 @@ export interface MenuState {
     "split": boolean;
     "tabBar": boolean;
     "broadcast": boolean;
+
+    /**
+     * Tabs names the window's tabs in order ("Home — zsh"). The Window menu
+     * lists only these, so there's no "Select Tab 7" with two tabs open.
+     */
+    "tabs": string[] | null;
 }
 
 /**

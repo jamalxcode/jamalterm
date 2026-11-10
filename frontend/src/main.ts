@@ -52,6 +52,7 @@ const hooks = {
     }
     renderTabs()
     if (t === active) updateChrome()
+    else syncMenu() // the Window menu names every tab
   },
   onExplain: (t: Tab, b: Parameters<AIPanel['explain']>[1]) => {
     if (!aiReady()) return
@@ -446,9 +447,21 @@ async function closeWindow() {
 }
 
 /** Tells the menu bar what its items would do here. */
+/** A name people can read, for the window title and the Window menu:
+ * "Home — zsh", "jamalterm — vim". Never just symbols like "~ — ~". */
+function tabName(t: Tab | undefined): string {
+  if (!t) return shellName
+  if (t.exited) return 'Shell exited'
+  const what = t.runningName || shellName
+  const folder = !t.cwd ? '' : t.cwd === home ? 'Home' : t.cwd === '/' ? 'Computer root' : t.cwd.split('/').filter(Boolean).pop() ?? ''
+  return folder ? `${folder} — ${what}` : what
+}
+
 function syncMenu() {
   const g = groupOf(active)
-  void SetMenuState({ split: (g?.count ?? 0) > 1, tabBar: tabBarShown(), broadcast: !!g?.broadcast })
+  // Each tab is named after the pane with the focus in it.
+  const tabsNow = groups.map((x) => tabName(x === g ? active : x.tabs()[0]))
+  void SetMenuState({ split: (g?.count ?? 0) > 1, tabBar: tabBarShown(), broadcast: !!g?.broadcast, tabs: tabsNow })
 }
 
 /** As in Terminal, the tab bar appears with two or more tabs (or always,
@@ -463,13 +476,11 @@ function updateChrome() {
   syncMenu()
   if (!active) return
   // "~/proj — zsh", or "~/proj — vim" while something runs (like Terminal).
-  const what = active.runningName || shellName
-  windowTitle.textContent = active.prettyCwd ? `${active.prettyCwd} — ${what}` : what
+  windowTitle.textContent = tabName(active)
   const g = groupOf(active)
   broadcastBar.hidden = !g?.broadcast
   if (g?.broadcast) broadcastBar.textContent = `📣 Typing goes to all ${g.count} panes in this tab — ⌥⌘I to stop`
-  const title = active.prettyCwd ? `${active.title} — ${active.prettyCwd}` : active.title
-  WindowSetTitle(title)
+  WindowSetTitle(tabName(active)) // also the window's name in the Window menu
   secureBadge.hidden = !active.passwordMode
   const hint = active.browseHint()
   hintEl.innerHTML = hint
