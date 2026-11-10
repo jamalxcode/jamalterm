@@ -161,8 +161,36 @@ jobs:
 
   # Publishes the files the Mac job built and checked (no rebuild), once the
   # UI tests have passed too.
+  # Browse mode under the shell setups people actually use (oh-my-zsh,
+  # Powerlevel10k with instant prompt, prezto, starship in zsh, bash and fish).
+  shells:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - name: Install shells and setups
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            sudo apt-get update -q && sudo apt-get install -y -q zsh fish
+            curl -sS https://starship.rs/install.sh | sh -s -- -y -b /usr/local/bin
+          else
+            brew install fish starship
+          fi
+          mkdir -p "$RUNNER_TEMP/setups" && cd "$RUNNER_TEMP/setups"
+          git clone -q --depth 1 https://github.com/ohmyzsh/ohmyzsh.git
+          git clone -q --depth 1 https://github.com/romkatv/powerlevel10k.git
+          git clone -q --depth 1 --recurse-submodules --shallow-submodules https://github.com/sorin-ionescu/prezto.git
+      - name: Test
+        env: { JT_SHELL_SETUPS: "${{ runner.temp }}/setups" }
+        run: go test -timeout 5m -run 'TestRealShellSetups|TestIntegration' -v ./internal/shell
+
   publish:
-    needs: [ui, macos]
+    needs: [ui, macos, shells]
     if: needs.macos.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:

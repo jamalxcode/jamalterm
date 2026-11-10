@@ -17,9 +17,12 @@ type capture struct {
 func (c *capture) write(p []byte) { c.mu.Lock(); c.buf.Write(p); c.mu.Unlock() }
 func (c *capture) String() string { c.mu.Lock(); defer c.mu.Unlock(); return c.buf.String() }
 
+// waitTimeout is longer for heavy shell setups (oh-my-zsh, prezto).
+var waitTimeout = 5 * time.Second
+
 func waitFor(t *testing.T, c *capture, want string) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(waitTimeout)
 	for time.Now().Before(deadline) {
 		if strings.Contains(c.String(), want) {
 			return
