@@ -41,10 +41,26 @@ pub fn channel(name: &str) -> Channel {
     }
 }
 
+/// A beta release (4.0.0-beta.3), not a test build.
+pub fn is_beta(version: &str) -> bool {
+    version.contains('-') && !test_build(version)
+}
+
+/// The channel to check: the setting, except that a beta always checks
+/// for betas, so it moves on to the next beta (and then the final version)
+/// without a trip to Settings.
+pub fn channel_for(name: &str, running: &str) -> Channel {
+    if is_beta(running) {
+        Channel::Beta
+    } else {
+        channel(name)
+    }
+}
+
 impl Updates {
     pub fn new(settings_dir: &Path, channel_name: &str) -> Updates {
         Updates {
-            status: Status::new(channel(channel_name)),
+            status: Status::new(channel_for(channel_name, update::current_version())),
             rx: None,
             staged: Default::default(),
             // The first automatic check waits a little after the start.
@@ -341,6 +357,19 @@ mod tests {
         assert!(test_build("4.0.0-dev"));
         assert!(!test_build("4.0.0"));
         assert!(!test_build("4.0.0-beta.1"));
+    }
+
+    #[test]
+    fn a_beta_checks_for_betas_whatever_the_setting() {
+        assert_eq!(channel_for("stable", "4.0.0-beta.3"), Channel::Beta);
+        assert_eq!(channel_for("", "4.0.0-beta.3"), Channel::Beta);
+        assert_eq!(channel_for("stable", "4.0.0"), Channel::Stable);
+        assert_eq!(channel_for("beta", "4.0.0"), Channel::Beta);
+        assert_eq!(
+            channel_for("stable", "0.0.0-dev.abc1234"),
+            Channel::Stable,
+            "a test build isn't a beta"
+        );
     }
 
     #[test]

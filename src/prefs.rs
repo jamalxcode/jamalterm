@@ -343,18 +343,30 @@ fn updates_pane(ui: &mut Ui, s: &mut Settings, u: &UpdatesInfo) -> Option<Update
     });
     ui.add_space(8.0);
     toggles(ui, s, Pane::Updates, false);
-    ui.horizontal(|ui| {
-        ui.label("Channel");
-        if ui.radio(s.update_channel != "beta", "Stable").clicked() {
-            s.update_channel = "stable".into();
-        }
-        if ui
-            .radio(s.update_channel == "beta", "Beta (new versions first)")
-            .clicked()
-        {
-            s.update_channel = "beta".into();
-        }
-    });
+    let running = crate::update::current_version();
+    if crate::updates::is_beta(running) {
+        // A beta always gets the next beta: nothing to choose here.
+        ui.horizontal(|ui| {
+            ui.label("Channel");
+            ui.label(RichText::new("Beta").strong());
+        });
+        ui.weak(format!(
+            "You're running a beta ({running}), so jamalterm updates to each new beta and then to the final version by itself."
+        ));
+    } else {
+        ui.horizontal(|ui| {
+            ui.label("Channel");
+            if ui.radio(s.update_channel != "beta", "Stable").clicked() {
+                s.update_channel = "stable".into();
+            }
+            if ui
+                .radio(s.update_channel == "beta", "Beta (new versions first)")
+                .clicked()
+            {
+                s.update_channel = "beta".into();
+            }
+        });
+    }
     ui.add_space(8.0);
     ui.weak(
         "Before installing, jamalterm checks the download's checksum, a Sigstore build proof that GitHub built exactly that file from jamalterm's repository, and the app's signature and bundle id. A download that fails any check is never installed.",

@@ -1606,7 +1606,10 @@ impl App {
 
     /// The updater's background news.
     fn update_tick(&mut self) {
-        let channel = crate::updates::channel(&self.settings.update_channel);
+        let channel = crate::updates::channel_for(
+            &self.settings.update_channel,
+            crate::update::current_version(),
+        );
         if self.updates.status.channel != channel {
             self.updates.status.channel = channel;
         }
