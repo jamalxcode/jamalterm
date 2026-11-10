@@ -6,6 +6,7 @@ use crate::app::Tab;
 use crate::commands::Cmd;
 use serde::Serialize;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 #[derive(Serialize, Default)]
@@ -49,6 +50,17 @@ pub struct Smoke {
     /// A close question is up (from the app), and the answer to give it.
     pub asking: bool,
     pub answer: Option<bool>,
+    /// The stand-in AI provider's address, and the requests it got.
+    pub ai_server: String,
+    ai_requests: Arc<Mutex<Vec<String>>>,
+    /// The AI panel (from the app): open, the last command card's state,
+    /// the last answer, still answering.
+    pub ai_open: bool,
+    pub ai_card: Option<String>,
+    pub ai_answer: Option<String>,
+    pub ai_busy: bool,
+    /// Clicks Run (true) or Don't Run on the AI's command.
+    pub ai_decide: Option<bool>,
     /// Done: the app should quit.
     pub quit: bool,
     /// How many windows are open (from the app each frame).
@@ -448,6 +460,85 @@ const STEPS: &[Step] = &[
         limit: Duration::from_secs(3),
     },
     Step {
+        name: "⌘I opens the AI panel",
+        act: |s, _, _, _| s.press(egui::Key::I, cmd_mods()),
+        done: |s, _, _| s.ai_open.then(|| (true, String::new())),
+        limit: Duration::from_secs(3),
+    },
+    Step {
+        name: "a question goes to the AI",
+        act: |s, _, _, _| {
+            s.keys
+                .push(egui::Event::Text("run echo from-ai for me".into()));
+            s.script.push_back(vec![]);
+            s.script.push_back(vec![egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }]);
+        },
+        done: |s, _, _| {
+            s.ai_card
+                .is_some()
+                .then(|| (true, String::new()))
+                .or_else(|| {
+                    s.ai_answer
+                        .as_ref()
+                        .filter(|a| a.starts_with("error"))
+                        .map(|a| (false, a.clone()))
+                })
+        },
+        limit: Duration::from_secs(10),
+    },
+    Step {
+        name: "the AI's command waits for Run",
+        act: |_, _, _, _| {},
+        done: |s, tabs, a| {
+            let waiting = s.ai_card.as_deref() == Some("Asking");
+            let ran = blocks(tabs, a).iter().any(|b| b.command == "echo from-ai");
+            Some((waiting && !ran, format!("card: {:?}", s.ai_card)))
+        },
+        limit: Duration::from_secs(1),
+    },
+    Step {
+        name: "(screenshot: AI panel)",
+        act: |s, ctx, _, _| s.shot(ctx, "ai"),
+        done: |_, _, _| None,
+        limit: Duration::from_millis(800),
+    },
+    Step {
+        name: "Run runs it, and the AI hears how it went",
+        act: |s, _, _, _| s.ai_decide = Some(true),
+        done: |s, tabs, a| {
+            let answered = s.ai_answer.as_deref() == Some("It printed from-ai.") && !s.ai_busy;
+            answered.then(|| {
+                let ran = blocks(tabs, a)
+                    .iter()
+                    .any(|b| b.command == "echo from-ai" && b.exit == Some(0));
+                let reqs = s.ai_requests.lock().unwrap();
+                let told = reqs.get(1).is_some_and(|r| {
+                    r.contains("tool_result") && r.contains("exit code 0") && r.contains("from-ai")
+                });
+                let sent_context = reqs
+                    .first()
+                    .is_some_and(|r| r.contains("<terminal>") && r.contains("echo smoke-ok"));
+                (
+                    ran && told && sent_context,
+                    format!("ran {ran}, told {told}, context {sent_context}"),
+                )
+            })
+        },
+        limit: Duration::from_secs(15),
+    },
+    Step {
+        name: "(⌘I hides it)",
+        act: |s, _, _, _| s.press(egui::Key::I, cmd_mods()),
+        done: |s, _, _| (!s.ai_open).then(|| (true, String::new())),
+        limit: Duration::from_secs(3),
+    },
+    Step {
         name: "⌘T opens a tab",
         act: |s, _, _, _| s.press(egui::Key::T, cmd_mods()),
         done: |_, tabs, _| (tabs.len() == 2).then(|| (true, "2 tabs".into())),
@@ -592,6 +683,8 @@ impl Smoke {
     pub fn from_env() -> Option<Smoke> {
         let dir = PathBuf::from(std::env::var_os("JAMALTERM_SMOKE")?);
         let _ = std::fs::create_dir_all(&dir);
+        let ai_requests = Arc::new(Mutex::new(vec![]));
+        let ai_server = stand_in_ai(ai_requests.clone());
         Some(Smoke {
             keys: vec![],
             find_status: None,
@@ -600,6 +693,13 @@ impl Smoke {
             windows: 1,
             cmds: vec![],
             quit: false,
+            ai_server,
+            ai_requests,
+            ai_open: false,
+            ai_card: None,
+            ai_answer: None,
+            ai_busy: false,
+            ai_decide: None,
             asking: false,
             answer: None,
             palette_open: false,
@@ -725,6 +825,81 @@ impl Smoke {
         self.step += 1;
         self.acted = false;
     }
+}
+
+/// A stand-in for Anthropic's API, so the self-test can check the AI panel
+/// end to end without a key or the network: the first answer asks to run
+/// `echo from-ai`, the next one (with the result) answers in words.
+fn stand_in_ai(requests: Arc<Mutex<Vec<String>>>) -> String {
+    use std::io::{BufRead, BufReader, Read, Write};
+    let Ok(l) = std::net::TcpListener::bind("127.0.0.1:0") else {
+        return String::new();
+    };
+    let base = format!(
+        "http://{}",
+        l.local_addr().map(|a| a.to_string()).unwrap_or_default()
+    );
+    std::thread::spawn(move || {
+        for n in 0.. {
+            let Ok((mut s, _)) = l.accept() else { return };
+            let mut r = BufReader::new(match s.try_clone() {
+                Ok(c) => c,
+                Err(_) => continue,
+            });
+            let mut len = 0;
+            loop {
+                let mut h = String::new();
+                if r.read_line(&mut h).unwrap_or(0) == 0 || h == "\r\n" {
+                    break;
+                }
+                if let Some(v) = h.to_ascii_lowercase().strip_prefix("content-length:") {
+                    len = v.trim().parse().unwrap_or(0);
+                }
+            }
+            let mut body = vec![0; len];
+            let _ = r.read_exact(&mut body);
+            requests
+                .lock()
+                .unwrap()
+                .push(String::from_utf8_lossy(&body).into());
+            let ev = |v: serde_json::Value| {
+                format!("event: {}\ndata: {v}\n\n", v["type"].as_str().unwrap_or(""))
+            };
+            let start = ev(
+                serde_json::json!({"type":"message_start","message":{"model":"stand-in-model"}}),
+            );
+            let reply = if n == 0 {
+                start
+                    + &ev(
+                        serde_json::json!({"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_smoke","name":"type_in_terminal","input":{}}}),
+                    )
+                    + &ev(
+                        serde_json::json!({"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"command\":\"echo from-ai\",\"run\":true}"}}),
+                    )
+                    + &ev(serde_json::json!({"type":"content_block_stop","index":0}))
+                    + &ev(
+                        serde_json::json!({"type":"message_delta","delta":{"stop_reason":"tool_use"}}),
+                    )
+            } else {
+                start
+                    + &ev(
+                        serde_json::json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
+                    )
+                    + &ev(
+                        serde_json::json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"It printed from-ai."}}),
+                    )
+                    + &ev(
+                        serde_json::json!({"type":"message_delta","delta":{"stop_reason":"end_turn"}}),
+                    )
+            };
+            let _ = write!(
+                s,
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                reply.len()
+            );
+        }
+    });
+    base
 }
 
 fn save_png(path: &std::path::Path, img: &egui::ColorImage) -> std::io::Result<()> {

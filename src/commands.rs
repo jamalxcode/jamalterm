@@ -16,6 +16,8 @@ pub enum Cmd {
     /// Right-click → Search with Google (the selected text).
     SearchWeb,
     Palette,
+    /// ⌘I: show or hide the AI panel.
+    AiPanel,
     NewWindow,
     NewTab,
     SplitRight,
@@ -185,6 +187,7 @@ pub const TABLE: &[Entry] = &[
     ),
     e(Cmd::Clear, "Clear Scrollback", Menu::Edit, Key::K, false),
     e(Cmd::Palette, "Command Palette…", Menu::View, Key::P, true),
+    e(Cmd::AiPanel, "Show AI Panel", Menu::View, Key::I, false),
     // "Hide Tab Bar" while it's shown (the menu says what it'll do).
     e(Cmd::ToggleTabBar, "Show Tab Bar", Menu::View, Key::T, true),
     e(Cmd::Bigger, "Bigger", Menu::View, Key::Equals, false),

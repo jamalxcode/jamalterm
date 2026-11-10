@@ -8,6 +8,8 @@
 //! (AI, Privacy, Updates) come back with their features. Their fields stay
 //! in settings.json untouched.
 
+use crate::ai;
+use crate::keys::Keys;
 use crate::palette::{Pane, TOGGLES};
 use crate::settings::Settings;
 use egui::{RichText, Ui};
@@ -19,7 +21,21 @@ pub struct Out {
     pub preview: Option<&'static str>,
 }
 
-pub fn show(ui: &mut Ui, s: &mut Settings, pane: &mut Pane) -> Out {
+/// What the AI pane is in the middle of: the key being typed, and the last
+/// message ("Saved.", "Found Ollama…").
+#[derive(Default)]
+pub struct State {
+    pub key: String,
+    pub message: String,
+}
+
+pub fn show(
+    ui: &mut Ui,
+    s: &mut Settings,
+    pane: &mut Pane,
+    keys: &mut Keys,
+    st: &mut State,
+) -> Out {
     let before = s.clone();
     let mut preview = None;
 
@@ -40,6 +56,8 @@ pub fn show(ui: &mut Ui, s: &mut Settings, pane: &mut Pane) -> Out {
         match pane {
             Pane::Appearance => appearance(ui, s, &mut preview),
             Pane::Shell => shell(ui, s),
+            Pane::Ai => ai_pane(ui, s, keys, st),
+            Pane::Privacy => privacy(ui, s),
         }
     });
     Out {
@@ -131,6 +149,128 @@ fn appearance(ui: &mut Ui, s: &mut Settings, preview: &mut Option<&'static str>)
             });
             toggles(ui, s, Pane::Appearance, true);
         });
+}
+
+fn ai_pane(ui: &mut Ui, s: &mut Settings, keys: &mut Keys, st: &mut State) {
+    toggles(ui, s, Pane::Ai, false);
+    if !s.ai_enabled {
+        return;
+    }
+    ui.add_space(8.0);
+    ui.label(RichText::new("Assistant").strong());
+    for p in ai::PROVIDERS {
+        if ui.radio(s.ai_provider == p.id, p.label).clicked() && s.ai_provider != p.id {
+            s.ai_provider = p.id.into();
+            st.key.clear();
+            st.message.clear();
+        }
+    }
+    let p = ai::provider(&s.ai_provider);
+    ui.add_space(8.0);
+    if p.local {
+        ui.horizontal(|ui| {
+            ui.label("Server");
+            ui.add(egui::TextEdit::singleline(&mut s.local_url).desired_width(240.0));
+            if ui
+                .button("Find")
+                .on_hover_text("Look for Ollama and LM Studio on this Mac")
+                .clicked()
+            {
+                st.message = find_local(s);
+            }
+        });
+    } else {
+        let env = crate::keys::ENV
+            .iter()
+            .find(|(id, _)| *id == p.id)
+            .map(|e| e.1)
+            .unwrap_or("");
+        ui.horizontal(|ui| {
+            ui.label("API key");
+            let hint = if keys.saved(p.id) {
+                "saved (encrypted on this computer)".to_string()
+            } else {
+                p.key_hint.to_string()
+            };
+            let edit = ui.add(
+                egui::TextEdit::singleline(&mut st.key)
+                    .password(true)
+                    .hint_text(hint)
+                    .desired_width(240.0),
+            );
+            let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if (ui.button("Save").clicked() || enter) && !st.key.trim().is_empty() {
+                st.message = match keys.set(p.id, &st.key) {
+                    Ok(()) => "Saved, encrypted in jamalterm's key file.".into(),
+                    Err(e) => e,
+                };
+                st.key.clear();
+            }
+            if keys.saved(p.id) && ui.button("Remove").clicked() {
+                st.message = match keys.set(p.id, "") {
+                    Ok(()) => "Removed.".into(),
+                    Err(e) => e,
+                };
+            }
+        });
+        ui.weak(format!("Make one at {}. {}", p.key_where, p.billing));
+        if !keys.saved(p.id) && keys.get(p.id).is_some() {
+            ui.weak(format!("Using ${env} from your environment."));
+        }
+        if keys.unreadable {
+            ui.label(
+                "⚠ Saved keys couldn't be opened on this computer (copied from another Mac?). Saving a key starts a new key file.",
+            );
+        }
+    }
+    if let Some(m) = ai::model_setting_mut(s, p.id) {
+        ui.horizontal(|ui| {
+            ui.label("Model");
+            ui.add(
+                egui::TextEdit::singleline(m)
+                    .hint_text(format!("automatic: {}", p.auto_model))
+                    .desired_width(260.0),
+            );
+        });
+    }
+    if !st.message.is_empty() {
+        ui.label(st.message.as_str());
+    }
+}
+
+/// Looks for a local model server (Ollama, LM Studio) and uses the first
+/// that answers.
+fn find_local(s: &mut Settings) -> String {
+    for (name, url) in [
+        ("Ollama", "http://localhost:11434/v1"),
+        ("LM Studio", "http://localhost:1234/v1"),
+    ] {
+        let ep = ai::Endpoint {
+            provider: "local",
+            base: url.into(),
+            key: "local".into(),
+            model: String::new(),
+        };
+        if let Ok(models) = ai::compat::list_models(&ep) {
+            s.local_url = url.into();
+            return format!("Found {name} with {} model(s).", models.len());
+        }
+    }
+    "Neither Ollama nor LM Studio is running on this Mac.".into()
+}
+
+fn privacy(ui: &mut Ui, s: &mut Settings) {
+    toggles(ui, s, Pane::Privacy, false);
+    ui.add_space(8.0);
+    for line in [
+        "With each AI question go your recent commands, their exit codes and (if on above) their output. Things that look like keys, tokens and passwords are replaced with [hidden secret] first, and the panel says how many.",
+        "Local models never send anything off this Mac.",
+        "API keys are kept in one encrypted file next to the settings, readable only by you and only on this computer, never in the Keychain: nothing asks for your password.",
+        "jamalterm never logs or sends your commands, output, questions or keys anywhere else.",
+    ] {
+        ui.label(line);
+        ui.add_space(4.0);
+    }
 }
 
 fn shell(ui: &mut Ui, s: &mut Settings) {

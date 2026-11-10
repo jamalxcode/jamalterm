@@ -18,6 +18,15 @@ base64 = "0.22"
 arboard = "3"
 anyhow = "1.0.104"
 png = "0.17"
+# API keys: AES-256-GCM with an HKDF-SHA256 key (3.x's keys.enc format).
+aes-gcm = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+getrandom = "0.3"
+libc = "0.2"
+# The AI panel: requests to the providers, secret hiding and risk checks.
+ureq = { version = "3", default-features = false, features = ["json"] }
+regex = "1"
 
 [dev-dependencies]
 tempfile = "3"
@@ -31,7 +40,12 @@ strip = true
 name = "jamalterm"
 identifier = "com.jamalxcode.jamalterm"
 
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+ureq = { version = "3", default-features = false, features = ["json", "rustls"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
+# On a Mac, HTTPS uses the system's TLS and trust store (Security framework).
+ureq = { version = "3", default-features = false, features = ["json", "native-tls"] }
 muda = "0.21"
 # The window's view for the right-click menu, and native alerts (the same
 # versions muda uses).

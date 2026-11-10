@@ -36,5 +36,32 @@ pub fn install(ctx: &egui::Context) {
     fonts
         .families
         .insert(FontFamily::Name("mono-bold".into()), bold);
+    // Ordinary text (tooltips, the panel, Settings) borrows JetBrains Mono's
+    // key symbols (⌘ ⇧ ⌥ ⏎) and marks (✓ ✕ ⚠) that egui's own font lacks.
+    fonts
+        .families
+        .entry(FontFamily::Proportional)
+        .or_default()
+        .push("jbm".into());
     ctx.set_fonts(fonts);
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn ordinary_text_can_show_key_symbols() {
+        let ctx = egui::Context::default();
+        super::install(&ctx);
+        let mut out = ctx.run_ui(Default::default(), |_| {});
+        let all = ctx.fonts_mut(|f| {
+            ['⌘', '⇧', '⌥', '⏎', '✓', '✕', '⚠', '…']
+                .into_iter()
+                .filter(|c| !f.has_glyph(&egui::FontId::proportional(14.0), *c))
+                .collect::<Vec<_>>()
+        });
+        let mut more = ctx.run_ui(Default::default(), |_| {});
+        out.textures_delta.clear();
+        more.textures_delta.clear();
+        assert!(all.is_empty(), "no glyphs for {all:?}");
+    }
 }

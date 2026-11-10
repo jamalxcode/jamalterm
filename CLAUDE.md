@@ -4,8 +4,11 @@ A macOS terminal with browse mode (re-run past commands), split panes and an AI 
 
 ## Layout (Rust, `src/`)
 
-- `main.rs` (window setup), `app.rs` (tabs, tab bar, keyboard/mouse, window title), `view.rs` (drawing the terminal: runs of cells, cursor, selection, ✓/✕ marks).
-- `session.rs` (a tab's shell: PTY via `portable-pty`, emulator via `alacritty_terminal`, commands built from the marks), `marks.rs` (OSC 133 / 7 / 6973 scanner), `shell.rs` (which shell, its environment, loading the hooks), `input.rs` (keys to bytes, paste).
+- `main.rs` (window setup), `app.rs` (windows, tabs, panes, keyboard/mouse, titles; each window's state is a `Win`, the one being drawn is `App::w`), `view.rs` (drawing the terminal: runs of cells, cursor, selection, ✓/✕ marks).
+- `session.rs` (a pane's shell: PTY via `portable-pty`, emulator via `alacritty_terminal`, commands built from the marks, `busy()`), `marks.rs` (OSC 133 / 7 / 6973 scanner), `shell.rs` (which shell, its environment, loading the hooks), `input.rs` (keys to bytes, paste).
+- `browse.rs` (browse mode), `find.rs` (⌘F), `panes.rs` (split layout), `tabdrag.rs` (moving tabs), `restore.rs` (session.json), `alert.rs` (asking before ending programs).
+- `commands.rs` (every command: title, menu, shortcut), `menu.rs` (the Mac menu bar and right-click menu), `palette.rs` (⇧⌘P, and the on/off settings list), `prefs.rs` (the Settings window).
+- `ai/` (providers, Claude and OpenAI-compatible clients, secret hiding, risk checks), `aipanel.rs` (the AI panel), `keys.rs` (API keys: the encrypted key file).
 - `settings.rs` (settings.json, same file and fields as 3.x), `themes.rs` (the 10 themes), `fonts.rs`, `smoke.rs` (self-test).
 - `resources/integration/` (the shell hook scripts, unchanged from 3.x), `assets/fonts/`.
 

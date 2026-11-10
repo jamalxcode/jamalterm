@@ -21,14 +21,18 @@ pub enum Pane {
     #[default]
     Appearance,
     Shell,
+    Ai,
+    Privacy,
 }
 
 impl Pane {
-    pub const ALL: [Pane; 2] = [Pane::Appearance, Pane::Shell];
+    pub const ALL: [Pane; 4] = [Pane::Appearance, Pane::Shell, Pane::Ai, Pane::Privacy];
     pub fn name(self) -> &'static str {
         match self {
             Pane::Appearance => "Appearance",
             Pane::Shell => "Shell",
+            Pane::Ai => "AI",
+            Pane::Privacy => "Privacy",
         }
     }
 }
@@ -71,6 +75,18 @@ pub const TOGGLES: &[Toggle] = &[
         field: |s| &mut s.option_is_meta,
     },
     Toggle {
+        label: "AI features (the AI panel, ⌘I)",
+        pane: Pane::Ai,
+        advanced: false,
+        field: |s| &mut s.ai_enabled,
+    },
+    Toggle {
+        label: "Send command output with AI questions (secrets are hidden first)",
+        pane: Pane::Privacy,
+        advanced: false,
+        field: |s| &mut s.ai_share_output,
+    },
+    Toggle {
         label: "Shell integration (marks, browse mode) for new tabs",
         pane: Pane::Shell,
         advanced: true,
@@ -88,6 +104,8 @@ pub enum Action {
     Tab(u64, usize),
     /// Open Settings at a pane.
     Settings(Pane),
+    /// Use this AI assistant.
+    Provider(&'static str),
 }
 
 #[derive(Clone, Debug)]
@@ -168,6 +186,18 @@ pub fn items(settings: &Settings) -> Vec<Item> {
                 String::new()
             },
             action: Action::Theme(t.id),
+        });
+    }
+    for p in crate::ai::PROVIDERS {
+        v.push(Item {
+            title: format!("AI assistant: {}", p.label),
+            group: "AI",
+            keys: if p.id == settings.ai_provider {
+                "current".into()
+            } else {
+                String::new()
+            },
+            action: Action::Provider(p.id),
         });
     }
     for p in Pane::ALL {

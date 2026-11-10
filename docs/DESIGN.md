@@ -38,6 +38,9 @@ eframe/egui (native window, OpenGL)        one thread per shell
 - **Asking before ending programs** (`alert.rs`): a pane is busy when the pty's foreground process group isn't the shell's (`Session::busy`, tcgetpgrp). ⌘W, ⌥⌘W, the tab's ×, ⇧⌘W, a window's close button and ⌘Q ask first. On a Mac it's a native `NSAlert` sheet with Cancel as the first (default) button; the Quit item is our own so ⌘Q can ask. The self-test (and other systems) get the same question inside the window.
 - **Esc that closes the find bar or palette never reaches the shell.** egui drops a field's focus on Esc before the app sees the key, so it used to slip through, and zsh then swallowed the next key typed (as Meta). The self-test checks a command typed right after arrives whole.
 
+- **AI panel** (`ai/`, `aipanel.rs`, §7): ⌘I opens a violet-tinted card beside the terminal. Claude goes straight to the Messages API over HTTPS (there's no official Rust SDK): API version `2026-10-21`, streaming, `output_config.effort: medium` (Claude Opus 5.5 always thinks), server-side `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`) so a declined request is re-run on a fallback model, and a refusal that still stands drops the partial answer. Thinking blocks go back unchanged; after a mid-answer fallback, thinking and tool_use blocks before the last `fallback` block are left out. The other providers use their OpenAI-compatible APIs; "automatic" picks the newest general model (3.x's ranking); a model without tools answers without the tool. The one tool, `type_in_terminal`, streams its input (`eager_input_streaming`), so it's checked strictly before anything is done; a cut-short input is answered as `INVALID_JSON`, never run. Running waits for Run; risky commands (3.x's rules, `ai/risk.rs`) need Run Anyway and say why. What ran goes back with its exit code and the end of its output, secrets hidden. On a Mac, HTTPS uses the system's TLS and trust store (native-tls); elsewhere rustls. Tested against a local stand-in server, in unit tests and in the self-test.
+- **API keys** (`keys.rs`, §8): 3.x's `keys.enc` format, byte for byte (a test opens a file made by 3.5.0's own Go code). Nothing touches the Keychain; moving keys an older version left there isn't ported, because that is the one path that shows a password prompt.
+
 ### Status (what works / what's left)
 | Area | 4.x Rust |
 |---|---|
@@ -50,8 +53,10 @@ eframe/egui (native window, OpenGL)        one thread per shell
 | Split panes (⌘D, ⇧⌘D, dividers, ⌘[ ⌘], ⌥⌘ arrows), multiple windows (⌘N, ⇧⌘W), moving tabs (drag, Move Tab to New Window, Merge All Windows), session restore (3.x file) | ✅ phase 3 |
 | Native Mac menu bar (one command table), find (⌘F, ⌘G/⇧⌘G, "3 of 17") | ✅ phase 2 |
 | Command palette (⇧⌘P), right-click menu (native on a Mac), Settings window (⌘,: Appearance, Shell), asking before closing running programs (native alert) | ✅ phase 4 |
-| AI panel, command bar, Fix it, risk checks, providers, local models | ⏳ |
-| Encrypted keys, Secure Keyboard Entry, problem log, diagnostics, crash reports | ⏳ |
+| AI panel (⌘I), the type/run tool with risk checks, secret hiding, providers (Claude, ChatGPT, DeepSeek, Grok, OpenRouter, Local), "Why did it fail?" | ✅ phase 5 |
+| Command bar (English → command), Fix it on failed commands, OpenRouter and Anthropic sign-in | ⏳ |
+| Encrypted keys (3.x file) | ✅ phase 5 |
+| Secure Keyboard Entry, problem log, diagnostics, crash reports | ⏳ |
 | Updater with Sigstore check, What's new, Beta channel, releases | ⏳ |
 | Menu bar icon, Dock menu, notifications, finish line, stats, project colors, wallpaper theme | ⏳ |
 | OSC 8 links, images, kitty keyboard, ligatures, input methods, VoiceOver | ⏳ |

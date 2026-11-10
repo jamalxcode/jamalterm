@@ -1,6 +1,8 @@
 //! jamalterm: a macOS terminal with a free-floating cursor (browse mode) and
 //! AI built in. This is the Rust version (4.x); see docs/DESIGN.md.
 
+mod ai;
+mod aipanel;
 mod alert;
 mod app;
 mod browse;
@@ -8,6 +10,7 @@ mod commands;
 mod find;
 mod fonts;
 mod input;
+mod keys;
 mod marks;
 #[cfg(target_os = "macos")]
 mod menu;

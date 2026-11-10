@@ -5,6 +5,7 @@ use crate::browse::{self, Action, Browse};
 use crate::commands::{self, Cmd};
 use crate::find::Find;
 use crate::input::{is_app_shortcut, key_bytes, paste_bytes};
+use crate::keys::Keys;
 use crate::palette;
 use crate::panes::{self, Dir, Node};
 use crate::restore;
@@ -14,6 +15,7 @@ use crate::shell::ShellSpec;
 use crate::tabdrag;
 use crate::themes::{self, Theme};
 use crate::view::{self, Look};
+use crate::{ai, aipanel};
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::index::{Column, Line, Point, Side};
 use alacritty_terminal::selection::{Selection, SelectionType};
@@ -239,6 +241,9 @@ pub struct Win {
     open_at: Option<restore::Frame>,
     /// The command palette (⇧⌘P), when open.
     palette: Option<palette::Palette>,
+    /// The AI panel (⌘I) and its conversation.
+    ai: aipanel::Chat,
+    ai_open: bool,
     /// The tab being dragged (its place in the bar), and the pointer's last
     /// position in this window.
     tab_drag: Option<usize>,
@@ -264,6 +269,8 @@ impl Win {
             frame: None,
             open_at: None,
             palette: None,
+            ai: aipanel::Chat::default(),
+            ai_open: false,
             tab_drag: None,
             drag_pos: None,
             root: false,
@@ -296,6 +303,12 @@ pub struct App {
     asking: Option<alert::Pending>,
     /// The close that was just allowed (it goes ahead without asking again).
     allowed: Option<alert::Closing>,
+    /// API keys (the encrypted key file).
+    keys: Keys,
+    /// The AI pane's state in Settings.
+    prefs: crate::prefs::State,
+    /// The self-test's stand-in for an AI provider: (address, key).
+    ai_override: Option<(String, String)>,
     /// The next pane's id.
     next_id: u64,
     settings: Settings,
@@ -330,6 +343,11 @@ impl App {
         } else {
             settings.shell.clone()
         };
+        let keys = Keys::open(&settings_path);
+        let smoke = crate::smoke::Smoke::from_env();
+        let ai_override = smoke
+            .as_ref()
+            .map(|s| (s.ai_server.clone(), "sk-ant-smoke".to_string()));
         let mut app = App {
             w: Win {
                 root: true,
@@ -346,6 +364,9 @@ impl App {
             recent: vec![],
             asking: None,
             allowed: None,
+            keys,
+            prefs: Default::default(),
+            ai_override,
             next_id: 1,
             theme,
             home: dirs::home_dir()
@@ -358,7 +379,7 @@ impl App {
             last_saved: String::new(),
             saved_at: Instant::now(),
             started: Instant::now(),
-            smoke: crate::smoke::Smoke::from_env(),
+            smoke,
             ctx: cc.egui_ctx.clone(),
             #[cfg(target_os = "macos")]
             menu: crate::menu::MacMenu::install(&cc.egui_ctx),
@@ -691,7 +712,13 @@ impl App {
                 focused = i.viewport().focused == Some(true);
             });
             egui::CentralPanel::default().show(ui, |ui| {
-                out = Some(crate::prefs::show(ui, &mut settings, &mut pane));
+                out = Some(crate::prefs::show(
+                    ui,
+                    &mut settings,
+                    &mut pane,
+                    &mut self.keys,
+                    &mut self.prefs,
+                ));
             });
         });
         if focused {
@@ -719,6 +746,293 @@ impl App {
         self.theme = themes::by_id(&self.settings.theme);
         if self.front == SETTINGS {
             self.front = self.w.id;
+        }
+    }
+
+    /// Where AI questions go now (or why they can't go).
+    fn ai_endpoint(&self) -> Result<ai::Endpoint, String> {
+        if let Some((base, key)) = &self.ai_override {
+            return Ok(ai::Endpoint {
+                provider: "anthropic",
+                base: base.clone(),
+                key: key.clone(),
+                model: String::new(),
+            });
+        }
+        ai::Endpoint::from_settings(&self.settings, self.keys.get(&self.settings.ai_provider))
+    }
+
+    /// Recent commands, exit codes and (unless switched off) output in the
+    /// pane with the focus, and the folder: what goes with a question.
+    fn ai_context(&self) -> String {
+        let Some(p) = self.pane() else {
+            return String::new();
+        };
+        let s = p.session.screen.lock().unwrap();
+        let bottom = s.abs_cursor_line();
+        let mut parts = vec![];
+        let mut budget = 8000usize;
+        for b in s.commands.blocks.iter().rev().take(10) {
+            let mut t = format!("$ {}", b.command);
+            if self.settings.ai_share_output {
+                let from = b.start.unwrap_or(b.prompt + 1);
+                let to = browse::block_end(b, bottom);
+                let lines: Vec<String> = (from..=to).map(|l| s.line_text(l)).collect();
+                let keep = lines.len().saturating_sub(60);
+                let out = lines[keep..].join("\n");
+                if !out.trim().is_empty() {
+                    t.push('\n');
+                    t.push_str(out.trim_end());
+                }
+            }
+            if let Some(code) = b.exit {
+                t.push_str(&format!("\n(exit {code})"));
+            }
+            if t.len() > budget {
+                break;
+            }
+            budget -= t.len();
+            parts.push(t);
+        }
+        parts.reverse();
+        let mut c = parts.join("\n\n");
+        if !s.cwd.is_empty() {
+            c = format!("Folder: {}\n\n{c}", s.cwd);
+        }
+        c
+    }
+
+    /// Sends a question from the AI panel.
+    fn ai_ask(&mut self, ctx: &egui::Context, prompt: String) {
+        let ep = match self.ai_endpoint() {
+            Ok(ep) => ep,
+            Err(e) => {
+                self.w.ai.items.push(aipanel::Item::Error(e));
+                return;
+            }
+        };
+        let context = self.ai_context();
+        self.w.ai.items.push(aipanel::Item::User(prompt.clone()));
+        self.w.ai.shown = context.clone();
+        let ctx2 = ctx.clone();
+        self.w.ai.running = Some(ai::ask(
+            ep,
+            self.w.ai.history.clone(),
+            ai::Question {
+                prompt,
+                context,
+                shell: self.shell_name.clone(),
+            },
+            Arc::new(move || ctx2.request_repaint()),
+        ));
+    }
+
+    /// Types a command at the prompt of the pane with the focus (and runs
+    /// it). Returns that pane and how many commands it had.
+    fn type_at_prompt(&mut self, command: &str, run: bool) -> Option<(u64, usize)> {
+        let vi = self.settings.prompt_keys == "vi";
+        let p = self.pane_mut()?;
+        p.browse = None;
+        let mut s = p.session.screen.lock().unwrap();
+        s.term.scroll_display(Scroll::Bottom);
+        let before = s.commands.blocks.len();
+        drop(s);
+        p.session
+            .write(&browse::type_command(command, None, run, vi));
+        p.typed = !run;
+        Some((p.id, before))
+    }
+
+    /// The AI panel's events, tool calls and the command it's waiting on.
+    fn ai_tick(&mut self) {
+        for (command, run) in self.w.ai.poll() {
+            if run {
+                let risk = ai::risk::check(&command, &self.w.ai.shown);
+                self.w.ai.items.push(aipanel::Item::Tool(aipanel::Card {
+                    command,
+                    risk,
+                    armed: false,
+                    state: aipanel::CardState::Asking,
+                }));
+            } else {
+                let typed = self.type_at_prompt(&command, false).is_some();
+                self.w.ai.items.push(aipanel::Item::Note(format!(
+                    "Typed at the prompt: {command}"
+                )));
+                self.w.ai.reply(
+                    if typed {
+                        "Typed the command at the prompt; the user will press Return to run it."
+                            .into()
+                    } else {
+                        "There's no terminal to type into.".into()
+                    },
+                    !typed,
+                );
+            }
+        }
+        // A command the AI ran: tell it how it went once it's finished.
+        let Some(card) = self.w.ai.card_mut() else {
+            return;
+        };
+        let aipanel::CardState::Running {
+            pane,
+            before,
+            since,
+        } = card.state.clone()
+        else {
+            return;
+        };
+        let found = self
+            .w
+            .tabs
+            .iter()
+            .flat_map(|t| t.panes())
+            .find(|p| p.id == pane)
+            .map(|p| {
+                let s = p.session.screen.lock().unwrap();
+                s.commands.blocks.get(before..).and_then(|new| {
+                    new.iter().rev().find(|b| b.exit.is_some()).map(|b| {
+                        let bottom = s.abs_cursor_line();
+                        let from = b.start.unwrap_or(b.prompt + 1);
+                        let to = browse::block_end(b, bottom);
+                        let lines: Vec<String> = (from..=to).map(|l| s.line_text(l)).collect();
+                        let keep = lines.len().saturating_sub(40);
+                        (
+                            b.exit.unwrap_or(0),
+                            lines[keep..].join("\n").trim_end().to_string(),
+                        )
+                    })
+                })
+            });
+        let (text, state) = match found {
+            None => (
+                ("The tab it was running in was closed.".to_string(), true),
+                "The tab was closed.".to_string(),
+            ),
+            Some(Some((code, out))) => {
+                let (out, _) = ai::redact::redact(&out);
+                (
+                    (format!("exit code {code}\n{out}"), false),
+                    format!(
+                        "{} Ran it: exit code {code}",
+                        if code == 0 { "✓" } else { "✕" }
+                    ),
+                )
+            }
+            Some(None) if since.elapsed() > Duration::from_secs(120) => (
+                (
+                    "Still running after 2 minutes; the user can see it in the terminal."
+                        .to_string(),
+                    false,
+                ),
+                "… still running (the AI was told)".to_string(),
+            ),
+            Some(None) => return,
+        };
+        if let Some(card) = self.w.ai.card_mut() {
+            card.state = aipanel::CardState::Done(state);
+        }
+        self.w.ai.reply(text.0, text.1);
+    }
+
+    /// Carries out what was done in the AI panel.
+    fn ai_act(&mut self, ctx: &egui::Context, act: aipanel::Act) {
+        use aipanel::Act;
+        match act {
+            Act::Ask(q) => self.ai_ask(ctx, q),
+            Act::Type { command, run } => {
+                self.type_at_prompt(&command, run);
+            }
+            Act::Decide(run) => {
+                let Some(command) = self.w.ai.card_mut().map(|c| c.command.clone()) else {
+                    return;
+                };
+                if run {
+                    let at = self.type_at_prompt(&command, true);
+                    if let Some(card) = self.w.ai.card_mut() {
+                        card.state = match at {
+                            Some((pane, before)) => aipanel::CardState::Running {
+                                pane,
+                                before,
+                                since: Instant::now(),
+                            },
+                            None => aipanel::CardState::Done("No terminal to run it in.".into()),
+                        };
+                    }
+                    if at.is_none() {
+                        self.w
+                            .ai
+                            .reply("There's no terminal to run it in.".into(), true);
+                    }
+                } else {
+                    if let Some(card) = self.w.ai.card_mut() {
+                        card.state = aipanel::CardState::Done("Not run.".into());
+                    }
+                    self.w
+                        .ai
+                        .reply("The user chose not to run it.".into(), true);
+                }
+            }
+            Act::Stop => {
+                if let Some(r) = self.w.ai.running.take() {
+                    r.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                    let _ = r.replies.send(ai::Reply {
+                        text: "Stopped by the user.".into(),
+                        is_error: true,
+                    });
+                }
+                if let Some(card) = self.w.ai.card_mut() {
+                    card.state = aipanel::CardState::Done("Stopped.".into());
+                }
+                self.w.ai.items.push(aipanel::Item::Note("Stopped.".into()));
+            }
+            Act::Close => self.w.ai_open = false,
+            Act::Settings => self.open_settings(Some(palette::Pane::Ai)),
+        }
+    }
+
+    /// The AI panel beside the terminal.
+    fn ai_panel(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        self.ai_tick();
+        if !self.w.ai_open {
+            return;
+        }
+        let last_failed = self.pane().and_then(|p| {
+            let s = p.session.screen.lock().unwrap();
+            s.commands
+                .last_finished()
+                .filter(|b| b.exit.is_some_and(|e| e != 0) && !b.command.is_empty())
+                .map(|b| b.command.clone())
+        });
+        let ready = self.ai_endpoint().map(|_| ());
+        let provider = if self.ai_override.is_some() {
+            "anthropic"
+        } else {
+            ai::provider(&self.settings.ai_provider).id
+        };
+        let fill = aipanel::tint(self.theme.background, self.theme.light);
+        let frame = egui::Frame::new()
+            .fill(fill)
+            .inner_margin(10.0)
+            .stroke(egui::Stroke::new(1.0, fill.gamma_multiply(1.6)));
+        let mut acts = vec![];
+        egui::Panel::right("ai")
+            .frame(frame)
+            .default_size(380.0)
+            .min_size(260.0)
+            .resizable(true)
+            .show(ui, |ui| {
+                let look = aipanel::Look {
+                    provider,
+                    ready,
+                    enabled: self.settings.ai_enabled,
+                    share_output: self.settings.ai_share_output,
+                    last_failed: last_failed.as_deref(),
+                };
+                acts = aipanel::show(ui, &mut self.w.ai, &look);
+            });
+        for a in acts {
+            self.ai_act(ctx, a);
         }
     }
 
@@ -780,6 +1094,10 @@ impl App {
                 }
             }
             palette::Action::Settings(p) => self.open_settings(Some(p)),
+            palette::Action::Provider(id) => {
+                self.settings.ai_provider = id.to_string();
+                self.settings_changed();
+            }
         }
     }
 
@@ -1117,6 +1435,12 @@ impl App {
                     self.tab_bar_hidden = false;
                 }
                 let _ = settings::save(&self.settings_path, &self.settings);
+            }
+            Cmd::AiPanel => {
+                self.w.ai_open = !self.w.ai_open;
+                if self.w.ai_open {
+                    self.w.ai.focus_input = true;
+                }
             }
             Cmd::NewWindow => self.new_window(ctx),
             Cmd::CloseWindow => self.close_window(ctx),
@@ -1669,6 +1993,9 @@ impl eframe::App for App {
         {
             self.close_settings();
         }
+        if let Some(run) = self.smoke.as_mut().and_then(|s| s.ai_decide.take()) {
+            self.ai_act(&ctx, aipanel::Act::Decide(run));
+        }
         if self.w.root
             && let Some(smoke) = self.smoke.as_mut()
         {
@@ -1678,6 +2005,17 @@ impl eframe::App for App {
             smoke.settings_open = self.settings_open.is_some();
             smoke.theme = self.settings.theme.clone();
             smoke.asking = self.asking.is_some();
+            smoke.ai_open = self.w.ai_open;
+            smoke.ai_card = self.w.ai.items.iter().rev().find_map(|i| match i {
+                aipanel::Item::Tool(c) => Some(format!("{:?}", c.state)),
+                _ => None,
+            });
+            smoke.ai_answer = self.w.ai.items.iter().rev().find_map(|i| match i {
+                aipanel::Item::Answer(a) => Some(a.clone()),
+                aipanel::Item::Error(e) => Some(format!("error: {e}")),
+                _ => None,
+            });
+            smoke.ai_busy = self.w.ai.busy();
             smoke.step(&ctx, &self.w.tabs, self.w.active);
         }
 
@@ -1944,6 +2282,7 @@ impl App {
         if self.w.tabs.is_empty() {
             return;
         }
+        self.ai_panel(&ctx, ui);
 
         // Browse mode's key bar.
         if let Some(tab) = self.pane()
@@ -2214,6 +2553,14 @@ impl App {
                 if split { "Close Pane" } else { "Close Tab" },
             );
             let shown = self.w.tabs.len() > 1 || self.settings.show_tab_bar;
+            m.set_title(
+                Cmd::AiPanel,
+                if self.w.ai_open {
+                    "Hide AI Panel"
+                } else {
+                    "Show AI Panel"
+                },
+            );
             m.set_title(
                 Cmd::ToggleTabBar,
                 if shown {
