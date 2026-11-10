@@ -1,6 +1,6 @@
-import { CheckForUpdate, InstallUpdate, OpenURL, Version, PreviousVersion, RevertUpdate, Notice, WhatsNew } from './backend'
+import { CheckForUpdate, InstallUpdate, OpenURL, Version, PreviousVersion, RevertUpdate, Notice } from './backend'
 import { EventsOn } from './backend'
-import { el, toast } from './util'
+import { el, toast, stored, store } from './util'
 import type { UpdateInfo } from './types'
 
 const SIX_HOURS = 6 * 60 * 60 * 1000
@@ -43,7 +43,7 @@ export class Updater {
         if (manual) void Notice('You’re up to date', `jamalterm ${info.current} is the newest version.`)
         return
       }
-      if (!manual && localStorageGet('jt-skip') === info.latest) return
+      if (!manual && stored('jt-skip') === info.latest) return
       this.show()
     } catch (err) {
       if (manual) void Notice('Couldn’t check for updates', `${err}\n\nCheck your internet connection and try again.`)
@@ -77,7 +77,7 @@ export class Updater {
       el('div', { class: 'up-actions' }, later, whatsNew, onQuit, go),
     )
     later.addEventListener('click', () => {
-      localStorageSet('jt-skip', info.latest)
+      store('jt-skip', info.latest)
       this.hide()
     })
     whatsNew.addEventListener('click', () => OpenURL(info.url))
@@ -149,40 +149,4 @@ export class Updater {
     })
     this.root.hidden = false
   }
-}
-
-function localStorageGet(k: string): string | null {
-  try {
-    return localStorage.getItem(k)
-  } catch {
-    return null
-  }
-}
-
-function localStorageSet(k: string, v: string) {
-  try {
-    localStorage.setItem(k, v)
-  } catch {
-    /* private mode */
-  }
-}
-
-/** Once after an update: what changed since the version you had. */
-export async function showWhatsNew() {
-  const version = await Version()
-  if (/dev|test/.test(version)) return
-  const last = localStorageGet('jt-last-version')
-  localStorageSet('jt-last-version', version)
-  if (!last || last === version) return
-  const notes = await WhatsNew(last)
-  if (!notes) return
-  const items = notes.split('\n').filter((l) => /^\s*[-*] /.test(l)).slice(0, 6)
-    .map((l) => el('li', { text: l.replace(/^\s*[-*]\s+/, '').replace(/\*\*/g, '') }))
-  const all = el('button', { class: 'ghost small' }, 'Full Release Notes')
-  const ok = el('button', { class: 'primary small' }, 'OK')
-  const card = el('div', { id: 'whats-new', role: 'dialog', 'aria-label': 'What’s new' },
-    el('strong', { text: `What’s new in jamalterm ${version}` }), el('ul', {}, ...items), el('div', { class: 'keyrow' }, all, ok))
-  document.body.append(card)
-  all.onclick = () => OpenURL(`https://github.com/jamalxcode/jamalterm/releases/tag/v${version}`)
-  ok.onclick = () => card.remove()
 }

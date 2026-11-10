@@ -128,6 +128,11 @@ export class SettingsView {
 
     const live = changed
 
+    // Settings most people never touch sit under a closed "Advanced"
+    // disclosure at the bottom of each pane (opened by search when needed).
+    const advanced = (...children: HTMLElement[]) =>
+      el('details', { class: 'advanced' }, el('summary', { text: 'Advanced' }), ...children)
+
     // Theme swatches
     const swatches = el('div', { class: 'swatches' })
     for (const th of themes) {
@@ -222,18 +227,20 @@ export class SettingsView {
       el('div', { class: 'row' },
         field('Font', select(fonts, s.fontFamily, (v) => { s.fontFamily = v; live() })),
         field('Size', number(s.fontSize, 8, 48, 1, (v) => { s.fontSize = v; live() })),
-        field('Line height', number(s.lineHeight, 1, 2, 0.05, (v) => { s.lineHeight = v; live() })),
       ),
       el('div', { class: 'row' },
         field('Cursor', select([['block', 'Block ▇'], ['bar', 'Bar ▏'], ['underline', 'Underline ▁']], s.cursorStyle, (v) => { s.cursorStyle = v; live() })),
         el('label', { class: 'check' }, check(s.cursorBlink, (v) => { s.cursorBlink = v; live() }), ' Blinking cursor'),
       ),
       opacityRow,
+      el('label', { class: 'check' }, check(s.showTabBar, (v) => { s.showTabBar = v; live() }), ' Always show the tab bar (otherwise it appears when there are two tabs, as in Terminal)'),
+      advanced(
+      field('Line height', number(s.lineHeight, 1, 2, 0.05, (v) => { s.lineHeight = v; live() })),
       field('Window frame', select([['system', 'Match macOS (light or dark, your accent color)'], ['theme', 'Match the terminal theme']], s.windowFrame, (v) => { s.windowFrame = v; live() }),
         'The tab bar, panels and dialogs around the terminal. The terminal itself always uses the theme above.'),
-      el('label', { class: 'check' }, check(s.showTabBar, (v) => { s.showTabBar = v; live() }), ' Always show the tab bar (otherwise it appears when there are two tabs, as in Terminal)'),
       el('label', { class: 'check' }, check(s.ligatures, (v) => { s.ligatures = v; live() }), ' Font ligatures (=> != ->) in fonts that have them, like JetBrains Mono and Fira Code (drawn without the GPU)'),
       hostColorsField(),
+      ),
     )
 
     const forget = el('button', { type: 'button', class: 'ghost small' }, 'Forget saved tabs and output')
@@ -245,21 +252,23 @@ export class SettingsView {
     const shellSec = el(
       'section', { 'data-page': 'shell' },
       el('h3', { text: 'Shell' }),
-      field('Shell', text(s.shell, 'Your login shell (leave empty)', (v) => (s.shell = v.trim())), 'For example /bin/zsh, /bin/bash, /bin/tcsh or /opt/homebrew/bin/fish. Applies to new tabs.'),
-      el('div', { class: 'row' },
-        field('Scrollback lines', number(s.scrollback, 1000, 200000, 1000, (v) => (s.scrollback = v))),
-      ),
-      el('label', { class: 'check' }, check(s.shellIntegration, (v) => (s.shellIntegration = v)), ' Shell integration — lets jamalterm find each command (needed for browse mode and AI). zsh, bash and tcsh.'),
       el('label', { class: 'check' }, check(s.arrowBrowse, (v) => (s.arrowBrowse = v)), ' ↑ at an empty prompt moves the free-floating cursor (off: ↑ goes to shell history; ⌘↑ always browses)'),
       el('label', { class: 'check' }, check(s.restoreSession, (v) => (s.restoreSession = v)), ' Reopen tabs and their recent output after a restart or update'),
       el('label', { class: 'check' }, check(s.confirmRerun, (v) => (s.confirmRerun = v)), ' Ask before re-running a command from browse mode (always asked when it ran in a different folder)'),
-      el('div', { class: 'row' }, field('Prompt editing keys', select([['emacs', 'Emacs (default: Ctrl+A, Ctrl+E…)'], ['vi', 'Vi (bindkey -v / set -o vi)']], s.promptKeys, (v) => (s.promptKeys = v)), 'How jamalterm clears your prompt line before typing a command into it.')),
       el('label', { class: 'check' }, check(s.optionIsMeta, (v) => { s.optionIsMeta = v; live() }), ' Use Option as Meta (⌥B / ⌥F jump words)'),
       el('div', { class: 'row', style: 'align-items:center' },
         el('label', { class: 'check' }, check(s.notifyLongCommands, (v) => (s.notifyLongCommands = v)), ' Notify me when a command that takes longer than'),
         number(s.notifyAfterSeconds, 1, 3600, 1, (v) => (s.notifyAfterSeconds = v)),
         el('span', { text: 'seconds finishes while jamalterm is in the background' })),
       el('label', { class: 'check' }, check(s.screenReader, (v) => { s.screenReader = v; live() }), ' Screen reader support (VoiceOver can read the terminal)'),
+      advanced(
+        field('Shell', text(s.shell, 'Your login shell (leave empty)', (v) => (s.shell = v.trim())), 'For example /bin/zsh, /bin/bash, /bin/tcsh or /opt/homebrew/bin/fish. Applies to new tabs.'),
+        el('div', { class: 'row' },
+          field('Scrollback lines', number(s.scrollback, 1000, 200000, 1000, (v) => (s.scrollback = v))),
+        ),
+        el('label', { class: 'check' }, check(s.shellIntegration, (v) => (s.shellIntegration = v)), ' Shell integration — lets jamalterm find each command (needed for browse mode and AI). zsh, bash, tcsh and fish.'),
+        el('div', { class: 'row' }, field('Prompt editing keys', select([['emacs', 'Emacs (default: Ctrl+A, Ctrl+E…)'], ['vi', 'Vi (bindkey -v / set -o vi)']], s.promptKeys, (v) => (s.promptKeys = v)), 'How jamalterm clears your prompt line before typing a command into it.')),
+      ),
     )
 
     // Sign in with Anthropic (OAuth via the ant CLI) — no key to copy.
@@ -450,9 +459,9 @@ export class SettingsView {
         el('label', { class: 'check' }, check(s.autoUpdate, (v) => (s.autoUpdate = v)), ' Check for new versions automatically'),
         checkNow,
       ),
-      el('div', { class: 'row' },
+      advanced(el('div', { class: 'row' },
         field('Update channel', select([['stable', 'Stable (recommended)'], ['beta', 'Beta: get test versions first']], s.updateChannel, (v) => (s.updateChannel = v)),
-          'Beta versions have the newest changes before everyone else, and may have rough edges. You can always go back with jamalterm → Go Back to Previous Version.')),
+          'Beta versions have the newest changes before everyone else, and may have rough edges. You can always go back with jamalterm → Go Back to Previous Version.'))),
     )
 
     // Privacy: what stays on this Mac, and what you can delete.
@@ -464,13 +473,15 @@ export class SettingsView {
       'section', { 'data-page': 'privacy' },
       el('h3', { text: 'Privacy' }),
       el('p', { class: 'help', text: 'jamalterm sends nothing anywhere on its own. AI questions go only to the assistant you choose, with secrets hidden first. Your API keys are kept in an encrypted file on this Mac that only your account can open, and that a copy can’t unlock on another computer; jamalterm never uses the Keychain, so it never asks for your password.' }),
-      el('label', { class: 'check' }, check(s.keepProblemLog, (v) => (s.keepProblemLog = v)), ' Keep a private problem log on this Mac (errors only: no commands, output or questions; turning it off deletes it)'),
-      el('div', { class: 'row', style: 'margin: 0 0 10px 24px' }, showLog, diag),
       el('label', { class: 'check' }, check(s.aiShareOutput, (v) => (s.aiShareOutput = v)), ' Send recent command output with AI questions (otherwise only the commands)'),
       el('div', { class: 'field' },
         el('span', { class: 'label', text: 'Saved tabs' }),
         el('div', { class: 'keyrow' }, forget),
         el('span', { class: 'help', text: 'To reopen tabs after a restart, jamalterm keeps their recent output in a private file on this Mac (Shell → Reopen tabs).' })),
+      advanced(
+        el('label', { class: 'check' }, check(s.keepProblemLog, (v) => (s.keepProblemLog = v)), ' Keep a private problem log on this Mac (errors only: no commands, output or questions; turning it off deletes it)'),
+        el('div', { class: 'row', style: 'margin: 0 0 10px 24px' }, showLog, diag),
+      ),
     )
 
     // A toolbar of panes across the top, like Terminal's and Safari's.
@@ -538,6 +549,8 @@ export class SettingsView {
       return (label ?? '').toLowerCase().includes(want)
     })
     if (!hit) return
+    const fold = hit.closest('details')
+    if (fold) fold.open = true
     hit.scrollIntoView({ block: 'center' })
     hit.classList.remove('flash')
     void hit.offsetWidth

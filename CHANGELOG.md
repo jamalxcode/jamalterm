@@ -1,5 +1,32 @@
 # Changelog
 
+## 3.3.0
+
+**Updates you can see**
+- Settings → Updates shows your version, when jamalterm last checked and what it found, with **Check Now**
+- Checking by hand when you're up to date says so; after an update, a short **What's new** card lists the changes
+- New versions are published straight from the build that tested them, so they arrive sooner
+
+**AI safety**
+- Commands the AI suggests are checked: deleting broadly, piping a download into a shell, sudo, erasing disks, force-pushing, touching SSH keys or saved credentials and more get a warning that says why, and need a second click (**Run Anyway**)
+- A suggested command that appears word for word in the terminal output is flagged, since a file or web page may have planted it
+- The AI is told that terminal output is data, never instructions
+
+**Crashes leave a trace (on your Mac only)**
+- If jamalterm quits unexpectedly, the next launch says so and offers Copy Diagnostics. Nothing is sent
+
+**Feels more like a Mac app**
+- Right-click → **Look Up in Dictionary** and **Search with Google**
+- Many tabs no longer slow drawing down (only the tab in front uses the GPU)
+- Japanese, Chinese and accented typing are tested
+
+**Less crowded**
+- A small welcome card on first start: browse mode, Ask AI and the command palette
+- Rarely used settings are under **Advanced** in each Settings pane (search still finds them)
+
+**Works with your shell setup**
+- Browse mode is now tested with oh-my-zsh, Powerlevel10k (instant prompt), prezto and starship (zsh, bash and fish)
+
 ## 3.2.0
 
 **A proper Mac app** (Apple's Human Interface Guidelines, Terminal.app as the model)

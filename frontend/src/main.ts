@@ -9,7 +9,8 @@ import { Tab, setGpuOff, hostMatches, type SavedTab } from './tab'
 import { themeById, applyChrome } from './themes'
 import { applySystemLook } from './system'
 import { AIPanel, CommandBar } from './ai'
-import { Updater, showWhatsNew } from './updater'
+import { Updater } from './updater'
+import { showWelcome, showLastCrash, showWhatsNew } from './cards'
 import { showDiagnostics, logWindowErrors } from './diagnostics'
 import { Palette } from './palette'
 import { FindBar } from './find'
@@ -20,7 +21,7 @@ import { SmokeMode } from './backend'
 import { Group, type Dir, type SavedNode, type PaneNode } from './panes'
 import { loadProviders, providerInfo, modelOf } from './providers'
 import { el, isMac, toast, duration } from './util'
-import { OpenURL, LastCrash, DismissCrash, Confirm, OpenSettingsAt, SetMenuState, BusyTabs, QuitNow, CloseWindowNow, SetActiveTab, LiveTabs, RemoteSetupLine, Write } from './backend'
+import { OpenURL, Confirm, OpenSettingsAt, SetMenuState, BusyTabs, QuitNow, CloseWindowNow, SetActiveTab, LiveTabs, RemoteSetupLine, Write } from './backend'
 import type { Settings as Prefs } from './types'
 
 let cfg: Prefs
@@ -655,21 +656,6 @@ document.getElementById('ai-button')!.addEventListener('click', () => runMenu('a
 
 // ---- Start --------------------------------------------------------------------
 
-/** jamalterm crashed last time: say so, and offer the (private) report. */
-async function showLastCrash() {
-  if (!(await LastCrash())) return
-  const copy = el('button', { class: 'primary small' }, 'Copy Diagnostics…')
-  const dismiss = el('button', { class: 'ghost small' }, 'Dismiss')
-  const card = el('div', { id: 'crash-card', role: 'alert' },
-    el('strong', { text: 'jamalterm quit unexpectedly last time.' }),
-    el('span', { class: 'help', text: 'A short report is saved on this Mac (nothing was sent). You can copy it to share with whoever helps you.' }),
-    el('div', { class: 'keyrow' }, copy, dismiss))
-  document.body.append(card)
-  const close = () => { card.remove(); void DismissCrash() }
-  copy.onclick = () => { close(); void showDiagnostics(() => active?.term.focus()) }
-  dismiss.onclick = close
-}
-
 /** When each part of starting up finished (ms since the page began loading). */
 export const bootTimes: Record<string, number> = {}
 
@@ -695,10 +681,13 @@ async function boot() {
     mark('iconFont')
     for (const t of tabs) t.redrawGlyphs()
   }).catch(() => undefined)
-  if (!(await reattach()) && !(await restoreSession())) newTab(await StartDir())
+  const resumed = (await reattach()) || (await restoreSession())
+  if (!resumed) newTab(await StartDir())
   mark('tabs')
-  void showLastCrash()
-  void showWhatsNew()
+  const focus = () => active?.term.focus()
+  void showLastCrash(() => void showDiagnostics(focus))
+  // A first start gets the welcome card; an update gets What's new.
+  if (resumed || !(await showWelcome(focus))) void showWhatsNew()
   if (await SmokeMode()) {
     void runSmoke({
       bootTimes,

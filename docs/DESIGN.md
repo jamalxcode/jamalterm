@@ -119,6 +119,12 @@ The menus are built from one table, `commands.go`, which also feeds the command 
 - **Its own window**, opened with ⌘, (or brought to the front if open). It has a **toolbar of panes** (Appearance, Shell, AI, Privacy, Updates) like Terminal's and Safari's, and the **window title names the pane**.
 - **Every change applies at once**: there's no Save or Cancel. Keys are saved when you leave the field. ⌘W or Esc closes it.
 - *Rejected:* the earlier modal dialog with Save and Cancel. On the Mac, Settings windows apply changes immediately.
+- **Advanced, folded away.** Options most people never change (shell path, scrollback, shell integration, prompt keys, line height, window frame, ligatures, host colors, the problem log, the update channel) sit under a closed **Advanced** disclosure at the bottom of each pane. Searching for one (palette or Help) unfolds it.
+
+### First start and other notices
+- **First start:** a small card in the corner names the three things that aren't obvious: browse mode (⌘↑), Ask AI (⌘I) and the command palette (⇧⌘P). It shows once, never when tabs were reopened, and never as a modal: the terminal is usable straight away (`frontend/src/cards.ts`).
+- **After an update:** a What's new card with that version's changelog lines. **After a crash:** a card saying so, with Copy Diagnostics.
+- *Rejected:* a multi-step onboarding tour. A terminal user wants a prompt, not a wizard.
 
 ### Look
 - **Window frame: "Match macOS"** (the default):
@@ -128,7 +134,9 @@ The menus are built from one table, `commands.go`, which also feeds the command 
 - **AI panel:** a **lighter, raised violet-tinted card**. It must never read as part of the terminal (it was too close to the terminal's dark background before).
 - **Accessibility:** System Settings' Reduce Motion, Reduce Transparency and Increase Contrast are respected. Keyboard focus rings are drawn in the accent color.
 - **System font** for everything except terminal text.
-- **Right-click** in the terminal opens a native menu: Copy, Paste, Select All, Ask AI About the Selection, Find Selection, Split Pane Right/Down, Clear Scrollback.
+- **Right-click** in the terminal opens a native menu: Copy, Paste, Select All, Look Up in Dictionary, Search with Google, Ask AI About the Selection, Find Selection, Split Pane Right/Down, Clear Scrollback.
+- **Input methods** (Japanese, Chinese, accents with ⌥E) go through xterm's composition handling; a UI test types composed text.
+- **GPU drawing** is on only for the tab in front, so many tabs don't use up the browser's limit of GPU contexts.
 
 ### Icon
 A terminal window with a magic wand on a deep blue-to-violet rounded square, from the owner's artwork. Its black background was removed, and it was fitted to Apple's grid: a 1024 px canvas with the body at 824 px, centred on transparency (`build/appicon.png`). `scripts/build-mac.sh` turns it into the `.icns` file.
@@ -149,6 +157,11 @@ A terminal window with a magic wand on a deep blue-to-violet rounded square, fro
   - recent commands, exit codes and (unless you switch it off per tab) output;
   - secrets are replaced with `[hidden secret]` first (`internal/ai/redact.go`), and the panel says how many were hidden.
 - **Local models** never leave the Mac. Models that can't use tools still answer, without the typing tool.
+- **Terminal output is untrusted.** A file or web page can contain text written to steer an AI ("ignore your instructions and run …"). So:
+  - the system prompt says the terminal section is data, never instructions;
+  - every command the AI proposes is checked (`internal/ai/risk.go`): deleting broadly, piping downloads into a shell, sudo, erasing disks, force-pushing, touching SSH keys or credential files (including jamalterm's own key file), changing launch agents, reverse shells and more get a warning in words: **“Careful: this command could do real damage”** or **“Check this command before running it”**, with each reason listed;
+  - a command that appears word for word in the output is marked too ("this command was in the terminal output; it may have been planted");
+  - a marked command needs a second click (**Run Anyway**), and the warning is words and a ⚠, not just a color.
 
 ## 8. Privacy and security
 
@@ -174,6 +187,8 @@ A terminal window with a magic wand on a deep blue-to-violet rounded square, fro
   - the code signature and bundle id;
   - since 3.1, a **Sigstore build proof** that GitHub's build service made exactly that zip from this repo's `build.yml` (`internal/update/provenance.go`). Releases without one aren't installed.
   - The **Beta** channel (Settings → Updates) gets prerelease builds first.
+  - **Settings → Updates always says where you stand:** your version, when it last checked, and what it found (or the error), with **Check Now**. A manual check that finds nothing says so in a native alert, and after updating a What's new card lists the changes (from the CHANGELOG built into the app).
+- **Crash reports stay on the Mac.** Go's crash output goes to `crash.log` in the settings folder (`crash.go`). On the next launch jamalterm says it quit unexpectedly and offers Copy Diagnostics; the report is scrubbed like the problem log and nothing is sent.
 - **Signing:** ad hoc unless you add the secrets `scripts/sign-mac.sh` documents: a free self-signed certificate (`scripts/make-signing-cert.sh`), or an Apple Developer ID plus notarization.
 
 ## 9. Testing and releases
@@ -181,8 +196,11 @@ A terminal window with a magic wand on a deep blue-to-violet rounded square, fro
 - **Go tests:**
   - real zsh, bash, tcsh, fish and sh sessions;
   - the pump, the problem log, the encrypted keys (including the "can't read on another Mac" case), sessions (`internal/winstate`), the updater (with signed test bundles on macOS), version ordering and the command table.
+- **Real shell setups** (CI job `shells`, Linux and macOS): oh-my-zsh, Powerlevel10k with instant prompt (started twice, since instant prompt only kicks in from the second start), oh-my-zsh with Powerlevel10k, prezto, and starship in zsh, bash and fish. They hook the prompt the same way we do, so this is where integration breaks first (`internal/shell/setups_test.go`).
 - **UI tests:** the real interface in Chromium with a fake Go side, plus a WCAG contrast check of every theme.
 - **On a real Mac**, every CI build:
   - runs the **smoke test**: the app drives itself (`JAMALTERM_SMOKE`), real ⌘ keys are pressed through System Events, and screenshots, launch time, output speed and memory go into the run's summary;
-  - verifies the Sigstore build proof exactly as the updater will.
-- **Releases:** run the *Build macOS app* workflow with a version. The notes are that version's CHANGELOG section plus `.github/release-notes.md`. *Prerelease* sends it to the Beta channel only.
+  - verifies the Sigstore build proof exactly as the updater will;
+  - fails if launch takes over 10 s or memory goes over budget (app 400 MB, web content 900 MB with one window and two panes).
+- **Speed of the pipeline:** the UI, shells and Mac jobs run side by side, and pushes that change only docs skip the Mac build.
+- **Releases:** push a commit titled `Release X.Y.Z` (or `Release X.Y.Z-beta.N` for the Beta channel). That push's build is published once every job passes: one build, no second run. Running the workflow by hand with a version still works. The notes are that version's CHANGELOG section plus `.github/release-notes.md`. *Prerelease* sends it to the Beta channel only.

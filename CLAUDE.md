@@ -4,7 +4,7 @@ A macOS terminal in Go (Wails v3) with xterm.js: browse mode (re-run past comman
 
 ## Layout
 
-- `*.go` (main package): app service (`app.go`), windows and sessions (`windows.go`), the command table that drives the menu bar, palette and ⌘ keys (`commands.go`, `menu.go`), Settings window (`settingswindow.go`), safety (`safety.go`: busy check, native alerts, Secure Keyboard Entry, reattach), right-click menu and window frames (`contextmenu.go`), self-test (`smoke.go`).
+- `*.go` (main package): app service (`app.go`), windows and sessions (`windows.go`), the command table that drives the menu bar, palette and ⌘ keys (`commands.go`, `menu.go`), Settings window (`settingswindow.go`), safety (`safety.go`: busy check, native alerts, Secure Keyboard Entry, reattach), right-click menu and window frames (`contextmenu.go`), crash reports (`crash.go`), update status and What's new (`updatestatus.go`), self-test (`smoke.go`).
 - `internal/`: `shell` (pty, pump, integration scripts), `ai`, `settings` (settings.json, encrypted keys), `update` (updater and Sigstore check), `winstate`, `diag` (problem log), `secureinput`.
 - `frontend/`: two pages, `index.html` (terminal window, `src/main.ts`) and `settings.html` (`src/settingsPage.ts`). All calls to Go go through `src/backend.ts`.
 
@@ -45,5 +45,6 @@ go test ./internal/... && go test .      # `go test .` needs frontend/dist built
   - the bindings check;
   - a universal build;
   - the smoke test;
+  - the shell setups job (oh-my-zsh, Powerlevel10k, prezto, starship);
   - the Sigstore proof and its check.
-- **To release:** add a `## X.Y.Z` section to `CHANGELOG.md`, then run the workflow with `version` (and `prerelease` for the Beta channel). Release notes come from that section plus `.github/release-notes.md`.
+- **To release:** add a `## X.Y.Z` section to `CHANGELOG.md` and push a commit titled `Release X.Y.Z` (`Release X.Y.Z-beta.N` for the Beta channel). CI publishes it when every job passes. Release notes come from that section plus `.github/release-notes.md`.

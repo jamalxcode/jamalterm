@@ -25,7 +25,7 @@ You only install by hand once (after that, open **jamalterm** from Applications 
 - the SHA-256 checksum, the code signature and the bundle id;
 - since 3.1, a **build proof**: a Sigstore attestation that GitHub's own build service made exactly that file from this repository's workflow. A release without one isn't installed.
 
-Your tabs come back after the update, and **jamalterm → Go Back to Previous Version** undoes it. Settings → Updates has a **Beta** channel if you'd like test versions first.
+Your tabs come back after the update, a short *What's new* card lists the changes, and **jamalterm → Go Back to Previous Version** undoes it. **Settings → Updates** shows your version, when it last checked and what it found, with *Check Now*, and has a **Beta** channel if you'd like test versions first.
 
 **Optional, once:** to sign every release with the same certificate, run `scripts/make-signing-cert.sh` on your Mac (it needs the GitHub CLI). It makes a free self-signed certificate and saves it as a GitHub secret, so every release is signed the same way. With a paid Apple Developer ID (add `MAC_SIGNING_P12` and the `APPLE_*` secrets), releases are also notarized and the `xattr` step goes away.
 
@@ -75,6 +75,10 @@ To connect Claude, click **Sign in with Anthropic** in Settings (⌘,) or the AI
 - ⌘-click file paths in the output to open them. Programs can copy to your clipboard, also over SSH/tmux (OSC 52), and show pictures (iTerm2 image protocol, Sixel).
 - **Privacy**: jamalterm sends nothing anywhere on its own. If something goes wrong, **Help → Copy Diagnostics…** shows a report (version, macOS, settings and recent errors, with secrets, your home folder, email addresses and the computer's name removed) and copies it only when you press Copy. The problem log behind it stays on your Mac, holds errors only (never commands, output, questions or keys), and can be turned off in Settings → Privacy.
 - **Local AI**: pick *Local model on this Mac* in Settings → AI to use Ollama or LM Studio. No key, and questions never leave your computer.
+- **The AI can't be talked into anything quietly**: terminal output is treated as data, never instructions. Risky commands it suggests (deleting broadly, `curl … | sh`, sudo, erasing disks, force-pushing, touching SSH keys…) get a warning that says why, and need a second click; so does any command that appeared word for word in the output.
+- **If jamalterm crashes**, the next launch says so and offers Copy Diagnostics. The report stays on your Mac.
+- Right-click selected text for **Look Up in Dictionary** and **Search with Google**.
+- Tested with **oh-my-zsh, Powerlevel10k (instant prompt), prezto and starship** in zsh, bash and fish.
 - Before anything is sent to an AI, secrets in the terminal text (API keys, tokens, passwords, private keys) are replaced with `[hidden secret]`. A per-tab switch keeps a tab's output out of AI requests entirely.
 
 - Tabs: ⌘T, ⇧⌘W, ⌘1–9, ⇧⌘[ / ⇧⌘]. New tabs open in the current folder.

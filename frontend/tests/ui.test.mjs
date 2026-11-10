@@ -42,6 +42,8 @@ async function open(opts = {}) {
     window.__settings = o.settings
     window.__session = o.session
     window.__live = o.live
+    // Only the welcome test sees a first start.
+    if (!o.firstStart) try { localStorage.setItem('jt-welcomed', '1') } catch {}
   }, opts)
   await page.addInitScript(fake)
   await page.goto(base)
@@ -266,6 +268,8 @@ test('Settings is its own window: a toolbar of panes, changes apply at once', as
   await page.click('.settings-toolbar button[data-page="privacy"]')
   assert.equal(await page.evaluate(() => window.__fake.title), 'Privacy')
   assert.equal(await page.locator('section[data-page="appearance"]').isVisible(), false)
+  assert.equal(await page.getByText('Keep a private problem log').isVisible(), false, 'folded under Advanced')
+  await page.click('section[data-page="privacy"] details.advanced > summary')
   await page.getByText('Keep a private problem log').click()
   await page.waitForTimeout(400)
   const saved = await page.evaluate(() => window.__calls.filter((c) => c[0] === 'SaveSettings').pop()?.[1])
@@ -668,3 +672,37 @@ test('input methods: composed text (Japanese, accents) reaches the shell', async
   await page.close()
 })
 
+
+test('first start: a welcome card with three tips, once', async () => {
+  const page = await open({ firstStart: true })
+  const card = page.locator('#welcome')
+  assert.equal(await card.count(), 1)
+  const text = await card.innerText()
+  for (const want of [/Browse past commands/, /Ask AI/, /Every command and setting/]) assert.match(text, want)
+  assert.equal(await page.locator('#whats-new').count(), 0, 'no What’s new on top')
+  await page.click('#welcome button:text-is("Got It")')
+  assert.equal(await card.count(), 0)
+  await page.reload()
+  await page.waitForFunction(() => document.querySelectorAll('.tab').length > 0)
+  await page.waitForTimeout(300)
+  assert.equal(await page.locator('#welcome').count(), 0, 'only once')
+  await page.close()
+
+  // Reopened tabs mean it isn't a first start.
+  const again = await open({ firstStart: true, session: JSON.stringify({ version: 2, groups: [{ tab: { id: 1, cwd: '/tmp', title: 'zsh' } }] }) })
+  assert.equal(await again.locator('#welcome').count(), 0)
+  await again.close()
+})
+
+test('Settings: rarely used options wait under Advanced; search opens it', async () => {
+  const page = await openSettings({}, '#shell')
+  const sec = page.locator('section[data-page="shell"]')
+  assert.equal(await sec.getByText('Scrollback lines').isVisible(), false)
+  assert.equal(await sec.getByText('Reopen tabs').isVisible(), true, 'everyday options stay in view')
+  await page.context().close()
+
+  const found = await openSettings({}, '#shell:Scrollback')
+  await found.waitForTimeout(100)
+  assert.equal(await found.locator('section[data-page="shell"]').getByText('Scrollback lines').isVisible(), true, 'search unfolds Advanced')
+  await found.context().close()
+})

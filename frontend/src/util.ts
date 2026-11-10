@@ -144,3 +144,19 @@ export function confirmDialog(o: { title: string; body: string; items?: string[]
     cancelBtn.focus() // the safe choice has the focus
   })
 }
+
+/** localStorage that never throws (it can be unavailable). */
+export function stored(k: string): string | null {
+  try {
+    return localStorage.getItem(k)
+  } catch {
+    return null
+  }
+}
+export function store(k: string, v: string) {
+  try {
+    localStorage.setItem(k, v)
+  } catch {
+    /* unavailable */
+  }
+}
