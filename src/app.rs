@@ -1,6 +1,7 @@
 //! The window: tabs, the tab bar, keyboard and mouse, and the terminal view.
 
 use crate::browse::{self, Action, Browse};
+use crate::find::Find;
 use crate::input::{is_app_shortcut, key_bytes, paste_bytes};
 use crate::session::Session;
 use crate::settings::{self, Settings};
@@ -93,6 +94,9 @@ pub struct App {
     selecting: bool,
     started: Instant,
     smoke: Option<crate::smoke::Smoke>,
+    /// The find bar (⌘F), when open.
+    find: Option<Find>,
+    focus_find: bool,
 }
 
 impl App {
@@ -122,6 +126,8 @@ impl App {
             selecting: false,
             started: Instant::now(),
             smoke: crate::smoke::Smoke::from_env(),
+            find: None,
+            focus_find: false,
         };
         app.new_tab(&cc.egui_ctx, None);
         app
@@ -199,6 +205,17 @@ impl App {
                 // ⌘↑ always starts browse mode.
                 self.enter_browse(true);
             }
+            Key::F => {
+                // Find, keeping the last text (like Safari).
+                self.find.get_or_insert_with(Find::default);
+                self.focus_find = true;
+            }
+            Key::G => {
+                if let Some(f) = self.find.as_mut() {
+                    f.step(if m.shift { -1 } else { 1 });
+                    self.show_match();
+                }
+            }
             Key::K => {
                 // Clear scrollback (and the screen), like Terminal's ⌘K.
                 if let Some(t) = self.tabs.get(self.active) {
@@ -232,6 +249,99 @@ impl App {
             _ => return false,
         }
         true
+    }
+
+    /// Selects the current match and scrolls to it.
+    fn show_match(&mut self) {
+        let Some(m) = self.find.as_ref().and_then(|f| f.current_match().cloned()) else {
+            return;
+        };
+        let Some(tab) = self.tabs.get(self.active) else {
+            return;
+        };
+        let mut s = tab.session.screen.lock().unwrap();
+        let mut sel = Selection::new(
+            SelectionType::Simple,
+            *m.start(),
+            alacritty_terminal::index::Side::Left,
+        );
+        sel.update(*m.end(), alacritty_terminal::index::Side::Right);
+        s.term.selection = Some(sel);
+        // Bring its line into view.
+        let rows = s.term.screen_lines() as i32;
+        let offset = s.term.grid().display_offset() as i32;
+        let line = m.start().line.0; // screen line when not scrolled; negative in the history
+        let top = -offset;
+        if line < top {
+            s.term.scroll_display(Scroll::Delta(top - line + rows / 3));
+        } else if line >= top + rows {
+            s.term
+                .scroll_display(Scroll::Delta(-(line - (top + rows) + 1 + rows / 3)));
+        }
+    }
+
+    fn find_bar(&mut self, ui: &mut egui::Ui) {
+        let mut close = false;
+        let mut step = 0;
+        let Some(f) = self.find.as_mut() else { return };
+        ui.horizontal(|ui| {
+            ui.label("Find");
+            let edit = ui.add(
+                egui::TextEdit::singleline(&mut f.query)
+                    .desired_width(260.0)
+                    .hint_text("text in the output"),
+            );
+            if self.focus_find {
+                edit.request_focus();
+                self.focus_find = false;
+            }
+            if edit.has_focus() || edit.lost_focus() {
+                ui.input(|i| {
+                    if i.key_pressed(Key::Enter) {
+                        step = if i.modifiers.shift { -1 } else { 1 };
+                    }
+                    if i.key_pressed(Key::Escape) {
+                        close = true;
+                    }
+                });
+                if edit.lost_focus() && step != 0 {
+                    edit.request_focus(); // Return steps through matches, keeping the box
+                }
+            }
+            ui.label(f.status());
+            if ui
+                .small_button("‹")
+                .on_hover_text("Previous (⇧⌘G)")
+                .clicked()
+            {
+                step = -1;
+            }
+            if ui.small_button("›").on_hover_text("Next (⌘G)").clicked() {
+                step = 1;
+            }
+            if ui
+                .small_button("Done")
+                .on_hover_text("Close (esc)")
+                .clicked()
+            {
+                close = true;
+            }
+        });
+        let changed = self
+            .tabs
+            .get(self.active)
+            .is_some_and(|t| f.update(&t.session.screen.lock().unwrap().term));
+        if step != 0 {
+            f.step(step);
+        }
+        if close {
+            self.find = None;
+            if let Some(t) = self.tabs.get(self.active) {
+                t.session.screen.lock().unwrap().term.selection = None;
+            }
+        } else if changed || step != 0 {
+            self.show_match();
+        }
     }
 
     /// Starts browse mode at the shell's cursor, then moves up one line
@@ -438,6 +548,7 @@ impl eframe::App for App {
 
         // Keyboard: app shortcuts first, then browse mode, then the shell.
         let mut swallow_text = false;
+        let typing_in_field = ctx.memory(|m| m.focused().is_some());
         let events = ctx.input(|i| i.events.clone());
         for ev in events {
             match ev {
@@ -450,6 +561,9 @@ impl eframe::App for App {
                     if self.shortcut(&ctx, key, &modifiers) {
                         swallow_text = true;
                         continue;
+                    }
+                    if typing_in_field {
+                        continue; // the find box has the keys
                     }
                     // Browse mode takes the keys while it's on.
                     if self
@@ -496,7 +610,7 @@ impl eframe::App for App {
                     }
                 }
                 egui::Event::Text(t) => {
-                    if swallow_text {
+                    if swallow_text || typing_in_field {
                         continue; // the key already did something (a shortcut, browse mode)
                     }
                     if let Some(tab) = self.tabs.get_mut(self.active) {
@@ -511,6 +625,9 @@ impl eframe::App for App {
                     }
                 }
                 egui::Event::Paste(t) => {
+                    if typing_in_field {
+                        continue;
+                    }
                     if let Some(tab) = self.tabs.get(self.active) {
                         let bracketed = tab
                             .session
@@ -523,7 +640,7 @@ impl eframe::App for App {
                         tab.session.write(&paste_bytes(&t, bracketed));
                     }
                 }
-                egui::Event::Copy => {
+                egui::Event::Copy if !typing_in_field => {
                     if let Some(tab) = self.tabs.get(self.active)
                         && let Some(text) = tab
                             .session
@@ -548,6 +665,10 @@ impl eframe::App for App {
         }
         if self.tabs.is_empty() {
             return;
+        }
+
+        if self.find.is_some() {
+            egui::Panel::top("find").show(ui, |ui| self.find_bar(ui));
         }
 
         // Browse mode's key bar.
@@ -702,6 +823,7 @@ impl eframe::App for App {
             ctx.request_repaint_after(Duration::from_millis(530));
         }
         if let Some(smoke) = self.smoke.as_mut() {
+            smoke.find_status = self.find.as_ref().map(|f| f.status());
             smoke.step(&ctx, &self.tabs, self.active);
         }
     }

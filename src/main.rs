@@ -3,6 +3,7 @@
 
 mod app;
 mod browse;
+mod find;
 mod fonts;
 mod input;
 mod marks;

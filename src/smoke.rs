@@ -15,7 +15,7 @@ pub struct Check {
 }
 
 /// Whether a step is done: (passed, detail), or None to keep waiting.
-type DoneFn = fn(&[Tab], usize) -> Option<(bool, String)>;
+type DoneFn = fn(&Smoke, &[Tab], usize) -> Option<(bool, String)>;
 
 /// One step: run `act` once, then wait until `done` (or the time limit) and
 /// record the check it reports.
@@ -29,6 +29,8 @@ struct Step {
 pub struct Smoke {
     /// Key presses to deliver before the next frame (as if typed).
     pub keys: Vec<egui::Event>,
+    /// The find bar's "3 of 17" (None when closed), from the app each frame.
+    pub find_status: Option<String>,
     dir: PathBuf,
     started: Instant,
     step: usize,
@@ -69,7 +71,7 @@ const STEPS: &[Step] = &[
     Step {
         name: "first prompt",
         act: |_, _, _, _| {},
-        done: |tabs, a| {
+        done: |_, tabs, a| {
             tabs[a]
                 .session
                 .screen
@@ -83,7 +85,7 @@ const STEPS: &[Step] = &[
     Step {
         name: "a command and its ✓",
         act: |_, _, tabs, a| tabs[a].session.write(b"echo smoke-ok\r"),
-        done: |tabs, a| {
+        done: |_, tabs, a| {
             blocks(tabs, a)
                 .iter()
                 .any(|b| b.command == "echo smoke-ok" && b.exit == Some(0))
@@ -94,7 +96,7 @@ const STEPS: &[Step] = &[
     Step {
         name: "a failed command and its ✕",
         act: |_, _, tabs, a| tabs[a].session.write(b"false\r"),
-        done: |tabs, a| {
+        done: |_, tabs, a| {
             blocks(tabs, a)
                 .iter()
                 .any(|b| b.command == "false" && b.exit == Some(1))
@@ -105,7 +107,7 @@ const STEPS: &[Step] = &[
     Step {
         name: "↑ at an empty prompt starts browse mode",
         act: |s, _, _, _| s.press(egui::Key::ArrowUp, egui::Modifiers::NONE),
-        done: |tabs, a| {
+        done: |_, tabs, a| {
             let row = tabs[a].browse.as_ref()?.row;
             let line = tabs[a].session.screen.lock().unwrap().line_text(row);
             Some((line.ends_with("false"), format!("cursor on {line:?}")))
@@ -115,13 +117,13 @@ const STEPS: &[Step] = &[
     Step {
         name: "(screenshot: browse mode)",
         act: |s, ctx, _, _| s.shot(ctx, "browse"),
-        done: |_, _| None, // just waits for the frame to be captured
+        done: |_, _, _| None, // just waits for the frame to be captured
         limit: Duration::from_millis(800),
     },
     Step {
         name: "⏎ in browse mode runs the command again",
         act: |s, _, _, _| s.press(egui::Key::Enter, egui::Modifiers::NONE),
-        done: |tabs, a| {
+        done: |_, tabs, a| {
             let runs = blocks(tabs, a)
                 .iter()
                 .filter(|b| b.command == "false")
@@ -131,15 +133,49 @@ const STEPS: &[Step] = &[
         limit: Duration::from_secs(10),
     },
     Step {
+        name: "⌘F finds text in the output",
+        act: |s, _, _, _| s.press(egui::Key::F, cmd_mods()),
+        done: |s, _, _| {
+            s.find_status
+                .as_ref()
+                .map(|_| (true, "the find bar opened".into()))
+        },
+        limit: Duration::from_secs(3),
+    },
+    Step {
+        name: "typing in the find bar counts the matches",
+        act: |s, _, _, _| s.keys.push(egui::Event::Text("smoke".into())),
+        done: |s, _, _| {
+            let st = s.find_status.clone().unwrap_or_default();
+            // "echo smoke-ok" and its output "smoke-ok": at least 2.
+            st.ends_with(" of 2")
+                .then(|| (true, st.clone()))
+                .or_else(|| (st.contains(" of ")).then(|| (false, st)))
+        },
+        limit: Duration::from_secs(3),
+    },
+    Step {
+        name: "(screenshot: find)",
+        act: |s, ctx, _, _| s.shot(ctx, "find"),
+        done: |_, _, _| None,
+        limit: Duration::from_millis(800),
+    },
+    Step {
+        name: "esc closes find",
+        act: |s, _, _, _| s.press(egui::Key::Escape, egui::Modifiers::NONE),
+        done: |s, _, _| s.find_status.is_none().then(|| (true, String::new())),
+        limit: Duration::from_secs(2),
+    },
+    Step {
         name: "⌘T opens a tab",
         act: |s, _, _, _| s.press(egui::Key::T, cmd_mods()),
-        done: |tabs, _| (tabs.len() == 2).then(|| (true, "2 tabs".into())),
+        done: |_, tabs, _| (tabs.len() == 2).then(|| (true, "2 tabs".into())),
         limit: Duration::from_secs(5),
     },
     Step {
         name: "(screenshot: two tabs)",
         act: |s, ctx, _, _| s.shot(ctx, "tabs"),
-        done: |_, _| None,
+        done: |_, _, _| None,
         limit: Duration::from_secs(2),
     },
 ];
@@ -150,6 +186,7 @@ impl Smoke {
         let _ = std::fs::create_dir_all(&dir);
         Some(Smoke {
             keys: vec![],
+            find_status: None,
             dir,
             started: Instant::now(),
             step: 0,
@@ -205,7 +242,7 @@ impl Smoke {
             self.at = Instant::now();
             return;
         }
-        let result = (step.done)(tabs, active);
+        let result = (step.done)(self, tabs, active);
         let timed_out = self.at.elapsed() > step.limit;
         if result.is_none() && !timed_out {
             return;
