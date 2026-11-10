@@ -234,7 +234,10 @@ mod tests {
             Some(Cmd::NextTab)
         );
         assert_eq!(for_key(Key::CloseBracket, None, false), Some(Cmd::NextTab));
-        assert_eq!(for_key(Key::CloseBracket, Some(false), false), None);
+        assert_eq!(
+            for_key(Key::CloseBracket, Some(false), false),
+            Some(Cmd::NextPane)
+        );
         assert_eq!(for_key(Key::Num3, Some(false), false), Some(Cmd::Tab(3)));
         assert_eq!(
             for_key(Key::C, Some(false), false),
