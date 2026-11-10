@@ -5,7 +5,9 @@
 
 use crate::commands::{self, Cmd, Menu};
 use muda::accelerator::{Accelerator, Code, Modifiers};
-use muda::{AboutMetadata, IsMenuItem, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
+use muda::{
+    AboutMetadata, CheckMenuItem, IsMenuItem, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
+};
 use std::cell::RefCell;
 use std::sync::mpsc;
 
@@ -14,6 +16,8 @@ pub struct MacMenu {
     rx: mpsc::Receiver<Cmd>,
     /// Every command's item, to retitle ("Close Pane", "Hide Tab Bar"…).
     by_cmd: Vec<(Cmd, MenuItem, RefCell<String>)>,
+    /// jamalterm → Secure Keyboard Entry (a checkmark).
+    secure: CheckMenuItem,
 }
 
 /// A separator goes before these (groups within a menu).
@@ -85,6 +89,7 @@ impl MacMenu {
         let sep = PredefinedMenuItem::separator;
         let all: Vec<(Cmd, Menu, MenuItem)> = commands::TABLE
             .iter()
+            .filter(|e| e.cmd != Cmd::SecureInput)
             .filter_map(|e| Some((e.cmd, e.menu?, item(e))))
             .collect();
         // A menu's items with separators between the groups.
@@ -125,8 +130,16 @@ impl MacMenu {
             // Our own Quit (⌘Q), so it can ask when programs are running.
             item(commands::TABLE.iter().find(|e| e.cmd == Cmd::Quit)?),
         );
+        let secure = CheckMenuItem::with_id(
+            commands::id(Cmd::SecureInput),
+            "Secure Keyboard Entry",
+            true,
+            false,
+            None,
+        );
         let mut app_items: Vec<&dyn IsMenuItem> = vec![&about, &s0];
         app_items.extend(menu(Menu::App)); // Settings…
+        app_items.push(&secure);
         app_items.extend([
             &s1 as &dyn IsMenuItem,
             &services,
@@ -159,9 +172,11 @@ impl MacMenu {
         win.extend([&s6 as &dyn IsMenuItem, &front]);
         let window = Submenu::with_items("Window", true, &win).ok()?;
 
-        let bar = muda::Menu::with_items(&[&app, &shell, &edit, &view, &window]).ok()?;
+        let help = Submenu::with_items("Help", true, &menu(Menu::Help)).ok()?;
+        let bar = muda::Menu::with_items(&[&app, &shell, &edit, &view, &window, &help]).ok()?;
         bar.init_for_nsapp();
         window.set_as_windows_menu_for_nsapp();
+        help.set_as_help_menu_for_nsapp();
         let by_cmd = all
             .iter()
             .map(|(c, _, it)| (*c, it.clone(), RefCell::new(it.text())))
@@ -170,6 +185,7 @@ impl MacMenu {
             _bar: bar,
             rx,
             by_cmd,
+            secure,
         })
     }
 
@@ -181,6 +197,13 @@ impl MacMenu {
         {
             it.set_text(title);
             *now.borrow_mut() = title.to_string();
+        }
+    }
+
+    /// The checkmark on Secure Keyboard Entry.
+    pub fn set_secure(&self, on: bool) {
+        if self.secure.is_checked() != on {
+            self.secure.set_checked(on);
         }
     }
 

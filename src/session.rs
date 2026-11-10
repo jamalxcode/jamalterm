@@ -243,6 +243,11 @@ impl Session {
         shell.is_some_and(|pid| front as u32 != pid)
     }
 
+    /// The terminal's file descriptor (to see if it's at a password prompt).
+    pub fn fd(&self) -> Option<i32> {
+        self.master.as_raw_fd()
+    }
+
     /// Starts the shell. `repaint` is called whenever there's new output.
     pub fn spawn(
         spec: &ShellSpec,

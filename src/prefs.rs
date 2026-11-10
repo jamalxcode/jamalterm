@@ -261,12 +261,15 @@ fn find_local(s: &mut Settings) -> String {
 
 fn privacy(ui: &mut Ui, s: &mut Settings) {
     toggles(ui, s, Pane::Privacy, false);
+    egui::CollapsingHeader::new("Advanced")
+        .default_open(false)
+        .show(ui, |ui| toggles(ui, s, Pane::Privacy, true));
     ui.add_space(8.0);
     for line in [
         "With each AI question go your recent commands, their exit codes and (if on above) their output. Things that look like keys, tokens and passwords are replaced with [hidden secret] first, and the panel says how many.",
         "Local models never send anything off this Mac.",
         "API keys are kept in one encrypted file next to the settings, readable only by you and only on this computer, never in the Keychain: nothing asks for your password.",
-        "jamalterm never logs or sends your commands, output, questions or keys anywhere else.",
+        "jamalterm never logs or sends your commands, output, questions or keys anywhere else. The problem log keeps only errors, scrubbed (secrets, your home folder, email addresses and this computer's name removed), and stays on this Mac: Help → Copy Diagnostics shows all of it before anything is copied.",
     ] {
         ui.label(line);
         ui.add_space(4.0);

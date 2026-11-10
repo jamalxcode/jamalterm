@@ -50,6 +50,16 @@ jobs:
             timeout 60 xvfb-run -a -s "-screen 0 1400x900x24" target/debug/jamalterm
           cat smoke/report-restore.json
           python3 -c "import json,sys; sys.exit(0 if json.load(open('smoke/report-restore.json'))['ok'] else 1)"
+      - name: Crash report (a crash on purpose is noticed at the next start)
+        run: |
+          export HOME="$PWD/smoke/home" SHELL=/usr/bin/zsh JAMALTERM_SETTINGS="$PWD/smoke/settings.json"
+          JAMALTERM_TEST_CRASH=1 timeout 60 xvfb-run -a -s "-screen 0 1400x900x24" target/debug/jamalterm || true
+          test -s smoke/crash.log
+          JAMALTERM_SMOKE="$PWD/smoke" JAMALTERM_SMOKE_RESTORE=1 JAMALTERM_SMOKE_EXPECT_CRASH=1 \
+            timeout 60 xvfb-run -a -s "-screen 0 1400x900x24" target/debug/jamalterm
+          cat smoke/report-restore.json
+          python3 -c "import json,sys; sys.exit(0 if json.load(open('smoke/report-restore.json'))['ok'] else 1)"
+          grep -q "quit unexpectedly" smoke/problems.log
 
   shells:
     # Browse mode under oh-my-zsh, Powerlevel10k (instant prompt), prezto and

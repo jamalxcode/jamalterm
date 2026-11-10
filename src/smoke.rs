@@ -61,6 +61,12 @@ pub struct Smoke {
     pub ai_busy: bool,
     /// Clicks Run (true) or Don't Run on the AI's command.
     pub ai_decide: Option<bool>,
+    /// The pane in front is at a password prompt (from the app).
+    pub password_prompt: bool,
+    /// The crash notice is showing (from the app).
+    pub crash_noticed: bool,
+    /// The diagnostics report, once shown.
+    pub diagnostics: Option<String>,
     /// Done: the app should quit.
     pub quit: bool,
     /// How many windows are open (from the app each frame).
@@ -373,6 +379,31 @@ const STEPS: &[Step] = &[
         limit: Duration::from_secs(5),
     },
     Step {
+        name: "a password prompt is spotted (for Secure Keyboard Entry)",
+        act: |_, _, tabs, a| tabs[a].pane().session.write(b"read -s secret\r"),
+        done: |s, _, _| s.password_prompt.then(|| (true, String::new())),
+        limit: Duration::from_secs(5),
+    },
+    Step {
+        name: "(answer it)",
+        act: |_, _, tabs, a| tabs[a].pane().session.write(b"hunter2\r"),
+        done: |s, _, _| (!s.password_prompt).then(|| (true, String::new())),
+        limit: Duration::from_secs(5),
+    },
+    Step {
+        name: "Copy Diagnostics shows a scrubbed report",
+        act: |s, _, _, _| s.cmds.push(Cmd::Diagnostics),
+        done: |s, _, _| {
+            s.diagnostics.as_ref().map(|d| {
+                let ok = d.starts_with("jamalterm diagnostics")
+                    && d.contains("Recent problems")
+                    && !d.contains("hunter2");
+                (ok, format!("{} lines", d.lines().count()))
+            })
+        },
+        limit: Duration::from_secs(3),
+    },
+    Step {
         name: "⇧⌘P opens the command palette",
         act: |s, _, _, _| s.press(egui::Key::P, cmd_shift()),
         done: |s, _, _| s.palette_open.then(|| (true, String::new())),
@@ -643,6 +674,18 @@ const STEPS: &[Step] = &[
 /// saved comes back.
 const RESTORE_STEPS: &[Step] = &[
     Step {
+        name: "a crash last time is noticed (and not sent anywhere)",
+        act: |_, _, _, _| {},
+        done: |s, _, _| {
+            let want = std::env::var_os("JAMALTERM_SMOKE_EXPECT_CRASH").is_some();
+            Some((
+                s.crash_noticed == want,
+                format!("noticed: {}", s.crash_noticed),
+            ))
+        },
+        limit: Duration::from_secs(1),
+    },
+    Step {
         name: "the saved tabs come back with their output",
         act: |_, _, _, _| {},
         done: |sm, tabs, _| {
@@ -693,6 +736,9 @@ impl Smoke {
             windows: 1,
             cmds: vec![],
             quit: false,
+            password_prompt: false,
+            crash_noticed: false,
+            diagnostics: None,
             ai_server,
             ai_requests,
             ai_open: false,

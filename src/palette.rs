@@ -87,6 +87,18 @@ pub const TOGGLES: &[Toggle] = &[
         field: |s| &mut s.ai_share_output,
     },
     Toggle {
+        label: "Keep a private problem log (errors only, never commands or output)",
+        pane: Pane::Privacy,
+        advanced: true,
+        field: |s| &mut s.keep_problem_log,
+    },
+    Toggle {
+        label: "Secure Keyboard Entry all the time (it's on by itself at password prompts)",
+        pane: Pane::Privacy,
+        advanced: false,
+        field: |s| &mut s.secure_input,
+    },
+    Toggle {
         label: "Shell integration (marks, browse mode) for new tabs",
         pane: Pane::Shell,
         advanced: true,
@@ -157,6 +169,7 @@ pub fn items(settings: &Settings) -> Vec<Item> {
             title: e.title.trim_end_matches('…').to_string(),
             group: match e.menu {
                 Some(commands::Menu::App) => "jamalterm",
+                Some(commands::Menu::Help) => "Help",
                 Some(commands::Menu::Shell) => "Shell",
                 Some(commands::Menu::Edit) => "Edit",
                 Some(commands::Menu::View) => "View",

@@ -191,6 +191,8 @@ pub struct Startup {
     /// The windows to bring back, the first window first (when restoring
     /// is on in Settings).
     pub restored: Vec<restore::SavedWindow>,
+    /// How jamalterm quit last time, if it crashed (scrubbed).
+    last_crash: Option<String>,
 }
 
 impl Startup {
@@ -207,11 +209,18 @@ impl Startup {
         } else {
             vec![]
         };
+        let dir = settings_path
+            .parent()
+            .unwrap_or(Path::new("."))
+            .to_path_buf();
+        crate::diag::init(&dir, settings.keep_problem_log);
+        let last_crash = crate::diag::watch_crashes(&dir);
         Startup {
             settings_path,
             settings,
             session_path,
             restored,
+            last_crash,
         }
     }
 }
@@ -309,6 +318,12 @@ pub struct App {
     prefs: crate::prefs::State,
     /// The self-test's stand-in for an AI provider: (address, key).
     ai_override: Option<(String, String)>,
+    /// jamalterm crashed last time: the notice offers the diagnostics.
+    last_crash: Option<String>,
+    /// The diagnostics window, open with its report.
+    diagnostics: Option<String>,
+    /// Some window of ours is in front (this frame).
+    app_active: bool,
     /// The next pane's id.
     next_id: u64,
     settings: Settings,
@@ -336,6 +351,7 @@ impl App {
             settings,
             session_path,
             restored,
+            last_crash,
         } = start;
         let theme = themes::by_id(&settings.theme);
         let shell = if settings.shell.is_empty() {
@@ -367,6 +383,9 @@ impl App {
             keys,
             prefs: Default::default(),
             ai_override,
+            last_crash,
+            diagnostics: None,
+            app_active: false,
             next_id: 1,
             theme,
             home: dirs::home_dir()
@@ -474,7 +493,9 @@ impl App {
         if data != self.last_saved {
             match restore::save(&self.session_path, &data) {
                 Ok(()) => self.last_saved = data,
-                Err(e) => eprintln!("jamalterm: the session wasn't saved: {e}"),
+                Err(e) => {
+                    crate::diag::problem("session", &format!("the session wasn't saved: {e}"))
+                }
             }
         }
     }
@@ -526,7 +547,7 @@ impl App {
                 })
             }
             Err(e) => {
-                eprintln!("jamalterm: the shell didn't start: {e}");
+                crate::diag::problem("shell", &format!("the shell didn't start: {e}"));
                 None
             }
         }
@@ -845,7 +866,29 @@ impl App {
 
     /// The AI panel's events, tool calls and the command it's waiting on.
     fn ai_tick(&mut self) {
-        for (command, run) in self.w.ai.poll() {
+        let errors_before = self
+            .w
+            .ai
+            .items
+            .iter()
+            .filter(|i| matches!(i, aipanel::Item::Error(_)))
+            .count();
+        let tools = self.w.ai.poll();
+        // AI errors go in the problem log: the message, never the question.
+        for i in self
+            .w
+            .ai
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                aipanel::Item::Error(e) => Some(e),
+                _ => None,
+            })
+            .skip(errors_before)
+        {
+            crate::diag::problem("ai", i);
+        }
+        for (command, run) in tools {
             if run {
                 let risk = ai::risk::check(&command, &self.w.ai.shown);
                 self.w.ai.items.push(aipanel::Item::Tool(aipanel::Card {
@@ -1036,6 +1079,189 @@ impl App {
         }
     }
 
+    /// Secure Keyboard Entry: on while jamalterm is in front and either
+    /// chosen in the menu or the pane in front is at a password prompt.
+    fn secure_input(&mut self, was_active: bool) {
+        let active = self.app_active || (was_active && self.settings_open.is_some());
+        let at_password = self
+            .pane()
+            .is_some_and(|p| crate::secure::password_prompt(p.session.fd()));
+        crate::secure::set(active && (self.settings.secure_input || at_password));
+        #[cfg(target_os = "macos")]
+        if let Some(m) = &self.menu {
+            m.set_secure(self.settings.secure_input);
+        }
+        if let Some(s) = self.smoke.as_mut() {
+            s.password_prompt = at_password;
+        }
+    }
+
+    /// Help → Copy Diagnostics: version, system, settings (no keys, no
+    /// folders) and the recent problem log, all scrubbed. Shown in full;
+    /// copied only when you press Copy; never sent anywhere.
+    fn diagnostics_report(&self) -> String {
+        let s = &self.settings;
+        let on = |b: bool| if b { "on" } else { "off" };
+        let mut r = String::new();
+        let mut line = |t: String| {
+            r.push_str(&t);
+            r.push('\n');
+        };
+        line("jamalterm diagnostics".into());
+        line("(made on this computer and not sent anywhere; read it before sharing)".into());
+        line(String::new());
+        line(format!("Version:   {}", env!("CARGO_PKG_VERSION")));
+        line(format!(
+            "System:    {} ({})",
+            os_version(),
+            std::env::consts::ARCH
+        ));
+        line(format!(
+            "Shell:     {}, integration {}",
+            self.shell_name,
+            on(s.shell_integration)
+        ));
+        let tabs: usize = std::iter::once(&self.w)
+            .chain(&self.others)
+            .map(|w| w.tabs.len())
+            .sum();
+        line(format!("Windows:   {}, tabs {tabs}", 1 + self.others.len()));
+        let p = ai::provider(&s.ai_provider);
+        let key = if p.local || self.keys.get(p.id).is_some() {
+            "ready (key found; not shown)"
+        } else {
+            "no key"
+        };
+        line(format!(
+            "AI:        {}, {}, {key}",
+            on(s.ai_enabled),
+            p.name
+        ));
+        line(format!(
+            "Secure Keyboard Entry: {}{}",
+            on(crate::secure::on()),
+            if s.secure_input { " (always)" } else { "" }
+        ));
+        line(String::new());
+        line("Settings:".into());
+        for (k, v) in [
+            ("theme", s.theme.clone()),
+            ("font size", s.font_size.to_string()),
+            ("line height", s.line_height.to_string()),
+            ("cursor", s.cursor_style.clone()),
+            ("cursor blink", s.cursor_blink.to_string()),
+            ("scrollback", s.scrollback.to_string()),
+            ("custom shell", (!s.shell.is_empty()).to_string()),
+            ("↑ browses", s.arrow_browse.to_string()),
+            ("restore windows", s.restore_session.to_string()),
+            ("prompt keys", s.prompt_keys.clone()),
+            ("confirm re-run", s.confirm_rerun.to_string()),
+            ("option is meta", s.option_is_meta.to_string()),
+            ("share output with AI", s.ai_share_output.to_string()),
+            ("auto update", s.auto_update.to_string()),
+            ("update channel", s.update_channel.clone()),
+        ] {
+            line(format!("  {k:<22} {v}"));
+        }
+        if let Some(c) = &self.last_crash {
+            line(String::new());
+            line("Last crash (scrubbed):".into());
+            for l in c.lines() {
+                line(format!("  {l}"));
+            }
+        }
+        line(String::new());
+        if !crate::diag::enabled() {
+            line("Problem log: off (Settings → Privacy)".into());
+        } else {
+            let recent = crate::diag::recent(40);
+            if recent.is_empty() {
+                line("Recent problems: none".into());
+            } else {
+                line("Recent problems (oldest first, times in UTC):".into());
+                for l in recent {
+                    line(format!("  {l}"));
+                }
+            }
+        }
+        crate::diag::scrub_text(&r)
+    }
+
+    /// The diagnostics window: the whole report, and Copy.
+    fn diagnostics_window(&mut self, ctx: &egui::Context) {
+        let Some(mut text) = self.diagnostics.take() else {
+            return;
+        };
+        let vp = egui::ViewportId::from_hash_of("jamalterm-diagnostics");
+        let builder = egui::ViewportBuilder::default()
+            .with_title("Diagnostics")
+            .with_inner_size([620.0, 560.0]);
+        let mut close = false;
+        ctx.show_viewport_immediate(vp, builder, |ui, _| {
+            let ctx = ui.ctx().clone();
+            ctx.input(|i| {
+                close = i.viewport().close_requested() || i.key_pressed(Key::Escape);
+            });
+            egui::Panel::bottom("diag-buttons").show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Nothing has been copied or sent. Read it, then copy it if you want to share it.");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("Close").clicked() {
+                            close = true;
+                        }
+                        if ui.button("Copy").clicked() {
+                            ctx.copy_text(text.clone());
+                        }
+                    });
+                });
+            });
+            egui::CentralPanel::default().show(ui, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    let mut shown = text.as_str(); // read-only
+                    ui.add(
+                        egui::TextEdit::multiline(&mut shown)
+                            .font(egui::TextStyle::Monospace)
+                            .desired_width(f32::INFINITY),
+                    );
+                });
+            });
+        });
+        if let Some(s) = self.smoke.as_mut() {
+            s.diagnostics = Some(std::mem::take(&mut text));
+            self.diagnostics = None;
+            return;
+        }
+        if !close {
+            self.diagnostics = Some(text);
+        }
+    }
+
+    /// "jamalterm quit unexpectedly last time", in the first window.
+    fn crash_notice(&mut self, ui: &mut egui::Ui) {
+        if !self.w.root || self.last_crash.is_none() {
+            return;
+        }
+        let mut dismiss = false;
+        let mut show = false;
+        egui::Panel::top("crash-notice").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("⚠ jamalterm quit unexpectedly last time. A report stayed on this Mac; nothing was sent.");
+                if ui.button("Copy Diagnostics…").clicked() {
+                    show = true;
+                }
+                if ui.button("Dismiss").clicked() {
+                    dismiss = true;
+                }
+            });
+        });
+        if show {
+            self.diagnostics = Some(self.diagnostics_report());
+        }
+        if dismiss {
+            self.last_crash = None;
+        }
+    }
+
     /// The tab bar shows with two or more tabs, or always when chosen (View
     /// → Show Tab Bar); Hide Tab Bar hides it even with several tabs.
     fn tab_bar_shown(&self) -> bool {
@@ -1061,9 +1287,12 @@ impl App {
     /// Settings changed: saved at once and applied (no Save button).
     fn settings_changed(&mut self) {
         self.settings = self.settings.clone().normalized();
+        if crate::diag::enabled() != self.settings.keep_problem_log {
+            crate::diag::set_enabled(self.settings.keep_problem_log);
+        }
         self.theme = themes::by_id(&self.settings.theme);
         if let Err(e) = settings::save(&self.settings_path, &self.settings) {
-            eprintln!("jamalterm: settings weren't saved: {e}");
+            crate::diag::problem("settings", &format!("settings weren't saved: {e}"));
         }
     }
 
@@ -1379,6 +1608,11 @@ impl App {
         match cmd {
             Cmd::NewTab => self.new_tab(ctx, None),
             Cmd::Settings => self.open_settings(None),
+            Cmd::SecureInput => {
+                self.settings.secure_input = !self.settings.secure_input;
+                self.settings_changed();
+            }
+            Cmd::Diagnostics => self.diagnostics = Some(self.diagnostics_report()),
             Cmd::Quit => {
                 if self.may_close(ctx, Closing::Quit) {
                     self.quit(ctx);
@@ -1785,7 +2019,12 @@ impl App {
                     } else {
                         ""
                     };
-                    let mut text = RichText::new(format!("{}  {mark}{name}", i + 1));
+                    let lock = if i == self.w.active && crate::secure::on() {
+                        "🔒 "
+                    } else {
+                        ""
+                    };
+                    let mut text = RichText::new(format!("{}  {lock}{mark}{name}", i + 1));
                     if i == self.w.active {
                         text = text.strong();
                     }
@@ -1948,6 +2187,8 @@ impl eframe::App for App {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         let ctx = self.ctx.clone();
         self.save_session(&ctx);
+        crate::secure::set(false);
+        crate::diag::quit_cleanly();
     }
 
     /// The self-test's key presses arrive as if typed.
@@ -1971,6 +2212,13 @@ impl eframe::App for App {
         if ctx.theme() != look {
             ctx.set_theme(look);
         }
+        // JAMALTERM_TEST_CRASH=1: crash on purpose a few seconds in, to check
+        // that the next start notices.
+        if self.started.elapsed() > Duration::from_secs(3)
+            && std::env::var_os("JAMALTERM_TEST_CRASH").is_some()
+        {
+            panic!("a test crash (JAMALTERM_TEST_CRASH)");
+        }
         // Menu bar choices (and their key equivalents) on a Mac go to the
         // window in front.
         #[cfg(target_os = "macos")]
@@ -1985,6 +2233,7 @@ impl eframe::App for App {
         }
 
         // The first window (eframe's root viewport).
+        let was_active = std::mem::take(&mut self.app_active);
         self.window_ui(ui);
         if self
             .smoke
@@ -2005,6 +2254,7 @@ impl eframe::App for App {
             smoke.settings_open = self.settings_open.is_some();
             smoke.theme = self.settings.theme.clone();
             smoke.asking = self.asking.is_some();
+            smoke.crash_noticed = self.last_crash.is_some();
             smoke.ai_open = self.w.ai_open;
             smoke.ai_card = self.w.ai.items.iter().rev().find_map(|i| match i {
                 aipanel::Item::Tool(c) => Some(format!("{:?}", c.state)),
@@ -2051,6 +2301,8 @@ impl eframe::App for App {
         }
 
         self.settings_window(&ctx);
+        self.diagnostics_window(&ctx);
+        self.secure_input(was_active);
 
         // A "terminate running processes?" question: its answer.
         if let Some(p) = &self.asking {
@@ -2131,6 +2383,7 @@ impl App {
         }
         if focused {
             self.front = self.w.id;
+            self.app_active = true;
         }
         if self.front == self.w.id {
             for cmd in std::mem::take(&mut self.pending) {
@@ -2268,6 +2521,7 @@ impl App {
             return;
         }
 
+        self.crash_notice(ui);
         if self.tab_bar_shown() {
             egui::Panel::top("tabs").show(ui, |ui| self.tab_bar(&ctx, ui));
         }
@@ -2541,7 +2795,10 @@ impl App {
 
         // The window title: "Home — zsh".
         let tab = &self.w.tabs[self.w.active];
-        let title = tab_name(&tab.folder(&self.home), &tab.program(&self.shell_name));
+        let mut title = tab_name(&tab.folder(&self.home), &tab.program(&self.shell_name));
+        if crate::secure::on() && self.front == self.w.id {
+            title = format!("🔒 {title}"); // Secure Keyboard Entry is on
+        }
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
         #[cfg(target_os = "macos")]
         if self.front == self.w.id
@@ -2571,6 +2828,18 @@ impl App {
             );
         }
     }
+}
+
+/// "macOS 15.2" (or the system's name elsewhere).
+fn os_version() -> String {
+    if cfg!(target_os = "macos")
+        && let Ok(o) = std::process::Command::new("/usr/bin/sw_vers")
+            .arg("-productVersion")
+            .output()
+    {
+        return format!("macOS {}", String::from_utf8_lossy(&o.stdout).trim());
+    }
+    std::env::consts::OS.to_string()
 }
 
 /// Opens a web page in the browser (a click the user made).

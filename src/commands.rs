@@ -11,6 +11,10 @@ use egui::Key;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Cmd {
     Settings,
+    /// Keep Secure Keyboard Entry on all the time (a checkmark).
+    SecureInput,
+    /// Help → Copy Diagnostics…
+    Diagnostics,
     /// ⌘Q: asks first when programs are running.
     Quit,
     /// Right-click → Search with Google (the selected text).
@@ -59,6 +63,7 @@ pub enum Cmd {
 pub enum Menu {
     /// The jamalterm menu (Settings…).
     App,
+    Help,
     Shell,
     Edit,
     View,
@@ -124,6 +129,8 @@ const fn tab(n: u8, key: Key) -> Entry {
 
 pub const TABLE: &[Entry] = &[
     e(Cmd::Settings, "Settings…", Menu::App, Key::Comma, false),
+    item(Cmd::SecureInput, "Secure Keyboard Entry", Menu::App),
+    item(Cmd::Diagnostics, "Copy Diagnostics…", Menu::Help),
     Entry {
         menu: None, // the jamalterm menu has its own Quit item, at the end
         ..e(Cmd::Quit, "Quit jamalterm", Menu::App, Key::Q, false)
