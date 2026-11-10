@@ -182,6 +182,15 @@ export function DismissCrash(): $CancellablePromise<void> {
 }
 
 /**
+ * DropTab: a tab was dragged out of its window and let go at screen point
+ * (x, y). Over another jamalterm window, the tab moves there; anywhere else,
+ * it gets a new window at that spot.
+ */
+export function DropTab(layout: string, x: number, y: number): $CancellablePromise<void> {
+    return $Call.ByID(2270372723, layout, x, y);
+}
+
+/**
  * FindLocalServers looks for Ollama and LM Studio running on this Mac.
  */
 export function FindLocalServers(): $CancellablePromise<$models.LocalServer[] | null> {
@@ -630,15 +639,6 @@ export function StartDir(): $CancellablePromise<string> {
 }
 
 /**
- * TakeTab moves a tab that was dragged here from another window: the tab's
- * shells now belong to the calling window, and the window it came from is
- * told to let it go.
- */
-export function TakeTab(layout: string, $from: string): $CancellablePromise<void> {
-    return $Call.ByID(971122573, layout, $from);
-}
-
-/**
  * ToTerminal sends a menu command to the terminal window last used (for
  * Settings' "Sign in", "Check now", …).
  */
@@ -690,14 +690,6 @@ export function WindowCount(): $CancellablePromise<number> {
  */
 export function WindowID(): $CancellablePromise<number> {
     return $Call.ByID(1316176016);
-}
-
-/**
- * WindowName names the calling window (tabs dragged between windows say
- * where they came from).
- */
-export function WindowName(): $CancellablePromise<string> {
-    return $Call.ByID(350894710);
 }
 
 /**

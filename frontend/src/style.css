@@ -978,8 +978,10 @@ label.check.disabled { opacity: 0.45; }
    they change by themselves. */
 .swatch.special { outline: 1px dashed color-mix(in srgb, var(--fg) 40%, transparent); outline-offset: -4px; }
 
-/* Dragging tabs: where it will land, and the tab being dragged. */
-.tab.dragging { opacity: 0.45; }
+/* Dragging tabs: the tab follows the pointer; a bar shows where it lands;
+   dragged out of the window it fades (it will open where you let go). */
+.tab.dragging { z-index: 5; opacity: 0.9; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35) !important; transition: none; cursor: grabbing; }
+.tab.dragging.tearing { opacity: 0.55; }
 .tab.drop-before::before, .tab.drop-after::after {
   content: ""; position: absolute; top: 3px; bottom: 3px; width: 3px; border-radius: 2px; background: var(--accent);
 }

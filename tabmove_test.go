@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 func TestTabIDs(t *testing.T) {
@@ -63,5 +65,25 @@ func TestSwitchItems(t *testing.T) {
 	// A window that hasn't reported yet still gets a line.
 	if got := switchItems([]string{"window-9"}, nil, "", func(string, int) {}); got[0].Label != "Window 1" {
 		t.Fatalf("unnamed window: %q", got[0].Label)
+	}
+}
+
+func TestWindowAt(t *testing.T) {
+	frames := map[string]application.Rect{
+		"window-1": {X: 0, Y: 0, Width: 800, Height: 600},
+		"window-2": {X: 900, Y: 100, Width: 800, Height: 600},
+	}
+	cases := []struct {
+		x, y int
+		want string
+	}{
+		{950, 120, "window-2"}, // over the other window
+		{100, 100, ""},         // over the window it came from
+		{850, 50, ""},          // between windows: a new window
+	}
+	for _, c := range cases {
+		if got := windowAt(frames, "window-1", c.x, c.y); got != c.want {
+			t.Errorf("windowAt(%d,%d) = %q, want %q", c.x, c.y, got, c.want)
+		}
 	}
 }

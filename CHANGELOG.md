@@ -4,7 +4,8 @@
 
 **Tabs that move**
 - **Drag tabs** to reorder them
-- Drag a tab **out of the window** to give it a window of its own, or onto **another window's tab bar** to move it there. Whatever is running keeps running
+- Drag a tab **out of the window**: let go over another jamalterm window and it moves there, anywhere else and it opens in a new window right there. Whatever is running keeps running
+- Esc while dragging puts the tab back
 - Window → **Move Tab to New Window** and **Merge All Windows**
 
 **Your terminals, one click away**

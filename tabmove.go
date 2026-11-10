@@ -67,16 +67,7 @@ func (a *App) MoveTab(ctx context.Context, layout, target string) error {
 		return errors.New("nothing to move")
 	}
 	if target == "" {
-		a.mu.Lock()
-		a.nextAdopt = layout
-		a.mu.Unlock()
-		dir := ""
-		if src := winOf(ctx); src != nil {
-			a.mu.Lock()
-			dir = a.startDirs[src.Name()]
-			a.mu.Unlock()
-		}
-		a.openWindow(dir, "", -1)
+		a.moveToNewWindow(ctx, layout)
 		return nil
 	}
 	w, ok := a.app.Window.GetByName(target)
@@ -94,6 +85,63 @@ func (a *App) MoveTab(ctx context.Context, layout, target string) error {
 	return nil
 }
 
+// moveToNewWindow opens a window that takes the tab.
+func (a *App) moveToNewWindow(ctx context.Context, layout string) application.Window {
+	a.mu.Lock()
+	a.nextAdopt = layout
+	a.mu.Unlock()
+	dir := ""
+	if src := winOf(ctx); src != nil {
+		a.mu.Lock()
+		dir = a.startDirs[src.Name()]
+		a.mu.Unlock()
+	}
+	return a.openWindow(dir, "", -1)
+}
+
+// windowAt picks the window under a screen point (top-left origin, points),
+// skipping the one the tab came from. "" = none.
+func windowAt(frames map[string]application.Rect, skip string, x, y int) string {
+	best := ""
+	for name, r := range frames {
+		if name == skip || r.Width == 0 {
+			continue
+		}
+		if x >= r.X && x < r.X+r.Width && y >= r.Y && y < r.Y+r.Height {
+			if best == "" || name < best {
+				best = name
+			}
+		}
+	}
+	return best
+}
+
+// DropTab: a tab was dragged out of its window and let go at screen point
+// (x, y). Over another jamalterm window, the tab moves there; anywhere else,
+// it gets a new window at that spot.
+func (a *App) DropTab(ctx context.Context, layout string, x, y int) error {
+	if len(tabIDs(layout)) == 0 {
+		return errors.New("nothing to move")
+	}
+	src := ""
+	if w := winOf(ctx); w != nil {
+		src = w.Name()
+	}
+	frames := map[string]application.Rect{}
+	for _, w := range a.app.Window.GetAll() {
+		if w.Name() != settingsWindowName && !w.IsMinimised() {
+			frames[w.Name()] = w.Bounds()
+		}
+	}
+	if target := windowAt(frames, src, x, y); target != "" {
+		return a.MoveTab(ctx, layout, target)
+	}
+	if w := a.moveToNewWindow(ctx, layout); w != nil {
+		w.SetPosition(max(0, x-120), max(0, y-16)) // the new window's tab under the pointer
+	}
+	return nil
+}
+
 // Adopted returns the tab this (new) window was opened to take, once.
 func (a *App) Adopted(ctx context.Context) string {
 	w := winOf(ctx)
@@ -106,41 +154,6 @@ func (a *App) Adopted(ctx context.Context) string {
 	delete(a.adoptFor, w.Name())
 	return s
 }
-
-// WindowName names the calling window (tabs dragged between windows say
-// where they came from).
-func (a *App) WindowName(ctx context.Context) string {
-	if w := winOf(ctx); w != nil {
-		return w.Name()
-	}
-	return ""
-}
-
-// TakeTab moves a tab that was dragged here from another window: the tab's
-// shells now belong to the calling window, and the window it came from is
-// told to let it go.
-func (a *App) TakeTab(ctx context.Context, layout, from string) error {
-	w := winOf(ctx)
-	ids := tabIDs(layout)
-	if w == nil || len(ids) == 0 || from == w.Name() {
-		return errors.New("nothing to move")
-	}
-	a.mu.Lock()
-	for _, id := range ids {
-		if a.owner[id] != from {
-			a.mu.Unlock()
-			return errors.New("that tab has already moved")
-		}
-		a.owner[id] = w.Name()
-	}
-	a.mu.Unlock()
-	if src, ok := a.app.Window.GetByName(from); ok {
-		a.emitTo(src, eventTabGone, ids)
-	}
-	return nil
-}
-
-const eventTabGone = "tab:gone" // a tab of this window was taken by another
 
 // MergeAllWindows moves every other window's tabs into the window in front,
 // like Terminal's Window → Merge All Windows.

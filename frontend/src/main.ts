@@ -22,7 +22,7 @@ import { SmokeMode } from './backend'
 import { Group, type Dir, type SavedNode, type PaneNode } from './panes'
 import { loadProviders, providerInfo, modelOf } from './providers'
 import { el, isMac, toast, duration, quotePath, stored, store } from './util'
-import { MoveTab, Adopted, WindowName, TakeTab, MergeAllWindows, WallpaperColors, OpenURL, Confirm, OpenSettingsAt, SetMenuState, BusyTabs, QuitNow, CloseWindowNow, SetActiveTab, LiveTabs, RemoteSetupLine, Write } from './backend'
+import { MoveTab, DropTab, Adopted, MergeAllWindows, WallpaperColors, OpenURL, Confirm, OpenSettingsAt, SetMenuState, BusyTabs, QuitNow, CloseWindowNow, SetActiveTab, LiveTabs, RemoteSetupLine, Write } from './backend'
 import type { Settings as Prefs } from './types'
 
 let cfg: Prefs
@@ -380,9 +380,6 @@ async function closeGroup(g = groupOf(active), asked = false) {
 
 // ---- Moving tabs between windows (their shells keep running) ---------------------
 
-const TAB_TYPE = 'application/x-jamalterm-tab'
-let myWindow = ''
-let dragGroup: Group | null = null
 
 const idsOf = (n: SavedNode): number[] => ('tab' in n ? (n.tab.id !== undefined ? [n.tab.id] : []) : [...idsOf(n.a), ...idsOf(n.b)])
 
@@ -422,62 +419,78 @@ function adoptGroup(layout: SavedNode, at = groups.length) {
   sessionDirty = true
 }
 
-/** Where a tab dropped at x goes: the index of the tab it's in front of. */
-function dropIndex(x: number): number {
-  const items = Array.from(tabsEl.querySelectorAll<HTMLElement>('.tab'))
-  for (let i = 0; i < items.length; i++) {
-    const r = items[i].getBoundingClientRect()
-    if (x < r.left + r.width / 2) return i
-  }
-  return items.length
+/** Where a tab let go at x lands: the index of the tab it's in front of
+ * (rects are the tabs' places when the drag began, without the dragged one). */
+function dropIndex(x: number, rects: DOMRect[]): number {
+  for (let i = 0; i < rects.length; i++) if (x < rects[i].left + rects[i].width / 2) return i
+  return rects.length
 }
 
-function markDrop(x: number | null) {
-  tabsEl.querySelectorAll('.tab').forEach((el) => el.classList.remove('drop-before', 'drop-after'))
-  if (x === null) return
-  const items = tabsEl.querySelectorAll<HTMLElement>('.tab')
-  const i = dropIndex(x)
-  if (i < items.length) items[i].classList.add('drop-before')
-  else items[items.length - 1]?.classList.add('drop-after')
-}
-
-tabsEl.addEventListener('dragover', (e) => {
-  if (!e.dataTransfer?.types.includes(TAB_TYPE)) return
-  e.preventDefault()
-  e.dataTransfer.dropEffect = 'move'
-  markDrop(e.clientX)
-})
-tabsEl.addEventListener('dragleave', (e) => {
-  if (!tabsEl.contains(e.relatedTarget as Node)) markDrop(null)
-})
-tabsEl.addEventListener('drop', (e) => {
-  const raw = e.dataTransfer?.getData(TAB_TYPE)
-  markDrop(null)
-  if (!raw) return
-  e.preventDefault()
-  const at = dropIndex(e.clientX)
-  if (dragGroup) {
-    // Reorder within this window.
-    const from = groups.indexOf(dragGroup)
-    groups.splice(from, 1)
-    groups.splice(at > from ? at - 1 : at, 0, dragGroup)
-    dragGroup = null
-    sessionDirty = true
-    renderTabs()
-    syncMenu()
-    return
+/** Dragging a tab with the mouse (not the web page's drag-and-drop, which
+ * macOS web views handle badly): it follows the pointer, the others show
+ * where it will land, and letting go outside the window moves it to the
+ * window under the pointer, or a new one there. A press without moving is a
+ * click: it selects the tab. */
+function startTabDrag(down: PointerEvent, g: Group, item: HTMLElement) {
+  const x0 = down.clientX, y0 = down.clientY
+  let dragging = false
+  let rects: DOMRect[] = []
+  const others = () => Array.from(tabsEl.querySelectorAll<HTMLElement>('.tab')).filter((el) => el !== item)
+  const outside = (e: PointerEvent) => e.clientY < -24 || e.clientY > innerHeight || e.clientX < 0 || e.clientX > innerWidth ||
+    e.clientY > tabsEl.getBoundingClientRect().bottom + 70
+  const mark = (e: PointerEvent | null) => {
+    const els = others()
+    els.forEach((el) => el.classList.remove('drop-before', 'drop-after'))
+    item.classList.toggle('tearing', !!e && outside(e))
+    if (!e || outside(e)) return
+    const i = dropIndex(e.clientX, rects)
+    if (i < els.length) els[i].classList.add('drop-before')
+    else els[els.length - 1]?.classList.add('drop-after')
   }
-  // From another window: take it over.
-  void (async () => {
-    try {
-      const { from, layout } = JSON.parse(raw) as { from: string; layout: SavedNode }
-      await TakeTab(JSON.stringify(layout), from)
-      adoptGroup(layout, at)
-    } catch (err) {
-      toast(String(err), 'error')
+  const move = (e: PointerEvent) => {
+    if (!dragging) {
+      if (Math.abs(e.clientX - x0) < 5 && Math.abs(e.clientY - y0) < 5) return
+      dragging = true
+      rects = others().map((el) => el.getBoundingClientRect())
+      item.classList.add('dragging')
+      try { item.setPointerCapture(down.pointerId) } catch { /* fine */ }
     }
-  })()
-})
+    item.style.transform = `translate(${e.clientX - x0}px, ${Math.max(-6, Math.min(6, e.clientY - y0))}px)`
+    mark(e)
+  }
+  const end = (e: PointerEvent, cancel = false) => {
+    removeEventListener('pointermove', move)
+    removeEventListener('pointerup', up)
+    removeEventListener('keydown', esc, true)
+    item.classList.remove('dragging', 'tearing')
+    item.style.transform = ''
+    mark(null)
+    if (!dragging) return void activate(g.focused) // a click
+    if (cancel) return
+    if (outside(e)) {
+      // Out of the window: to the window under the pointer, or a new one.
+      if (groups.length < 2) return toast('This is the only tab in the window')
+      void DropTab(JSON.stringify(g.snapshot()), Math.round(e.screenX), Math.round(e.screenY)).then(() => detachGroup(g))
+      return
+    }
+    const from = groups.indexOf(g)
+    const to = dropIndex(e.clientX, rects)
+    groups.splice(from, 1)
+    groups.splice(Math.min(to, groups.length), 0, g)
+    sessionDirty = true
+    activate(g.focused)
+  }
+  const up = (e: PointerEvent) => end(e)
+  const esc = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape' || !dragging) return
+    e.preventDefault()
+    e.stopPropagation()
+    end(new PointerEvent('pointerup'), true)
+  }
+  addEventListener('pointermove', move)
+  addEventListener('pointerup', up)
+  addEventListener('keydown', esc, true)
+}
 
 function cycle(dir: number) {
   const g = groupOf(active)
@@ -563,28 +576,12 @@ function renderTabs() {
     const num = el('span', { class: 'num', text: String(i + 1) })
     const item = el('div', { class: `tab ${g.has(active!) ? 'active' : ''} ${status}${item_proj ? ' proj' : ''}`, title: tip }, ...(i < 9 ? [num] : []), ...(icon ? [icon] : []), label, close)
     if (item_proj) item.style.setProperty('--proj', `var(--${item_proj})`)
-    // Drag to reorder, onto another window's tab bar, or out of the window.
-    item.draggable = true
-    item.addEventListener('dragstart', (e) => {
-      dragGroup = g
-      e.dataTransfer!.effectAllowed = 'move'
-      e.dataTransfer!.setData(TAB_TYPE, JSON.stringify({ from: myWindow, layout: g.snapshot() }))
-      item.classList.add('dragging')
-    })
-    item.addEventListener('dragend', (e) => {
-      item.classList.remove('dragging')
-      markDrop(null)
-      const dropped = e.dataTransfer?.dropEffect !== 'none'
-      const outside = e.screenX < window.screenX || e.screenX > window.screenX + window.outerWidth ||
-        e.screenY < window.screenY || e.screenY > window.screenY + window.outerHeight
-      // Dropped outside every window: the tab gets its own window. (Dropped
-      // on another window's tab bar: that window takes it; "tab:gone".)
-      if (dragGroup === g && !dropped && outside) void moveToNewWindow(g)
-      dragGroup = null
-    })
     item.addEventListener('mousedown', (e) => {
       if (e.button === 1) closeGroup(g)
-      else if (e.target !== close) activate(g.focused)
+    })
+    // Click to select; drag to reorder or out of the window (tabDrag).
+    item.addEventListener('pointerdown', (e) => {
+      if (e.button === 0 && e.target !== close) startTabDrag(e, g, item)
     })
     close.addEventListener('click', (e) => {
       e.stopPropagation()
@@ -856,10 +853,6 @@ EventsOn('secure:input', (on: boolean) => {
 EventsOn('settings:changed', (s: Prefs) => applySettings(s))
 // Tabs moving between windows.
 EventsOn('tab:adopt', (layout: string) => { try { adoptGroup(JSON.parse(layout)) } catch { /* bad data */ } })
-EventsOn('tab:gone', (ids: number[]) => {
-  const g = groups.find((x) => x.tabs().some((t) => ids.includes(t.id)))
-  if (g) detachGroup(g)
-})
 EventsOn('tabs:send', (target: string) => {
   // Window → Merge All Windows: every tab goes to that window.
   void (async () => {
@@ -896,7 +889,6 @@ async function boot() {
   applySystemLook(() => cfg && applySettings(cfg))
   // Tab numbers are unique across windows.
   nextId = (await WindowID()) * 100000 + 1
-  myWindow = await WindowName()
   const mark = (name: string) => (bootTimes[name] = Math.round(performance.now()))
   ;[cfg, shellName, home] = await Promise.all([Settings(), ShellName(), HomeDir(), loadProviders(), loadCommands()]) as [Prefs, string, string, void, void]
   applySettings(cfg)
