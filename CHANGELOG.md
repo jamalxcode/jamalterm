@@ -8,6 +8,7 @@
 - API keys stay in their encrypted file, never the Keychain; Secure Keyboard Entry turns on by itself at password prompts
 - Updates are checked against GitHub's build proof before installing, installed when you quit, with Go Back to Previous Version and a Beta channel
 - New: a sticky header naming the command whose output you're reading, marks beside the scrollbar, inline images, the kitty keyboard protocol, Broadcast Typing (⌥⌘I), and Smooth or Glow cursors
+- Fixed since 4.0.0-beta.1: an **Ask AI** button opens the AI panel (it was only on ⌘I); pasting into Settings (API keys), the AI panel and the other text fields works; choosing a tab from the menu bar icon or the Dock brings jamalterm to the front
 - Not yet: font ligatures
 
 ## 3.5.0

@@ -39,6 +39,8 @@ pub struct Smoke {
     pub script: std::collections::VecDeque<Vec<egui::Event>>,
     /// Where the tabs are in the bar (from the app each frame).
     pub tab_rects: Vec<egui::Rect>,
+    /// Where the Ask AI button is.
+    pub ask_rect: Option<egui::Rect>,
     /// A pane id a step remembers to check later.
     marker: u64,
     /// The palette and Settings are open; the current theme (from the app).
@@ -56,6 +58,10 @@ pub struct Smoke {
     /// The AI panel (from the app): open, the last command card's state,
     /// the last answer, still answering.
     pub ai_open: bool,
+    /// What's typed in the AI panel's field.
+    pub ai_input: String,
+    /// Kept open: on X11 what's copied goes when its clipboard closes.
+    clipboard: Option<arboard::Clipboard>,
     pub ai_card: Option<String>,
     pub ai_answer: Option<String>,
     pub ai_busy: bool,
@@ -661,9 +667,86 @@ const STEPS: &[Step] = &[
         limit: Duration::from_secs(3),
     },
     Step {
+        name: "an Ask AI button is on screen and opens the AI panel",
+        act: |s, _, _, _| {
+            if let Some(r) = s.ask_rect {
+                s.click(r.center());
+            }
+        },
+        done: |s, _, _| s.ai_open.then(|| (true, format!("{:?}", s.ask_rect))),
+        limit: Duration::from_secs(3),
+    },
+    Step {
+        name: "⌘I closes the AI panel",
+        act: |s, _, _, _| s.press(egui::Key::I, cmd_mods()),
+        done: |s, _, _| (!s.ai_open).then(|| (true, String::new())),
+        limit: Duration::from_secs(3),
+    },
+    Step {
         name: "⌘I opens the AI panel",
         act: |s, _, _, _| s.press(egui::Key::I, cmd_mods()),
         done: |s, _, _| s.ai_open.then(|| (true, String::new())),
+        limit: Duration::from_secs(3),
+    },
+    Step {
+        name: "Edit ▸ Paste goes into the focused field (the AI panel's), not the shell",
+        act: |s, _, _, _| {
+            s.clipboard = arboard::Clipboard::new().ok();
+            if let Some(c) = s.clipboard.as_mut() {
+                let _ = c.set_text("pasted-here");
+            }
+            s.script.push_back(vec![]);
+            s.cmds.push(crate::commands::Cmd::Paste);
+        },
+        done: |s, tabs, a| {
+            let sc = tabs[a].pane().session.screen.lock().unwrap();
+            let shell = sc.wrapped_line_text(sc.abs_cursor_line());
+            if shell.contains("pasted-here") {
+                return Some((false, format!("went to the shell: {shell:?}")));
+            }
+            if s.waited > Duration::from_millis(2500) {
+                let clip = arboard::Clipboard::new().and_then(|mut c| c.get_text());
+                return Some((
+                    false,
+                    format!("field: {:?}, clipboard: {clip:?}", s.ai_input),
+                ));
+            }
+            s.ai_input
+                .contains("pasted-here")
+                .then(|| (true, format!("field: {:?}", s.ai_input)))
+        },
+        limit: Duration::from_secs(3),
+    },
+    Step {
+        name: "Edit ▸ Select All selects the field's text (typing replaces it)",
+        act: |s, _, _, _| {
+            s.cmds.push(crate::commands::Cmd::SelectAll);
+            s.script.push_back(vec![]);
+            s.script.push_back(vec![egui::Event::Text("x".into())]);
+        },
+        done: |s, _, _| {
+            if s.ai_input == "x" {
+                return Some((true, String::new()));
+            }
+            (s.waited > Duration::from_millis(2500))
+                .then(|| (false, format!("field: {:?}", s.ai_input)))
+        },
+        limit: Duration::from_secs(3),
+    },
+    Step {
+        name: "(clear the field)",
+        act: |s, _, _, _| {
+            s.cmds.push(crate::commands::Cmd::SelectAll);
+            s.script.push_back(vec![]);
+            s.script.push_back(vec![egui::Event::Key {
+                key: egui::Key::Backspace,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }]);
+        },
+        done: |s, _, _| s.ai_input.is_empty().then(|| (true, String::new())),
         limit: Duration::from_secs(3),
     },
     Step {
@@ -987,6 +1070,8 @@ impl Smoke {
             ai_server,
             ai_requests,
             ai_open: false,
+            ai_input: String::new(),
+            clipboard: None,
             ai_card: None,
             ai_answer: None,
             ai_busy: false,
@@ -999,6 +1084,7 @@ impl Smoke {
             close_settings: false,
             script: Default::default(),
             tab_rects: vec![],
+            ask_rect: None,
             marker: 0,
             dir,
             started: Instant::now(),
@@ -1048,6 +1134,20 @@ impl Smoke {
             self.script.push_back(vec![egui::Event::PointerMoved(p)]);
         }
         self.script.push_back(vec![button(to, false)]);
+        self.script.push_back(vec![]);
+    }
+
+    /// Clicks at a point.
+    fn click(&mut self, at: egui::Pos2) {
+        let button = |pressed| egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        self.script.push_back(vec![egui::Event::PointerMoved(at)]);
+        self.script.push_back(vec![button(true)]);
+        self.script.push_back(vec![button(false)]);
         self.script.push_back(vec![]);
     }
 

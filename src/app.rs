@@ -771,6 +771,7 @@ impl App {
         if std::mem::take(&mut self.focus_settings) {
             ctx.send_viewport_cmd_to(vp, egui::ViewportCommand::Focus);
         }
+        let mut settings_edits = vec![];
         // ⌘W (a menu key equivalent) closes it when it's in front.
         if self.front == SETTINGS {
             let cmds = std::mem::take(&mut self.pending);
@@ -781,7 +782,12 @@ impl App {
                 self.close_settings();
                 return;
             }
-            self.pending = cmds; // anything else: for the terminal window
+            // Copy, Paste and Select All (menu key equivalents, so the
+            // window never sees ⌘C/⌘V/⌘A) go to its text fields.
+            let (edits, rest): (Vec<Cmd>, Vec<Cmd>) =
+                cmds.into_iter().partition(|c| edit_event(*c).is_some());
+            settings_edits = edits.into_iter().filter_map(edit_event).collect();
+            self.pending = rest; // anything else: for the terminal window
             self.front = self.w.id;
         }
         let builder = egui::ViewportBuilder::default()
@@ -795,6 +801,9 @@ impl App {
         ctx.show_viewport_immediate(vp, builder, |ui, _| {
             let ctx = ui.ctx().clone();
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(pane.name().into()));
+            if !settings_edits.is_empty() {
+                ctx.input_mut(|i| i.events.append(&mut settings_edits));
+            }
             ctx.input(|i| {
                 close = i.viewport().close_requested()
                     || i.key_pressed(Key::Escape)
@@ -1132,6 +1141,48 @@ impl App {
             }
             Act::Close => self.w.ai_open = false,
             Act::Settings => self.open_settings(Some(palette::Pane::Ai)),
+        }
+    }
+
+    /// Shows a window in front of every app: un-minimized, the app active,
+    /// the window focused.
+    fn bring_forward(ctx: &egui::Context, vp: egui::ViewportId) {
+        ctx.send_viewport_cmd_to(vp, egui::ViewportCommand::Minimized(false));
+        crate::macos::activate();
+        ctx.send_viewport_cmd_to(vp, egui::ViewportCommand::Focus);
+    }
+
+    fn toggle_ai(&mut self) {
+        self.w.ai_open = !self.w.ai_open;
+        if self.w.ai_open {
+            self.w.ai.focus_input = true;
+        }
+    }
+
+    /// The "Ask AI" button (3.x's "✦ Ask"), so the AI panel isn't hidden
+    /// behind a shortcut. Hidden when the AI is turned off.
+    fn ask_button(&mut self, ui: &mut egui::Ui) {
+        if !self.settings.ai_enabled {
+            return;
+        }
+        let r = ui
+            .add(
+                egui::Button::new("Ask AI")
+                    .frame(true)
+                    .selected(self.w.ai_open),
+            )
+            .on_hover_text(if self.w.ai_open {
+                "Hide the AI panel (⌘I)"
+            } else {
+                "Ask the AI assistant (⌘I)"
+            });
+        if r.clicked() {
+            self.toggle_ai();
+        }
+        if self.w.root
+            && let Some(s) = self.smoke.as_mut()
+        {
+            s.ask_rect = Some(r.rect);
         }
     }
 
@@ -2167,6 +2218,17 @@ impl App {
 
     /// Runs a command, from a shortcut or the menu bar.
     fn run(&mut self, ctx: &egui::Context, cmd: Cmd) {
+        // A text field (AI panel, command bar, palette, find) has the
+        // focus: Copy, Paste and Select All are its, as if the key had
+        // reached it.
+        if matches!(cmd, Cmd::Copy | Cmd::Paste | Cmd::SelectAll)
+            && ctx.memory(|m| m.focused().is_some())
+        {
+            if let Some(ev) = edit_event(cmd) {
+                ctx.input_mut(|i| i.events.push(ev));
+            }
+            return;
+        }
         match cmd {
             Cmd::NewTab => self.new_tab(ctx, None),
             Cmd::Settings => self.open_settings(None),
@@ -2200,20 +2262,26 @@ impl App {
                 }
             }
             Cmd::ShowTab(win, tab) => {
-                if win == self.w.id {
+                // Chosen from the menu bar icon or the Dock: the app comes
+                // to the front with that window, not just the tab changing
+                // behind whatever you were in.
+                let vp = if win == self.w.id {
                     self.w.active = tab.min(self.w.tabs.len().saturating_sub(1));
-                    ctx.send_viewport_cmd_to(
-                        App::viewport_of(&self.w),
-                        egui::ViewportCommand::Focus,
-                    );
+                    Some(App::viewport_of(&self.w))
                 } else if let Some(w) = self.others.iter_mut().find(|w| w.id == win) {
                     w.active = tab.min(w.tabs.len().saturating_sub(1));
-                    ctx.send_viewport_cmd_to(App::viewport_of(w), egui::ViewportCommand::Focus);
+                    Some(App::viewport_of(w))
+                } else {
+                    None
+                };
+                if let Some(vp) = vp {
+                    self.front = win;
+                    App::bring_forward(ctx, vp);
                 }
             }
             Cmd::ShowAll => {
                 for w in std::iter::once(&self.w).chain(&self.others) {
-                    ctx.send_viewport_cmd_to(App::viewport_of(w), egui::ViewportCommand::Focus);
+                    App::bring_forward(ctx, App::viewport_of(w));
                 }
             }
             Cmd::HideMenuBarIcon => {
@@ -2289,12 +2357,7 @@ impl App {
                     ..Default::default()
                 });
             }
-            Cmd::AiPanel => {
-                self.w.ai_open = !self.w.ai_open;
-                if self.w.ai_open {
-                    self.w.ai.focus_input = true;
-                }
-            }
+            Cmd::AiPanel => self.toggle_ai(),
             Cmd::NewWindow => self.new_window(ctx),
             Cmd::CloseWindow => self.close_window(ctx),
             Cmd::MoveTabToNewWindow => self.move_tab_to_new_window(),
@@ -2325,13 +2388,7 @@ impl App {
             Cmd::Paste => {
                 let text = arboard::Clipboard::new().and_then(|mut c| c.get_text());
                 if let Ok(t) = text {
-                    if ctx.memory(|m| m.focused().is_some()) {
-                        if let Some(f) = self.w.find.as_mut() {
-                            f.query.push_str(t.lines().next().unwrap_or(""));
-                        }
-                    } else {
-                        self.paste(&t);
-                    }
+                    self.paste(&t);
                 }
             }
             Cmd::Browse => {
@@ -2750,6 +2807,9 @@ impl App {
                 if ui.button("+").on_hover_text("New tab (⌘T)").clicked() {
                     self.new_tab(ctx, None);
                 }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    self.ask_button(ui)
+                });
             })
             .response
             .rect;
@@ -2965,6 +3025,7 @@ impl eframe::App for App {
             });
             smoke.stats_programs = self.stats.runs.iter().map(|r| r.program.clone()).collect();
             smoke.ai_open = self.w.ai_open;
+            smoke.ai_input = self.w.ai.input.clone();
             smoke.ai_card = self.w.ai.items.iter().rev().find_map(|i| match i {
                 aipanel::Item::Tool(c) => Some(format!("{:?}", c.state)),
                 _ => None,
@@ -3292,6 +3353,12 @@ impl App {
         self.crash_notice(ui);
         if self.tab_bar_shown() {
             egui::Panel::top("tabs").show(ui, |ui| self.tab_bar(&ctx, ui));
+        } else if !self.w.ai_open {
+            // No tab bar (one tab): the button floats at the top right.
+            egui::Area::new(egui::Id::unique(("ask-ai", self.w.id)))
+                .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 6.0))
+                .order(egui::Order::Foreground)
+                .show(&ctx, |ui| self.ask_button(ui));
         }
         if self.w.tabs.is_empty() {
             return;
@@ -3979,6 +4046,27 @@ fn sticky_header(
 /// `App::front` while the Settings window is in front.
 const SETTINGS: u64 = 0;
 
+/// What an Edit menu command means to a text field. On a Mac the menu's key
+/// equivalents (⌘C, ⌘V, ⌘A) never reach the window, so a focused field is
+/// handed the event itself.
+fn edit_event(cmd: Cmd) -> Option<egui::Event> {
+    match cmd {
+        Cmd::Copy => Some(egui::Event::Copy),
+        Cmd::Paste => arboard::Clipboard::new()
+            .and_then(|mut c| c.get_text())
+            .ok()
+            .map(egui::Event::Paste),
+        Cmd::SelectAll => Some(egui::Event::Key {
+            key: Key::A,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::COMMAND,
+        }),
+        _ => None,
+    }
+}
+
 /// The command bar's state (⌘J).
 #[derive(Default)]
 pub struct CommandBar {
@@ -4041,6 +4129,16 @@ fn pane_marker(p: &egui::Painter, rect: egui::Rect, focused: bool, theme: &Theme
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn edit_menu_commands_become_field_events() {
+        assert!(matches!(edit_event(Cmd::Copy), Some(egui::Event::Copy)));
+        assert!(matches!(
+            edit_event(Cmd::SelectAll),
+            Some(egui::Event::Key { key: Key::A, pressed: true, modifiers, .. }) if modifiers.command
+        ));
+        assert!(edit_event(Cmd::NewTab).is_none(), "only Edit commands");
+    }
 
     #[test]
     fn search_text_is_encoded() {

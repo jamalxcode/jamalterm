@@ -119,6 +119,27 @@ pub fn bounce() {
     }
 }
 
+/// Brings jamalterm to the front, as choosing one of its windows from the
+/// Dock or the menu bar icon should: shown again if hidden (⌘H), then made
+/// the active app.
+pub fn activate() {
+    #[cfg(target_os = "macos")]
+    if let Some(mtm) = objc2::MainThreadMarker::new() {
+        use objc2::runtime::NSObjectProtocol;
+        use objc2_app_kit::NSApplication;
+        let app = NSApplication::sharedApplication(mtm);
+        app.unhide(None);
+        // `activate` (macOS 14 and later) is the one that works there; the
+        // older call before that.
+        if app.respondsToSelector(objc2::sel!(activate)) {
+            app.activate();
+        } else {
+            #[allow(deprecated)]
+            app.activateIgnoringOtherApps(true);
+        }
+    }
+}
+
 /// The finish line's soft chime (off by default).
 pub fn chime() {
     #[cfg(target_os = "macos")]
