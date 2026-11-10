@@ -3,10 +3,13 @@
 
 mod app;
 mod browse;
+mod commands;
 mod find;
 mod fonts;
 mod input;
 mod marks;
+#[cfg(target_os = "macos")]
+mod menu;
 mod session;
 mod settings;
 mod shell;

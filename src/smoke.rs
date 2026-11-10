@@ -31,6 +31,8 @@ pub struct Smoke {
     pub keys: Vec<egui::Event>,
     /// The find bar's "3 of 17" (None when closed), from the app each frame.
     pub find_status: Option<String>,
+    /// Whether the Mac menu bar was installed (None where there is none).
+    pub menu_bar: Option<bool>,
     dir: PathBuf,
     started: Instant,
     step: usize,
@@ -81,6 +83,17 @@ const STEPS: &[Step] = &[
                 .then(|| (true, String::new()))
         },
         limit: Duration::from_secs(15),
+    },
+    Step {
+        name: "the menu bar (on a Mac)",
+        act: |_, _, _, _| {},
+        done: |s, _, _| {
+            Some(match s.menu_bar {
+                Some(ok) => (ok, if ok { "installed" } else { "missing" }.into()),
+                None => (true, "none on this system".into()),
+            })
+        },
+        limit: Duration::from_secs(1),
     },
     Step {
         name: "a command and its ✓",
@@ -187,6 +200,7 @@ impl Smoke {
         Some(Smoke {
             keys: vec![],
             find_status: None,
+            menu_bar: None,
             dir,
             started: Instant::now(),
             step: 0,

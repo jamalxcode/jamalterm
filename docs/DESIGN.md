@@ -24,7 +24,8 @@ eframe/egui (native window, OpenGL)        one thread per shell
 - **Marks:** the hook scripts are unchanged. A small scanner finds the marks in the byte stream (across reads); the session feeds the emulator up to each mark and notes the cursor line, so each command knows its prompt, start and end lines. The bytes still go to the emulator, which ignores marks it doesn't know.
 - **Drawing:** cells are grouped into runs of the same style per line and drawn as one text shape per run (not per character). Wide characters get their own run so the grid stays aligned. Bold plain colors use their bright version, like other terminals.
 - **Settings:** the same `settings.json` and field names as 3.x, so nothing is lost. Fields not used yet are read and written back unchanged.
-- **Known limit:** command lines are counted as "history + screen line". That stays right until the scrollback is full; after that, lines drop off the top without alacritty_terminal saying how many, and older marks drift. To fix when browse mode is ported (count dropped lines through the grid's scroll events).
+- **Stable marks:** command lines are counted as "history + screen line". Once the scrollback is full, lines drop off the top without alacritty_terminal saying how many, so before each chunk of output the session remembers the lines just above the screen and afterwards finds how far they moved; every mark shifts up by that much (`Screen::feed`, tested by `marks_stay_put_when_the_history_is_full`).
+- **One command table** (`commands.rs`): each command's menu title, menu and shortcut. The keyboard and the Mac menu bar (`menu.rs`, muda) both read it, so a shortcut and its menu item can't drift apart. On a Mac the shortcuts are real key equivalents (the menu title flashes); the menus are jamalterm, Shell, Edit, View and Window, and the Window menu doesn't list numbered tabs that aren't open.
 
 ### Status (what works / what's left)
 | Area | 4.x Rust |
@@ -33,9 +34,11 @@ eframe/egui (native window, OpenGL)        one thread per shell
 | Tabs (⌘T, ⌘W, ⌘1–9, ⇧⌘[ ]), tab bar, window title "Home — zsh" | ✅ phase 1 |
 | Themes (10), JetBrains Mono + Nerd symbols, cursor styles, scrollback, selection, copy/paste, ⌘K, font size | ✅ phase 1 |
 | settings.json compatibility, self-test, CI on Mac and Linux | ✅ phase 1 |
-| Browse mode (the free-floating cursor), re-run, sticky header, scrollbar markers | ⏳ |
+| Browse mode (the free-floating cursor, ⌥↑↓ between commands, ⏎ re-run asking when it ran elsewhere, ⇧⏎ edit, C/O copy, key bar), marks that stay put when the scrollback is full | ✅ phase 2 |
+| Sticky header, scrollbar markers | ⏳ |
 | Split panes, multiple windows, moving tabs, session restore, reattach | ⏳ |
-| Native menu bar, command palette, find, right-click menu, Settings window | ⏳ |
+| Native Mac menu bar (one command table), find (⌘F, ⌘G/⇧⌘G, "3 of 17") | ✅ phase 2 |
+| Command palette, right-click menu, Settings window | ⏳ |
 | AI panel, command bar, Fix it, risk checks, providers, local models | ⏳ |
 | Encrypted keys, Secure Keyboard Entry, problem log, diagnostics, crash reports | ⏳ |
 | Updater with Sigstore check, What's new, Beta channel, releases | ⏳ |

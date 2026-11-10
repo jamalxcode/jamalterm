@@ -1,6 +1,7 @@
 //! The window: tabs, the tab bar, keyboard and mouse, and the terminal view.
 
 use crate::browse::{self, Action, Browse};
+use crate::commands::{self, Cmd};
 use crate::find::Find;
 use crate::input::{is_app_shortcut, key_bytes, paste_bytes};
 use crate::session::Session;
@@ -97,6 +98,8 @@ pub struct App {
     /// The find bar (⌘F), when open.
     find: Option<Find>,
     focus_find: bool,
+    #[cfg(target_os = "macos")]
+    menu: Option<crate::menu::MacMenu>,
 }
 
 impl App {
@@ -128,7 +131,13 @@ impl App {
             smoke: crate::smoke::Smoke::from_env(),
             find: None,
             focus_find: false,
+            #[cfg(target_os = "macos")]
+            menu: crate::menu::MacMenu::install(&cc.egui_ctx),
         };
+        #[cfg(target_os = "macos")]
+        if let Some(s) = app.smoke.as_mut() {
+            s.menu_bar = Some(app.menu.is_some());
+        }
         app.new_tab(&cc.egui_ctx, None);
         app
     }
@@ -198,25 +207,61 @@ impl App {
         if !is_app_shortcut(m) {
             return false;
         }
-        match key {
-            Key::T => self.new_tab(ctx, None),
-            Key::W => self.close_tab(ctx, self.active),
-            Key::ArrowUp => {
+        // On Linux ⇧ is part of every shortcut, so it can't tell two apart.
+        let shift = cfg!(target_os = "macos").then_some(m.shift);
+        let Some(cmd) = commands::for_key(key, shift) else {
+            return false;
+        };
+        self.run(ctx, cmd);
+        true
+    }
+
+    /// Runs a command, from a shortcut or the menu bar.
+    fn run(&mut self, ctx: &egui::Context, cmd: Cmd) {
+        match cmd {
+            Cmd::NewTab => self.new_tab(ctx, None),
+            Cmd::CloseTab => self.close_tab(ctx, self.active),
+            Cmd::Copy => {
+                if let Some(tab) = self.tabs.get(self.active)
+                    && let Some(text) = tab
+                        .session
+                        .screen
+                        .lock()
+                        .unwrap()
+                        .term
+                        .selection_to_string()
+                {
+                    ctx.copy_text(text);
+                }
+            }
+            Cmd::Paste => {
+                let text = arboard::Clipboard::new().and_then(|mut c| c.get_text());
+                if let Ok(t) = text {
+                    if ctx.memory(|m| m.focused().is_some()) {
+                        if let Some(f) = self.find.as_mut() {
+                            f.query.push_str(t.lines().next().unwrap_or(""));
+                        }
+                    } else {
+                        self.paste(&t);
+                    }
+                }
+            }
+            Cmd::Browse => {
                 // ⌘↑ always starts browse mode.
                 self.enter_browse(true);
             }
-            Key::F => {
+            Cmd::Find => {
                 // Find, keeping the last text (like Safari).
                 self.find.get_or_insert_with(Find::default);
                 self.focus_find = true;
             }
-            Key::G => {
+            Cmd::FindNext | Cmd::FindPrevious => {
                 if let Some(f) = self.find.as_mut() {
-                    f.step(if m.shift { -1 } else { 1 });
+                    f.step(if cmd == Cmd::FindPrevious { -1 } else { 1 });
                     self.show_match();
                 }
             }
-            Key::K => {
+            Cmd::Clear => {
                 // Clear scrollback (and the screen), like Terminal's ⌘K.
                 if let Some(t) = self.tabs.get(self.active) {
                     t.session.write(b"\x0c");
@@ -225,30 +270,32 @@ impl App {
                     s.commands.blocks.clear();
                 }
             }
-            Key::Equals | Key::Plus => self.set_font_size(self.settings.font_size + 1),
-            Key::Minus => self.set_font_size(self.settings.font_size.saturating_sub(1)),
-            Key::Num0 => self.set_font_size(Settings::default().font_size),
-            Key::OpenBracket if m.shift => {
-                self.active = (self.active + self.tabs.len() - 1) % self.tabs.len()
-            }
-            Key::CloseBracket if m.shift => self.active = (self.active + 1) % self.tabs.len(),
-            Key::Num1
-            | Key::Num2
-            | Key::Num3
-            | Key::Num4
-            | Key::Num5
-            | Key::Num6
-            | Key::Num7
-            | Key::Num8
-            | Key::Num9 => {
-                let n = key.name().parse::<usize>().unwrap_or(1) - 1;
-                if n < self.tabs.len() {
-                    self.active = n;
+            Cmd::Bigger => self.set_font_size(self.settings.font_size + 1),
+            Cmd::Smaller => self.set_font_size(self.settings.font_size.saturating_sub(1)),
+            Cmd::ActualSize => self.set_font_size(Settings::default().font_size),
+            Cmd::PreviousTab => self.active = (self.active + self.tabs.len() - 1) % self.tabs.len(),
+            Cmd::NextTab => self.active = (self.active + 1) % self.tabs.len(),
+            Cmd::Tab(n) => {
+                if (n as usize) <= self.tabs.len() {
+                    self.active = n as usize - 1;
                 }
             }
-            _ => return false,
         }
-        true
+    }
+
+    /// Pastes text into the current tab's shell.
+    fn paste(&mut self, t: &str) {
+        if let Some(tab) = self.tabs.get(self.active) {
+            let bracketed = tab
+                .session
+                .screen
+                .lock()
+                .unwrap()
+                .term
+                .mode()
+                .contains(TermMode::BRACKETED_PASTE);
+            tab.session.write(&paste_bytes(t, bracketed));
+        }
     }
 
     /// Selects the current match and scrolls to it.
@@ -546,6 +593,15 @@ impl eframe::App for App {
             }
         }
 
+        // Menu bar choices (and their key equivalents) on a Mac.
+        #[cfg(target_os = "macos")]
+        for cmd in self.menu.as_ref().map(|m| m.chosen()).unwrap_or_default() {
+            self.run(&ctx, cmd);
+        }
+        if self.tabs.is_empty() {
+            return;
+        }
+
         // Keyboard: app shortcuts first, then browse mode, then the shell.
         let mut swallow_text = false;
         let typing_in_field = ctx.memory(|m| m.focused().is_some());
@@ -625,34 +681,11 @@ impl eframe::App for App {
                     }
                 }
                 egui::Event::Paste(t) => {
-                    if typing_in_field {
-                        continue;
-                    }
-                    if let Some(tab) = self.tabs.get(self.active) {
-                        let bracketed = tab
-                            .session
-                            .screen
-                            .lock()
-                            .unwrap()
-                            .term
-                            .mode()
-                            .contains(TermMode::BRACKETED_PASTE);
-                        tab.session.write(&paste_bytes(&t, bracketed));
+                    if !typing_in_field {
+                        self.paste(&t);
                     }
                 }
-                egui::Event::Copy if !typing_in_field => {
-                    if let Some(tab) = self.tabs.get(self.active)
-                        && let Some(text) = tab
-                            .session
-                            .screen
-                            .lock()
-                            .unwrap()
-                            .term
-                            .selection_to_string()
-                    {
-                        ctx.copy_text(text);
-                    }
-                }
+                egui::Event::Copy if !typing_in_field => self.run(&ctx, Cmd::Copy),
                 _ => {}
             }
         }

@@ -2,7 +2,7 @@
 
 ## 4.0.0 (in progress, not released)
 
-**Rewritten in Rust, with a native interface.** No web view: lighter and faster to start. So far: your shell with jamalterm's hooks, tabs, the 10 themes, the ✓/✕ command marks, scrollback, selection, copy and paste, and your existing settings. The rest of 3.5.0 comes back before this is released.
+**Rewritten in Rust, with a native interface.** No web view: lighter and faster to start. So far: your shell with jamalterm's hooks, tabs, the 10 themes, the ✓/✕ command marks, scrollback, selection, copy and paste, and your existing settings. Now also: **browse mode** (↑ at an empty prompt), **find** (⌘F, ⌘G), the **Mac menu bar**, and ✓/✕ marks that stay on their commands when the scrollback is full. The rest of 3.5.0 comes back before this is released.
 
 ## 3.5.0
 
