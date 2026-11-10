@@ -2,6 +2,7 @@
 //! AI built in. This is the Rust version (4.x); see docs/DESIGN.md.
 
 mod app;
+mod browse;
 mod fonts;
 mod input;
 mod marks;

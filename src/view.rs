@@ -98,6 +98,14 @@ pub fn resolve(
     }
 }
 
+/// Browse mode, in screen lines: the cursor, and the command it's on
+/// (first line, last line, failed).
+pub struct BrowseLook {
+    pub row: i32,
+    pub col: usize,
+    pub block: Option<(i32, i32, bool)>,
+}
+
 /// What the view needs besides the screen.
 pub struct Look<'a> {
     pub theme: &'a Theme,
@@ -106,6 +114,7 @@ pub struct Look<'a> {
     pub cursor_style: &'a str,
     pub focused: bool,
     pub blink_on: bool,
+    pub browse: Option<BrowseLook>,
 }
 
 /// Paints the terminal into rect. Returns the top-left of the cell grid.
@@ -223,6 +232,31 @@ pub fn paint(painter: &Painter, rect: Rect, s: &Screen, look: &Look) -> Pos2 {
             origin.y + line as f32 * cell.y,
         )
     };
+    let width = s.term.columns() as f32 * cell.x;
+    let rows = s.term.screen_lines() as i32;
+    // Browse mode: the command under the cursor gets a fill and a bar on the
+    // left (red when it failed), the cursor's line a lighter fill.
+    if let Some(b) = &look.browse {
+        if let Some((from, to, failed)) = b.block {
+            let (from, to) = (from.max(0), to.min(rows - 1));
+            if to >= from {
+                let r = Rect::from_min_size(
+                    at(from, 0) - vec2(6.0, 0.0),
+                    vec2(width + 8.0, (to - from + 1) as f32 * cell.y),
+                );
+                painter.rect_filled(r, 4.0, theme.selection.gamma_multiply(0.35));
+                let bar = if failed { theme.ansi[1] } else { theme.cursor };
+                painter.rect_filled(Rect::from_min_size(r.min, vec2(3.0, r.height())), 1.0, bar);
+            }
+        }
+        if (0..rows).contains(&b.row) {
+            painter.rect_filled(
+                Rect::from_min_size(at(b.row, 0) - vec2(6.0, 0.0), vec2(width + 8.0, cell.y)),
+                2.0,
+                theme.selection.gamma_multiply(0.5),
+            );
+        }
+    }
     for (line, col, w, color) in bgs {
         painter.rect_filled(
             Rect::from_min_size(at(line, col), vec2(w as f32 * cell.x, cell.y)),
@@ -254,6 +288,15 @@ pub fn paint(painter: &Painter, rect: Rect, s: &Screen, look: &Look) -> Pos2 {
                 Stroke::new(1.0, r.fg),
             );
         }
+    }
+
+    // Browse mode's free-floating cursor: an outlined box with a soft glow.
+    if let Some(b) = &look.browse
+        && (0..rows).contains(&b.row)
+    {
+        let r = Rect::from_min_size(at(b.row, b.col), cell);
+        painter.rect_filled(r.expand(2.0), 3.0, theme.cursor.gamma_multiply(0.25));
+        painter.rect_stroke(r, 2.0, Stroke::new(1.5, theme.cursor), StrokeKind::Outside);
     }
 
     // The cursor (hidden when the program hides it, or while scrolled up).

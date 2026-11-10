@@ -1,12 +1,13 @@
 //! The window: tabs, the tab bar, keyboard and mouse, and the terminal view.
 
+use crate::browse::{self, Action, Browse};
 use crate::input::{is_app_shortcut, key_bytes, paste_bytes};
 use crate::session::Session;
 use crate::settings::{self, Settings};
 use crate::shell::ShellSpec;
 use crate::themes::{self, Theme};
 use crate::view::{self, Look};
-use alacritty_terminal::grid::Scroll;
+use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::TermMode;
 use egui::{Color32, Key, RichText, Sense, Vec2};
@@ -16,6 +17,12 @@ use std::time::{Duration, Instant};
 
 pub struct Tab {
     pub session: Session,
+    /// Browse mode (the free-floating cursor), when on.
+    pub browse: Option<Browse>,
+    /// Something was typed since the last prompt (then ↑ is shell history).
+    typed: bool,
+    /// Prompts seen when `typed` was last reset.
+    prompts: u64,
 }
 
 impl Tab {
@@ -151,7 +158,12 @@ impl App {
             repaint,
         ) {
             Ok(session) => {
-                self.tabs.push(Tab { session });
+                self.tabs.push(Tab {
+                    session,
+                    browse: None,
+                    typed: false,
+                    prompts: 0,
+                });
                 self.active = self.tabs.len() - 1;
             }
             Err(e) => eprintln!("jamalterm: the shell didn't start: {e}"),
@@ -183,6 +195,10 @@ impl App {
         match key {
             Key::T => self.new_tab(ctx, None),
             Key::W => self.close_tab(ctx, self.active),
+            Key::ArrowUp => {
+                // ⌘↑ always starts browse mode.
+                self.enter_browse(true);
+            }
             Key::K => {
                 // Clear scrollback (and the screen), like Terminal's ⌘K.
                 if let Some(t) = self.tabs.get(self.active) {
@@ -215,6 +231,125 @@ impl App {
             }
             _ => return false,
         }
+        true
+    }
+
+    /// Starts browse mode at the shell's cursor, then moves up one line
+    /// (it was ↑ or ⌘↑ that started it). `forced`: ⌘↑, even mid-line.
+    fn enter_browse(&mut self, forced: bool) -> bool {
+        let Some(tab) = self.tabs.get_mut(self.active) else {
+            return false;
+        };
+        let s = tab.session.screen.lock().unwrap();
+        if s.term.mode().contains(TermMode::ALT_SCREEN)
+            || (!forced && (!s.prompt_seen || s.commands.running().is_some()))
+        {
+            return false;
+        }
+        let row = s.abs_cursor_line();
+        let col = s.term.grid().cursor.point.column.0;
+        drop(s);
+        let mut b = Browse::new(row, col);
+        b.row = (row - 1).max(0);
+        tab.browse = Some(b);
+        self.scroll_to_browse();
+        true
+    }
+
+    /// Keeps the browse cursor on screen.
+    fn scroll_to_browse(&mut self) {
+        let Some(tab) = self.tabs.get(self.active) else {
+            return;
+        };
+        let Some(b) = &tab.browse else { return };
+        let mut s = tab.session.screen.lock().unwrap();
+        let history = s.term.grid().history_size() as i64;
+        let rows = s.term.screen_lines() as i64;
+        let top = history - s.term.grid().display_offset() as i64;
+        if b.row < top {
+            s.term.scroll_display(Scroll::Delta((top - b.row) as i32));
+        } else if b.row >= top + rows {
+            s.term
+                .scroll_display(Scroll::Delta(-((b.row - (top + rows - 1)) as i32)));
+        }
+    }
+
+    /// A key while browsing. Returns false when the key should go to the
+    /// shell after all (typing ends browse mode).
+    fn browse_key(&mut self, ctx: &egui::Context, key: Key, m: &egui::Modifiers) -> bool {
+        let vi = self.settings.prompt_keys == "vi";
+        let confirm = self.settings.confirm_rerun;
+        let Some(tab) = self.tabs.get_mut(self.active) else {
+            return true;
+        };
+        let s = tab.session.screen.lock().unwrap();
+        let blocks = s.commands.blocks.clone();
+        let bottom = s.abs_cursor_line();
+        let cols = s.term.columns();
+        let cwd = s.cwd.clone();
+        drop(s);
+        let view = browse::View {
+            blocks: &blocks,
+            bottom,
+            cols,
+            cwd: &cwd,
+            confirm_rerun: confirm,
+        };
+        let Some(b) = tab.browse.as_mut() else {
+            return true;
+        };
+        let row = b.row;
+        let action = b.key(key, m, &view);
+        let block = browse::block_at(&blocks, row, bottom).map(|i| blocks[i].clone());
+        match action {
+            Action::Stay => {}
+            Action::Exit => tab.browse = None,
+            Action::ExitAndPass => {
+                tab.browse = None;
+                return false;
+            }
+            Action::Run { command, cd } => {
+                tab.browse = None;
+                tab.session
+                    .screen
+                    .lock()
+                    .unwrap()
+                    .term
+                    .scroll_display(Scroll::Bottom);
+                tab.session
+                    .write(&browse::type_command(&command, cd.as_deref(), true, vi));
+            }
+            Action::Edit(command) => {
+                tab.browse = None;
+                tab.session
+                    .screen
+                    .lock()
+                    .unwrap()
+                    .term
+                    .scroll_display(Scroll::Bottom);
+                tab.session
+                    .write(&browse::type_command(&command, None, false, vi));
+                tab.typed = true;
+            }
+            Action::CopyCommand => {
+                let s = tab.session.screen.lock().unwrap();
+                let text = match &block {
+                    Some(b) if !b.command.is_empty() => b.command.clone(),
+                    _ => s.line_text(row),
+                };
+                ctx.copy_text(text);
+            }
+            Action::CopyOutput => {
+                if let Some(b) = &block {
+                    let s = tab.session.screen.lock().unwrap();
+                    let from = b.start.unwrap_or(b.prompt + 1);
+                    let to = browse::block_end(b, bottom);
+                    let out: Vec<String> = (from..=to).map(|l| s.line_text(l)).collect();
+                    ctx.copy_text(out.join("\n").trim_end().to_string());
+                }
+            }
+        }
+        self.scroll_to_browse();
         true
     }
 
@@ -277,6 +412,13 @@ impl App {
 }
 
 impl eframe::App for App {
+    /// The self-test's key presses arrive as if typed.
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+        if let Some(s) = self.smoke.as_mut() {
+            raw.events.append(&mut s.keys);
+        }
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         if self.tabs.is_empty() {
@@ -285,7 +427,17 @@ impl eframe::App for App {
         let font_size = self.settings.font_size as f32;
         let cell = view::cell_size(&ctx, font_size, self.settings.line_height);
 
-        // Keyboard: app shortcuts first, then the shell.
+        // A new prompt: nothing typed on it yet.
+        for t in &mut self.tabs {
+            let p = t.session.screen.lock().unwrap().commands.prompts;
+            if p != t.prompts {
+                t.prompts = p;
+                t.typed = false;
+            }
+        }
+
+        // Keyboard: app shortcuts first, then browse mode, then the shell.
+        let mut swallow_text = false;
         let events = ctx.input(|i| i.events.clone());
         for ev in events {
             match ev {
@@ -296,9 +448,30 @@ impl eframe::App for App {
                     ..
                 } => {
                     if self.shortcut(&ctx, key, &modifiers) {
+                        swallow_text = true;
                         continue;
                     }
-                    let Some(tab) = self.tabs.get(self.active) else {
+                    // Browse mode takes the keys while it's on.
+                    if self
+                        .tabs
+                        .get(self.active)
+                        .is_some_and(|t| t.browse.is_some())
+                    {
+                        if self.browse_key(&ctx, key, &modifiers) {
+                            swallow_text = true;
+                            continue;
+                        }
+                    } else if key == Key::ArrowUp
+                        && modifiers.is_none()
+                        && self.settings.arrow_browse
+                        && self.settings.shell_integration
+                        && self.tabs.get(self.active).is_some_and(|t| !t.typed)
+                        && self.enter_browse(false)
+                    {
+                        // ↑ at an empty prompt: browse mode.
+                        continue;
+                    }
+                    let Some(tab) = self.tabs.get_mut(self.active) else {
                         break;
                     };
                     let app_cursor = tab
@@ -317,10 +490,17 @@ impl eframe::App for App {
                         s.term.selection = None;
                         drop(s);
                         tab.session.write(&bytes);
+                        if key != Key::ArrowUp && key != Key::ArrowDown && key != Key::Enter {
+                            tab.typed = true;
+                        }
                     }
                 }
                 egui::Event::Text(t) => {
-                    if let Some(tab) = self.tabs.get(self.active) {
+                    if swallow_text {
+                        continue; // the key already did something (a shortcut, browse mode)
+                    }
+                    if let Some(tab) = self.tabs.get_mut(self.active) {
+                        tab.typed = true;
                         tab.session
                             .screen
                             .lock()
@@ -370,11 +550,45 @@ impl eframe::App for App {
             return;
         }
 
+        // Browse mode's key bar.
+        if let Some(tab) = self.tabs.get(self.active)
+            && let Some(b) = &tab.browse
+        {
+            let s = tab.session.screen.lock().unwrap();
+            let view = browse::View {
+                blocks: &s.commands.blocks,
+                bottom: s.abs_cursor_line(),
+                cols: 0,
+                cwd: &s.cwd,
+                confirm_rerun: false,
+            };
+            let (status, keys) = b.hint(&view);
+            drop(s);
+            egui::Panel::bottom("browse-keys").show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(status).monospace());
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        for (k, what) in keys.iter().rev() {
+                            ui.label(*what);
+                            ui.label(
+                                RichText::new(*k)
+                                    .monospace()
+                                    .strong()
+                                    .background_color(ui.visuals().faint_bg_color),
+                            );
+                            ui.add_space(6.0);
+                        }
+                    });
+                });
+            });
+        }
+
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(ui, |ui| {
                 let rect = ui.max_rect();
                 let response = ui.allocate_rect(rect, Sense::click_and_drag());
+                let mut click_browse = None;
                 let grid = view::grid_size(rect, cell);
                 if grid != self.grid {
                     self.grid = grid;
@@ -384,6 +598,24 @@ impl eframe::App for App {
                 }
                 let tab = &self.tabs[self.active];
                 let mut screen = tab.session.screen.lock().unwrap();
+                let browse_look = tab.browse.as_ref().map(|b| {
+                    let top = screen.term.grid().history_size() as i64
+                        - screen.term.grid().display_offset() as i64;
+                    let bottom = screen.abs_cursor_line();
+                    let block = browse::block_at(&screen.commands.blocks, b.row, bottom).map(|i| {
+                        let bl = &screen.commands.blocks[i];
+                        (
+                            (bl.prompt - top) as i32,
+                            (browse::block_end(bl, bottom) - top) as i32,
+                            bl.exit.is_some_and(|e| e != 0),
+                        )
+                    });
+                    view::BrowseLook {
+                        row: (b.row - top) as i32,
+                        col: b.col,
+                        block,
+                    }
+                });
 
                 // Mouse wheel: scroll back; in full-screen programs, arrow keys.
                 let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
@@ -413,6 +645,7 @@ impl eframe::App for App {
                     cursor_style: &self.settings.cursor_style,
                     focused: ctx.input(|i| i.focused),
                     blink_on,
+                    browse: browse_look,
                 };
                 let origin = view::paint(ui.painter(), rect, &screen, &look);
 
@@ -429,11 +662,27 @@ impl eframe::App for App {
                         }
                     } else if response.clicked() {
                         screen.term.selection = None;
+                        // A click on an earlier line: browse mode there.
+                        let top = screen.term.grid().history_size() as i64
+                            - screen.term.grid().display_offset() as i64;
+                        let row =
+                            top + point.line.0 as i64 + screen.term.grid().display_offset() as i64;
+                        if screen.prompt_seen
+                            && row < screen.abs_cursor_line()
+                            && !screen.term.mode().contains(TermMode::ALT_SCREEN)
+                        {
+                            click_browse = Some((row, point.column.0));
+                        }
                     }
                 }
                 if response.drag_stopped() {
                     self.selecting = false;
                 }
+                drop(screen);
+                if let Some((row, col)) = click_browse {
+                    self.tabs[self.active].browse = Some(Browse::new(row, col));
+                }
+                let screen = self.tabs[self.active].session.screen.lock().unwrap();
                 if let Some(code) = screen.exited {
                     ui.painter().text(
                         rect.center_bottom() - Vec2::new(0.0, 24.0),

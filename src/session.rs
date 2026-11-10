@@ -6,6 +6,7 @@ use crate::marks::{Mark, Scanner};
 use crate::shell::{self, ShellSpec};
 use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::grid::Dimensions;
+use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::term::test::TermSize;
 use alacritty_terminal::term::{Config, Term};
 use alacritty_terminal::vte::ansi::Processor;
@@ -25,9 +26,24 @@ pub struct Block {
     pub exit: Option<i32>,
     pub started_at: Option<Instant>,
     pub finished_at: Option<Instant>,
+    /// The folder it ran in (re-running it elsewhere asks first).
+    pub cwd: String,
 }
 
 impl Block {
+    fn at(line: i64) -> Block {
+        Block {
+            prompt: line,
+            start: None,
+            end: None,
+            command: String::new(),
+            exit: None,
+            started_at: None,
+            finished_at: None,
+            cwd: String::new(),
+        }
+    }
+
     pub fn running(&self) -> bool {
         self.start.is_some() && self.exit.is_none()
     }
@@ -38,6 +54,10 @@ impl Block {
 pub struct Commands {
     pub blocks: Vec<Block>,
     pending: Option<Block>,
+    /// The folder from the last OSC 7.
+    cwd: String,
+    /// Prompts seen so far (typing since the last one means the prompt isn't empty).
+    pub prompts: u64,
 }
 
 impl Commands {
@@ -46,26 +66,11 @@ impl Commands {
         match mark {
             Mark::Prompt => {
                 // An empty Enter or Ctrl+C at the prompt: start over.
-                self.pending = Some(Block {
-                    prompt: line,
-                    start: None,
-                    end: None,
-                    command: String::new(),
-                    exit: None,
-                    started_at: None,
-                    finished_at: None,
-                });
+                self.pending = Some(Block::at(line));
+                self.prompts += 1;
             }
             Mark::Command(c) => {
-                let p = self.pending.get_or_insert_with(|| Block {
-                    prompt: line,
-                    start: None,
-                    end: None,
-                    command: String::new(),
-                    exit: None,
-                    started_at: None,
-                    finished_at: None,
-                });
+                let p = self.pending.get_or_insert_with(|| Block::at(line));
                 p.command = c.clone();
             }
             Mark::Start => {
@@ -73,6 +78,7 @@ impl Commands {
                 if let Some(mut b) = self.pending.take() {
                     b.start = Some(line);
                     b.started_at = Some(now);
+                    b.cwd = self.cwd.clone();
                     self.blocks.push(b);
                 }
             }
@@ -85,14 +91,20 @@ impl Commands {
                     b.finished_at = Some(now);
                 }
             }
-            Mark::Cwd(_) => {}
+            Mark::Cwd(dir) => self.cwd = dir.clone(),
         }
     }
 
-    // Known limit: lines are counted as "history + screen line", which stays
-    // right until the scrollback is full; after that, old lines drop off the
-    // top without alacritty_terminal saying how many, and older marks drift.
-    // (docs/DESIGN.md, "Rust port".)
+    /// Old lines dropped off the top of a full history: every line moves up,
+    /// and commands that scrolled out are forgotten.
+    pub fn shift_up(&mut self, n: i64) {
+        for b in self.blocks.iter_mut().chain(self.pending.iter_mut()) {
+            b.prompt -= n;
+            b.start = b.start.map(|l| l - n);
+            b.end = b.end.map(|l| l - n);
+        }
+        self.blocks.retain(|b| b.prompt >= 0);
+    }
 
     pub fn running(&self) -> Option<&Block> {
         self.blocks.last().filter(|b| b.running())
@@ -103,6 +115,23 @@ impl Commands {
     }
 }
 
+/// How many lines dropped off the top: the lines that were at `anchor..` are
+/// found again `k` lines higher (smallest k first). None if they're gone too.
+pub fn dropped_lines(
+    before: &[String],
+    anchor: i64,
+    line: impl Fn(i64) -> String,
+) -> Option<usize> {
+    (0..=anchor.max(0))
+        .find(|&k| {
+            before
+                .iter()
+                .enumerate()
+                .all(|(i, want)| line(anchor - k + i as i64) == *want)
+        })
+        .map(|k| k as usize)
+}
+
 /// Everything the window reads to draw a tab.
 pub struct Screen {
     pub term: Term<Listener>,
@@ -111,9 +140,54 @@ pub struct Screen {
     /// The shell has shown a prompt with jamalterm's hooks.
     pub prompt_seen: bool,
     pub exited: Option<i32>,
+    /// The most lines the history keeps (Settings → Scrollback).
+    pub max_history: usize,
 }
 
 impl Screen {
+    /// The text of a line, counted from the top of the history (0 = oldest).
+    pub fn line_text(&self, abs: i64) -> String {
+        let g = self.term.grid();
+        let line = Line((abs - g.history_size() as i64) as i32);
+        if line < Line(-(g.history_size() as i32)) || line.0 >= g.screen_lines() as i32 {
+            return String::new();
+        }
+        let row = &g[line];
+        let mut out: String = (0..g.columns()).map(|c| row[Column(c)].c).collect();
+        out.truncate(out.trim_end().len());
+        out
+    }
+
+    /// Feeds output to the emulator. When the history is full, old lines drop
+    /// off the top and alacritty_terminal doesn't say how many, so the oldest
+    /// lines are noted first and found again afterwards: how far they moved is
+    /// how many dropped, and every command's lines move up by that much.
+    pub fn feed(&mut self, parser: &mut Processor, bytes: &[u8]) {
+        let history = self.term.grid().history_size();
+        let full = self.max_history > 0 && history >= self.max_history && history >= 3;
+        // Lines just above the screen: they survive and move up by exactly
+        // the number of lines that dropped off the top.
+        let anchor = history as i64 - 3;
+        let before: Vec<String> = if full {
+            (0..3).map(|i| self.line_text(anchor + i)).collect()
+        } else {
+            vec![]
+        };
+        parser.advance(&mut self.term, bytes);
+        if !full {
+            return;
+        }
+        let newlines = bytes.iter().filter(|&&b| b == b'\n').count();
+        let dropped = if before.iter().all(|l| l.is_empty()) {
+            newlines // nothing to recognise: estimate
+        } else {
+            dropped_lines(&before, anchor, |i| self.line_text(i)).unwrap_or(newlines)
+        };
+        if dropped > 0 {
+            self.commands.shift_up(dropped as i64);
+        }
+    }
+
     /// The absolute line of the cursor (history above + line on screen).
     pub fn abs_cursor_line(&self) -> i64 {
         let g = self.term.grid();
@@ -201,6 +275,7 @@ impl Session {
             cwd,
             prompt_seen: false,
             exited: None,
+            max_history: scrollback,
         }));
         let child = Arc::new(Mutex::new(child));
 
@@ -223,7 +298,7 @@ impl Session {
                     let mut at = 0;
                     // Feed up to each mark, then note where the cursor is.
                     for f in found {
-                        parser.advance(&mut s.term, &chunk[at..f.end]);
+                        s.feed(&mut parser, &chunk[at..f.end]);
                         at = f.end;
                         let line = s.abs_cursor_line();
                         match &f.mark {
@@ -233,7 +308,7 @@ impl Session {
                         }
                         s.commands.apply(&f.mark, line, Instant::now());
                     }
-                    parser.advance(&mut s.term, &chunk[at..]);
+                    s.feed(&mut parser, &chunk[at..]);
                     drop(s);
                     rp();
                 }
@@ -370,6 +445,111 @@ mod tests {
                 "{sh}: lines go down"
             );
         }
+    }
+
+    /// A screen without a shell, for feeding output by hand.
+    pub(crate) fn screen(cols: usize, rows: usize, history: usize) -> Screen {
+        let listener = Listener {
+            writer: Arc::new(Mutex::new(Box::new(std::io::sink()))),
+            repaint: Arc::new(|| {}),
+        };
+        let term = Term::new(
+            Config {
+                scrolling_history: history,
+                ..Config::default()
+            },
+            &TermSize::new(cols, rows),
+            listener,
+        );
+        Screen {
+            term,
+            commands: Commands::default(),
+            cwd: String::new(),
+            prompt_seen: false,
+            exited: None,
+            max_history: history,
+        }
+    }
+
+    /// Feeds output the way the reader thread does: up to each mark, then the
+    /// mark at the cursor line.
+    pub(crate) fn feed_all(s: &mut Screen, bytes: &[u8]) {
+        let mut parser = Processor::new();
+        let mut scanner = Scanner::default();
+        let mut at = 0;
+        for f in scanner.scan(bytes) {
+            s.feed(&mut parser, &bytes[at..f.end]);
+            at = f.end;
+            let line = s.abs_cursor_line();
+            s.commands.apply(&f.mark, line, Instant::now());
+        }
+        s.feed(&mut parser, &bytes[at..]);
+    }
+
+    fn command(cmd: &str, out_lines: usize) -> Vec<u8> {
+        let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, cmd);
+        let mut v =
+            format!("\x1b]133;A\x07$ {cmd}\r\n\x1b]6973;cmd;{b64}\x07\x1b]133;C\x07").into_bytes();
+        for i in 0..out_lines {
+            v.extend(format!("{cmd} output {i}\r\n").as_bytes());
+        }
+        v.extend(b"\x1b]133;D;0\x07");
+        v
+    }
+
+    /// Marks stay on their own lines after the history fills up and old
+    /// lines drop off the top.
+    #[test]
+    fn marks_stay_put_when_the_history_is_full() {
+        let mut s = screen(40, 5, 30);
+        feed_all(&mut s, &command("first", 3));
+        feed_all(&mut s, &command("second", 4));
+        for b in &s.commands.blocks {
+            assert_eq!(
+                s.line_text(b.prompt),
+                format!("$ {}", b.command),
+                "before the history is full"
+            );
+        }
+        // Lots of output: the history fills and keeps dropping lines.
+        for n in 0..6 {
+            feed_all(&mut s, &command(&format!("cmd{n}"), 9));
+        }
+        assert!(s.term.grid().history_size() >= 30);
+        assert!(!s.commands.blocks.is_empty());
+        for b in &s.commands.blocks {
+            assert_eq!(
+                s.line_text(b.prompt),
+                format!("$ {}", b.command),
+                "{} after lines dropped",
+                b.command
+            );
+        }
+        assert!(
+            !s.commands.blocks.iter().any(|b| b.command == "first"),
+            "scrolled out: forgotten"
+        );
+    }
+
+    #[test]
+    fn dropped_line_count() {
+        let lines: Vec<String> = (0..10).map(|i| format!("l{i}")).collect();
+        let before = vec!["l5".to_string(), "l6".to_string(), "l7".to_string()];
+        // l5..l7 were at 7..9 before: 2 lines dropped.
+        assert_eq!(
+            dropped_lines(&before, 7, |i| lines
+                .get(i as usize)
+                .cloned()
+                .unwrap_or_default()),
+            Some(2)
+        );
+        assert_eq!(
+            dropped_lines(&["gone".into()], 7, |i| lines
+                .get(i as usize)
+                .cloned()
+                .unwrap_or_default()),
+            None
+        );
     }
 
     #[test]

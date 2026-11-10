@@ -1,6 +1,6 @@
-//! Self-test (JAMALTERM_SMOKE=<dir>): the real app types a few commands into
-//! its own shell, opens a tab, checks what it sees and writes report.json, then
-//! quits. CI runs it on a Mac and on Linux under xvfb.
+//! Self-test (JAMALTERM_SMOKE=<dir>): the real app types into its own shell,
+//! presses keys as a person would, checks what it sees, saves screenshots and
+//! writes report.json, then quits. CI runs it on a Mac and on Linux (xvfb).
 
 use crate::app::Tab;
 use serde::Serialize;
@@ -14,98 +14,222 @@ pub struct Check {
     pub detail: String,
 }
 
+/// Whether a step is done: (passed, detail), or None to keep waiting.
+type DoneFn = fn(&[Tab], usize) -> Option<(bool, String)>;
+
+/// One step: run `act` once, then wait until `done` (or the time limit) and
+/// record the check it reports.
+struct Step {
+    act: fn(&mut Smoke, &egui::Context, &[Tab], usize),
+    done: DoneFn,
+    name: &'static str,
+    limit: Duration,
+}
+
 pub struct Smoke {
+    /// Key presses to deliver before the next frame (as if typed).
+    pub keys: Vec<egui::Event>,
     dir: PathBuf,
     started: Instant,
     step: usize,
+    acted: bool,
     at: Instant,
     checks: Vec<Check>,
 }
+
+fn cmd_mods() -> egui::Modifiers {
+    if cfg!(target_os = "macos") {
+        egui::Modifiers {
+            mac_cmd: true,
+            command: true,
+            ..egui::Modifiers::NONE
+        }
+    } else {
+        egui::Modifiers {
+            ctrl: true,
+            shift: true,
+            command: true,
+            ..egui::Modifiers::NONE
+        }
+    }
+}
+
+fn blocks(tabs: &[Tab], active: usize) -> Vec<crate::session::Block> {
+    tabs[active]
+        .session
+        .screen
+        .lock()
+        .unwrap()
+        .commands
+        .blocks
+        .clone()
+}
+
+const STEPS: &[Step] = &[
+    Step {
+        name: "first prompt",
+        act: |_, _, _, _| {},
+        done: |tabs, a| {
+            tabs[a]
+                .session
+                .screen
+                .lock()
+                .unwrap()
+                .prompt_seen
+                .then(|| (true, String::new()))
+        },
+        limit: Duration::from_secs(15),
+    },
+    Step {
+        name: "a command and its ✓",
+        act: |_, _, tabs, a| tabs[a].session.write(b"echo smoke-ok\r"),
+        done: |tabs, a| {
+            blocks(tabs, a)
+                .iter()
+                .any(|b| b.command == "echo smoke-ok" && b.exit == Some(0))
+                .then(|| (true, String::new()))
+        },
+        limit: Duration::from_secs(10),
+    },
+    Step {
+        name: "a failed command and its ✕",
+        act: |_, _, tabs, a| tabs[a].session.write(b"false\r"),
+        done: |tabs, a| {
+            blocks(tabs, a)
+                .iter()
+                .any(|b| b.command == "false" && b.exit == Some(1))
+                .then(|| (true, String::new()))
+        },
+        limit: Duration::from_secs(10),
+    },
+    Step {
+        name: "↑ at an empty prompt starts browse mode",
+        act: |s, _, _, _| s.press(egui::Key::ArrowUp, egui::Modifiers::NONE),
+        done: |tabs, a| {
+            let row = tabs[a].browse.as_ref()?.row;
+            let line = tabs[a].session.screen.lock().unwrap().line_text(row);
+            Some((line.ends_with("false"), format!("cursor on {line:?}")))
+        },
+        limit: Duration::from_secs(5),
+    },
+    Step {
+        name: "(screenshot: browse mode)",
+        act: |s, ctx, _, _| s.shot(ctx, "browse"),
+        done: |_, _| None, // just waits for the frame to be captured
+        limit: Duration::from_millis(800),
+    },
+    Step {
+        name: "⏎ in browse mode runs the command again",
+        act: |s, _, _, _| s.press(egui::Key::Enter, egui::Modifiers::NONE),
+        done: |tabs, a| {
+            let runs = blocks(tabs, a)
+                .iter()
+                .filter(|b| b.command == "false")
+                .count();
+            (runs >= 2).then(|| (tabs[a].browse.is_none(), format!("ran {runs} times")))
+        },
+        limit: Duration::from_secs(10),
+    },
+    Step {
+        name: "⌘T opens a tab",
+        act: |s, _, _, _| s.press(egui::Key::T, cmd_mods()),
+        done: |tabs, _| (tabs.len() == 2).then(|| (true, "2 tabs".into())),
+        limit: Duration::from_secs(5),
+    },
+    Step {
+        name: "(screenshot: two tabs)",
+        act: |s, ctx, _, _| s.shot(ctx, "tabs"),
+        done: |_, _| None,
+        limit: Duration::from_secs(2),
+    },
+];
 
 impl Smoke {
     pub fn from_env() -> Option<Smoke> {
         let dir = PathBuf::from(std::env::var_os("JAMALTERM_SMOKE")?);
         let _ = std::fs::create_dir_all(&dir);
         Some(Smoke {
+            keys: vec![],
             dir,
             started: Instant::now(),
             step: 0,
+            acted: false,
             at: Instant::now(),
             checks: vec![],
         })
     }
 
-    fn check(&mut self, name: &str, ok: bool, detail: impl Into<String>) {
-        self.checks.push(Check {
-            name: name.into(),
-            ok,
-            detail: detail.into(),
+    /// Saves a screenshot of the next frame as <dir>/<name>.png.
+    fn shot(&self, ctx: &egui::Context, name: &str) {
+        let path = self.dir.join(format!("{name}.png"));
+        ctx.request_screenshot(move |img| {
+            if let Err(e) = save_png(&path, &img) {
+                eprintln!("jamalterm: screenshot {}: {e}", path.display());
+            }
         });
     }
 
-    /// Called every frame; moves on when the last step's result is in.
-    pub fn step(&mut self, ctx: &egui::Context, tabs: &[Tab], active: usize) {
-        ctx.request_repaint_after(Duration::from_millis(100));
-        let waited = self.at.elapsed();
-        let tab = &tabs[active];
-        let blocks = || tab.session.screen.lock().unwrap().commands.blocks.clone();
-        let next = |s: &mut Smoke| {
-            s.step += 1;
-            s.at = Instant::now();
-        };
-        match self.step {
-            0 => {
-                // The first prompt: the shell started with its hooks.
-                let prompt = tab.session.screen.lock().unwrap().prompt_seen;
-                if prompt || waited > Duration::from_secs(15) {
-                    let ms = self.started.elapsed().as_millis();
-                    self.check("first prompt", prompt, format!("{ms} ms after start"));
-                    tab.session.write(b"echo smoke-ok\r");
-                    next(self);
-                }
-            }
-            1 => {
-                let b = blocks();
-                let done = b
-                    .iter()
-                    .any(|b| b.command == "echo smoke-ok" && b.exit == Some(0));
-                if done || waited > Duration::from_secs(10) {
-                    self.check(
-                        "a command and its ✓",
-                        done,
-                        format!("{} commands seen", b.len()),
-                    );
-                    tab.session.write(b"false\r");
-                    next(self);
-                }
-            }
-            2 => {
-                let failed = blocks()
-                    .iter()
-                    .any(|b| b.command == "false" && b.exit == Some(1));
-                if failed || waited > Duration::from_secs(10) {
-                    self.check("a failed command and its ✕", failed, "");
-                    next(self);
-                }
-            }
-            3 => {
-                // A moment to look (and screenshot) before quitting.
-                if waited > Duration::from_secs(3) {
-                    next(self);
-                }
-            }
-            _ => {
-                let report = serde_json::json!({
-                    "ok": self.checks.iter().all(|c| c.ok),
-                    "checks": self.checks,
-                    "tabs": tabs.len(),
-                });
-                let _ = std::fs::write(
-                    self.dir.join("report.json"),
-                    serde_json::to_vec_pretty(&report).unwrap(),
-                );
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            }
+    /// Presses a key (down and up).
+    fn press(&mut self, key: egui::Key, modifiers: egui::Modifiers) {
+        for pressed in [true, false] {
+            self.keys.push(egui::Event::Key {
+                key,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers,
+            });
         }
     }
+
+    /// Called every frame.
+    pub fn step(&mut self, ctx: &egui::Context, tabs: &[Tab], active: usize) {
+        ctx.request_repaint_after(Duration::from_millis(50));
+        let Some(step) = STEPS.get(self.step) else {
+            let report = serde_json::json!({
+                "ok": self.checks.iter().all(|c| c.ok),
+                "checks": self.checks,
+                "firstPromptMs": self.checks.first().map(|_| self.started.elapsed().as_millis()),
+                "tabs": tabs.len(),
+            });
+            let _ = std::fs::write(
+                self.dir.join("report.json"),
+                serde_json::to_vec_pretty(&report).unwrap(),
+            );
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
+        };
+        if !self.acted {
+            (step.act)(self, ctx, tabs, active);
+            self.acted = true;
+            self.at = Instant::now();
+            return;
+        }
+        let result = (step.done)(tabs, active);
+        let timed_out = self.at.elapsed() > step.limit;
+        if result.is_none() && !timed_out {
+            return;
+        }
+        if !step.name.starts_with('(') {
+            let ms = self.at.elapsed().as_millis();
+            let (ok, detail) = result.unwrap_or((false, "timed out".into()));
+            self.checks.push(Check {
+                name: step.name.into(),
+                ok,
+                detail: format!("{detail} ({ms} ms)").trim().into(),
+            });
+        }
+        self.step += 1;
+        self.acted = false;
+    }
+}
+
+fn save_png(path: &std::path::Path, img: &egui::ColorImage) -> std::io::Result<()> {
+    let file = std::io::BufWriter::new(std::fs::File::create(path)?);
+    let mut enc = png::Encoder::new(file, img.size[0] as u32, img.size[1] as u32);
+    enc.set_color(png::ColorType::Rgba);
+    enc.set_depth(png::BitDepth::Eight);
+    let mut w = enc.write_header().map_err(std::io::Error::other)?;
+    let bytes: Vec<u8> = img.pixels.iter().flat_map(|p| p.to_array()).collect();
+    w.write_image_data(&bytes).map_err(std::io::Error::other)
 }
