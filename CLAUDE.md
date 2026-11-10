@@ -4,7 +4,7 @@ A macOS terminal in Go (Wails v3) with xterm.js: browse mode (re-run past comman
 
 ## Layout
 
-- `*.go` (main package): app service (`app.go`), windows and sessions (`windows.go`), the command table that drives the menu bar, palette and ⌘ keys (`commands.go`, `menu.go`), Settings window (`settingswindow.go`), safety (`safety.go`: busy check, native alerts, Secure Keyboard Entry, reattach), right-click menu and window frames (`contextmenu.go`), crash reports (`crash.go`), update status and What's new (`updatestatus.go`), self-test (`smoke.go`).
+- `*.go` (main package): app service (`app.go`), windows and sessions (`windows.go`), the command table that drives the menu bar, palette and ⌘ keys (`commands.go`, `menu.go`), Settings window (`settingswindow.go`), safety (`safety.go`: busy check, native alerts, Secure Keyboard Entry, reattach), right-click menu and window frames (`contextmenu.go`), crash reports (`crash.go`), moving tabs between windows (`tabmove.go`), menu bar icon and Dock menu (`tray.go`, `dockmenu_darwin.go`), update status and What's new (`updatestatus.go`), self-test (`smoke.go`).
 - `internal/`: `shell` (pty, pump, integration scripts), `ai`, `settings` (settings.json, encrypted keys), `update` (updater and Sigstore check), `winstate`, `diag` (problem log), `secureinput`.
 - `frontend/`: two pages, `index.html` (terminal window, `src/main.ts`) and `settings.html` (`src/settingsPage.ts`). All calls to Go go through `src/backend.ts`.
 

@@ -279,6 +279,7 @@ export class SettingsView {
       ),
       opacityRow,
       el('label', { class: 'check' }, check(s.showTabBar, (v) => { s.showTabBar = v; live() }), ' Always show the tab bar (otherwise it appears when there are two tabs, as in Terminal)'),
+      el('label', { class: 'check' }, check(s.menuBarIcon, (v) => { s.menuBarIcon = v; live() }), ' Show jamalterm in the menu bar (every window and tab, one click away)'),
       advanced(
       field('Line height', number(s.lineHeight, 1, 2, 0.05, (v) => { s.lineHeight = v; live() })),
       field('Window frame', select([['system', 'Match macOS (light or dark, your accent color)'], ['theme', 'Match the terminal theme']], s.windowFrame, (v) => { s.windowFrame = v; live() }),

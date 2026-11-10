@@ -82,14 +82,15 @@ type App struct {
 	// Windows (windows.go): which window owns each tab and AI question,
 	// each window's saved tabs, and what new windows start with.
 	nextWin    int
-	owner      map[int]string      // tab id → window name
-	aiOwner    map[string]string   // AI request id → window name
-	saved      *winstate.Sessions  // each window's saved tabs
-	restoreFor map[string]string   // window name → tabs to reopen
-	adoptFor   map[string]string   // new window name → a tab moved into it (layout JSON)
-	nextAdopt  string              // the next window opened adopts this tab
-	winTabs    map[string][]string // window name → its tabs' names (menu bar icon, Dock menu)
-	startDirs  map[string]string   // window name → first tab's folder
+	owner      map[int]string     // tab id → window name
+	aiOwner    map[string]string  // AI request id → window name
+	saved      *winstate.Sessions // each window's saved tabs
+	restoreFor map[string]string  // window name → tabs to reopen
+	adoptFor   map[string]string  // new window name → a tab moved into it (layout JSON)
+	nextAdopt  string             // the next window opened adopts this tab
+	winInfo    map[string]winInfo // window name → its tabs (menu bar icon, Dock menu)
+	sw         switcher           // the menu bar icon and Dock menu
+	startDirs  map[string]string  // window name → first tab's folder
 	quitting   bool
 
 	// Safety (safety.go).
@@ -127,7 +128,7 @@ func NewApp() *App {
 		saved:         winstate.New(),
 		restoreFor:    map[string]string{},
 		adoptFor:      map[string]string{},
-		winTabs:       map[string][]string{},
+		winInfo:       map[string]winInfo{},
 		startDirs:     map[string]string{},
 		closeOK:       map[string]bool{},
 		accepted:      map[int]bool{},
@@ -382,6 +383,7 @@ func (a *App) SaveSettings(cfg settings.Settings) (settings.Settings, error) {
 	a.log.SetEnabled(saved.KeepProblemLog)
 	a.applyWindowOpacity()
 	a.refreshProviderMenu()
+	a.refreshSwitcher() // the menu bar icon may have been turned on or off
 	a.emitTo(nil, eventSettings, saved)
 	return saved, nil
 }

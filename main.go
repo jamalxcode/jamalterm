@@ -48,6 +48,7 @@ func main() {
 	app.Menu.Set(a.buildMenu())
 	a.registerContextMenu()
 	a.openStartWindows()
+	a.refreshSwitcher() // menu bar icon and Dock menu
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
 	}

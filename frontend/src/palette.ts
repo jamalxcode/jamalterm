@@ -32,6 +32,7 @@ export const toggles: [Bool, string, SettingsPage][] = [
   ['cursorBlink', 'Blinking cursor', 'appearance'],
   ['ligatures', 'Font ligatures (=> != …)', 'appearance'],
   ['projectColors', 'Color tabs by project', 'appearance'],
+  ['menuBarIcon', 'jamalterm in the menu bar', 'appearance'],
   ['finishMoments', 'Celebrate when long commands finish', 'shell'],
   ['finishSound', 'Sound when long commands finish', 'shell'],
   ['blur', 'Blur behind see-through window', 'appearance'],

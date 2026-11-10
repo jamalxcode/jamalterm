@@ -41,6 +41,9 @@ type Settings struct {
 	// minute ends; FinishSound also plays a soft sound.
 	FinishMoments bool `json:"finishMoments"`
 	FinishSound   bool `json:"finishSound"`
+	// MenuBarIcon shows jamalterm in the menu bar, listing every window and
+	// tab (macOS).
+	MenuBarIcon bool `json:"menuBarIcon"`
 	// CursorEffect: "none", "smooth" (glides between positions) or "glow".
 	CursorEffect string `json:"cursorEffect"`
 	// HostColors marks tabs connected to some machines (ssh) with a color
@@ -121,6 +124,7 @@ func Defaults() Settings {
 		Blur:               true,
 		CursorBlink:        true,
 		ProjectColors:      true,
+		MenuBarIcon:        true,
 		FinishMoments:      true,
 		CursorEffect:       "none",
 		Scrollback:         10000,

@@ -70,6 +70,11 @@ export interface MenuState {
      * lists only these, so there's no "Select Tab 7" with two tabs open.
      */
     "tabs": string[] | null;
+
+    /**
+     * Active is the index of the tab in front.
+     */
+    "active": number;
 }
 
 /**

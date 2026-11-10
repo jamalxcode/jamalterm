@@ -70,6 +70,8 @@ To connect Claude, click **Sign in with Anthropic** in Settings (⌘,) or the AI
 - **Themes**: hover one in Settings to try it in your terminal, or pick *Match my wallpaper* or *Theme of the week*. Cursor effects: Smooth or Glow.
 - **Small moments**: long commands get a "✓ done in 3m" when they finish, and Help → Your Day in jamalterm shows your stats (kept only on your Mac).
 - **Split panes**: ⌘D splits right, ⇧⌘D splits down. Drag the line between panes to resize (double-click it to even them out). ⌘] / ⌘[ or ⌥⌘ arrows move between panes, or click one. ⌘W closes a pane, ⇧⌘W the whole tab.
+- **Moving tabs**: drag a tab to reorder it, out of the window for a new window, or onto another window's tab bar; what's running keeps running. Window → Merge All Windows gathers them back.
+- **Menu bar and Dock**: jamalterm's menu bar icon and its Dock menu (right-click) list every window and tab, so any terminal is one click away.
 - **Windows**: ⌘N opens a new window in the current folder, ⌘` switches windows. Every window, with its tabs, splits and recent output, comes back after a restart or update. Turn this off in Settings → Shell; forget saved tabs in Settings → Privacy.
 - **Nothing gets lost by accident**: quitting, closing a window, or closing a tab or pane while a program runs (vim, a build, ssh) asks first and names what's running. If a window's page reloads (View → Reload Window, ⇧⌘R) its shells keep running and reconnect.
 - **Password prompts are protected**: when a program asks for a password (sudo, ssh…), macOS Secure Keyboard Entry turns on so other apps can't read your typing, and a 🔒 shows. jamalterm menu → Secure Keyboard Entry keeps it on all the time.

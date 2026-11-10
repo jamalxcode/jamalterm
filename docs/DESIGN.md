@@ -134,6 +134,14 @@ The menus are built from one table, `commands.go`, which also feeds the command 
 - **Browse mode's key bar** shows the everyday keys as "Run ⏎ · Edit ⇧⏎ · Copy C · Ask AI A · Back esc"; **?** shows the rest.
 - **Tips** stay up long enough to read (longer for longer messages), sit over the terminal rather than the AI panel, and go away when a panel or the palette opens.
 
+### Moving tabs, the menu bar icon and the Dock menu
+- **Tabs move with their shells running.** A tab's shells change owner in Go, and the window it goes to reconnects to them exactly as after a page reload (`Attach`, with the recent output). Output always goes to the window the tab is in now (`tabWindow`), not the one that started it. The window it left drops the tab without ending anything (`detach`).
+  - **Drag** a tab to reorder it; drag it **out of the window** for a window of its own; drop it on **another window's tab bar** to move it there (that window calls `TakeTab`, and the old one is told `tab:gone`).
+  - **Window → Move Tab to New Window** and **Merge All Windows**, as in Terminal. Moving is off when a window has only one tab.
+- **Menu bar icon** (macOS, on by default, Settings → Appearance or the icon's own menu to hide it): lists every window by the name of its tab in front, and that window's tabs under it; click one to bring it forward. Then New Window, New Tab, Show All Windows. It's a monochrome template image, so macOS tints it for light and dark menu bars.
+- **Dock menu** (right-click the Dock icon): the same list. Wails has no API for it, so `dockmenu_darwin.go` adds `-applicationDockMenu:` to Wails' application delegate at launch and builds a native `NSMenu`; items call back into Go by index.
+- Both come from one list (`switchItems` in `tray.go`), rebuilt shortly after any window or tab changes (each window reports its tabs with `SetMenuState`).
+
 ### Working with output
 - **Sticky command header:** when a command's prompt has scrolled off the top, a slim bar names the command, its ✓/✕, exit code and time, with **Fix it** (failures), **Copy output** and **Skip to end**. Click the command to go to it.
 - **Markers beside the scrollbar:** one per command, failures in red, to find errors in a long scrollback.
@@ -172,7 +180,6 @@ The menus are built from one table, `commands.go`, which also feeds the command 
 A terminal window with a magic wand on a deep blue-to-violet rounded square, from the owner's artwork. Its black background was removed, and it was fitted to Apple's grid: a 1024 px canvas with the body at 824 px, centred on transparency (`build/appicon.png`). `scripts/build-mac.sh` turns it into the `.icns` file.
 
 ### Not done (and why)
-- **Dock menu (New Window from the Dock icon):** Wails v3.1 has no API for it.
 - **Native window tabs (NSWindow tabbing):** our tabs hold split panes, a status, the branch and the host, which native tabs can't show.
 - **Linux builds** are for development only. There ⌘ becomes Ctrl+Shift (and ⇧⌘ becomes Ctrl+Alt+Shift), so the shell keeps Ctrl+W and friends.
 

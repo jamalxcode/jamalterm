@@ -73,6 +73,12 @@ export interface Settings {
     "finishSound": boolean;
 
     /**
+     * MenuBarIcon shows jamalterm in the menu bar, listing every window and
+     * tab (macOS).
+     */
+    "menuBarIcon": boolean;
+
+    /**
      * CursorEffect: "none", "smooth" (glides between positions) or "glow".
      */
     "cursorEffect": string;

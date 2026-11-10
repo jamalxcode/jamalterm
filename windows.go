@@ -210,8 +210,9 @@ func (a *App) windowClosing(name string) {
 	delete(a.startDirs, name)
 	delete(a.restoreFor, name)
 	delete(a.adoptFor, name)
-	delete(a.winTabs, name)
+	delete(a.winInfo, name)
 	a.mu.Unlock()
+	a.refreshSwitcher()
 	for _, id := range ids {
 		a.CloseTab(id)
 	}

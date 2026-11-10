@@ -650,7 +650,7 @@ function syncMenu() {
   const g = groupOf(active)
   // Each tab is named after the pane with the focus in it.
   const tabsNow = groups.map((x) => tabName(x === g ? active : x.tabs()[0]))
-  void SetMenuState({ split: (g?.count ?? 0) > 1, tabBar: tabBarShown(), broadcast: !!g?.broadcast, tabs: tabsNow })
+  void SetMenuState({ split: (g?.count ?? 0) > 1, tabBar: tabBarShown(), broadcast: !!g?.broadcast, tabs: tabsNow, active: g ? groups.indexOf(g) : 0 })
 }
 
 /** As in Terminal, the tab bar appears with two or more tabs (or always,

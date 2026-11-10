@@ -103,6 +103,8 @@ type MenuState struct {
 	// Tabs names the window's tabs in order ("Home — zsh"). The Window menu
 	// lists only these, so there's no "Select Tab 7" with two tabs open.
 	Tabs []string `json:"tabs"`
+	// Active is the index of the tab in front.
+	Active int `json:"active"`
 }
 
 // tabNumber is n for the "tabN" commands, else 0.
@@ -128,6 +130,13 @@ func tabMenuLabel(tabs []string, n int) (label string, ok bool) {
 
 // SetMenuState updates the menu bar for the window in front.
 func (a *App) SetMenuState(ctx context.Context, s MenuState) {
+	// Every window's tabs go in the menu bar icon and the Dock menu.
+	if w := winOf(ctx); w != nil {
+		a.mu.Lock()
+		a.winInfo[w.Name()] = winInfo{tabs: s.Tabs, active: s.Active}
+		a.mu.Unlock()
+		a.refreshSwitcher()
+	}
 	if w := winOf(ctx); w != nil {
 		if cur := a.app.Window.Current(); cur != nil && cur.Name() != w.Name() {
 			return // only the window in front decides

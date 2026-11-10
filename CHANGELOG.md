@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.5.0
+
+**Tabs that move**
+- **Drag tabs** to reorder them
+- Drag a tab **out of the window** to give it a window of its own, or onto **another window's tab bar** to move it there. Whatever is running keeps running
+- Window → **Move Tab to New Window** and **Merge All Windows**
+
+**Your terminals, one click away**
+- **jamalterm in the menu bar**: every window and tab, plus New Window, New Tab and Show All Windows (hide it in Settings → Appearance)
+- **Right-click the Dock icon** for the same list
+
 ## 3.4.0
 
 **Clearer at a glance**
