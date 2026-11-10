@@ -40,6 +40,8 @@ pub struct Pane {
     /// Finished commands already noted (for notifications, the finish line
     /// and the stats).
     noted: usize,
+    /// The folder last seen (for Open Recent Folder).
+    last_cwd: String,
     /// Smooth cursor: where it's drawn now, and where it really is.
     cursor_drawn: Option<egui::Pos2>,
     cursor_real: Option<egui::Pos2>,
@@ -256,6 +258,8 @@ pub struct Win {
     open_at: Option<restore::Frame>,
     /// The command palette (⇧⌘P), when open.
     palette: Option<palette::Palette>,
+    /// Broadcast Typing (⌥⌘I): keys go to every pane of the tab.
+    broadcast: bool,
     /// The finish line card ("✓ build done in 3m 12s") and until when.
     finish: Option<(String, Instant)>,
     /// The AI panel (⌘I) and its conversation.
@@ -286,6 +290,7 @@ impl Win {
             frame: None,
             open_at: None,
             palette: None,
+            broadcast: false,
             finish: None,
             ai: aipanel::Chat::default(),
             ai_open: false,
@@ -339,6 +344,9 @@ pub struct App {
     your_day: bool,
     /// The first-start card (shown once).
     welcome: bool,
+    /// Open Recent Folder's list (recent-folders.json).
+    recent_folders: crate::fun::Recent,
+    recent_path: PathBuf,
     /// The updater, and a card to show (What's new, or a message).
     updates: crate::updates::Updates,
     notice: Option<(String, Vec<String>)>,
@@ -424,6 +432,8 @@ impl App {
             stats_path,
             your_day: false,
             welcome,
+            recent_folders: crate::fun::Recent::load(&dir.join("recent-folders.json")),
+            recent_path: dir.join("recent-folders.json"),
             updates: crate::updates::Updates::new(&dir, &settings.update_channel),
             notice: crate::updates::whats_new(&dir)
                 .map(|(v, lines)| (format!("What's new in jamalterm {v}"), lines)),
@@ -588,6 +598,7 @@ impl App {
                     typed: false,
                     prompts: 0,
                     noted: 0,
+                    last_cwd: String::new(),
                     cursor_drawn: None,
                     cursor_real: None,
                 })
@@ -1095,6 +1106,16 @@ impl App {
         }
     }
 
+    /// Fix it: asks the AI for a corrected command (its Run button goes
+    /// through the same risk check as any AI command).
+    fn fix_it(&mut self, ctx: &egui::Context, command: &str, exit: i32) {
+        self.w.ai_open = true;
+        self.ai_ask(
+            ctx,
+            format!("This command failed with exit code {exit}: `{command}`. What went wrong? Give me a corrected command as a code block."),
+        );
+    }
+
     /// The AI panel beside the terminal.
     fn ai_panel(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         self.ai_tick();
@@ -1367,6 +1388,7 @@ impl App {
         let front = self.front;
         let notify_after = self.settings.notify_after_seconds as u64;
         let mut stats_changed = false;
+        let mut recent_changed = false;
         let mut chime = false;
         let mut wins: Vec<&mut Win> = std::iter::once(&mut self.w)
             .chain(self.others.iter_mut())
@@ -1381,6 +1403,10 @@ impl App {
             for t in &mut w.tabs {
                 for p in t.tree_mut().leaves_mut() {
                     let s = p.session.screen.lock().unwrap();
+                    if s.cwd != p.last_cwd {
+                        p.last_cwd = s.cwd.clone();
+                        recent_changed |= self.recent_folders.visit(&s.cwd);
+                    }
                     let done: Vec<(String, i32, u64)> = s
                         .commands
                         .blocks
@@ -1435,6 +1461,9 @@ impl App {
         }
         if stats_changed && self.smoke.as_ref().is_none_or(|s| s.save_session) {
             self.stats.save(&self.stats_path);
+        }
+        if recent_changed && self.smoke.is_none() {
+            self.recent_folders.save(&self.recent_path);
         }
     }
 
@@ -1640,6 +1669,7 @@ impl App {
                 }
             }
             palette::Action::Settings(p) => self.open_settings(Some(p)),
+            palette::Action::OpenFolder(dir) => self.new_tab(ctx, Some(PathBuf::from(dir))),
             palette::Action::Provider(id) => {
                 self.settings.ai_provider = id.to_string();
                 self.settings_changed();
@@ -1652,12 +1682,31 @@ impl App {
         let Some(mut p) = self.w.palette.take() else {
             return;
         };
-        let mut items = palette::items(&self.settings);
+        let mut items = if p.folders {
+            // Open Recent Folder: the folders you've worked in, newest first.
+            self.recent_folders
+                .folders
+                .iter()
+                .filter(|f| Path::new(f).is_dir())
+                .map(|f| palette::Item {
+                    title: format!(
+                        "{} — {}",
+                        folder_name(f, &self.home),
+                        f.replacen(&self.home, "~", 1)
+                    ),
+                    group: "Folder",
+                    keys: String::new(),
+                    action: palette::Action::OpenFolder(f.clone()),
+                })
+                .collect()
+        } else {
+            palette::items(&self.settings)
+        };
         // Every tab, in every window.
-        let many = !self.others.is_empty();
+        let many = !self.others.is_empty() && !p.folders;
         let mut wins: Vec<&Win> = std::iter::once(&self.w).chain(&self.others).collect();
         wins.sort_by_key(|w| (!w.root, w.id));
-        for (wn, w) in wins.iter().enumerate() {
+        for (wn, w) in wins.iter().enumerate().filter(|_| !p.folders) {
             for (i, t) in w.tabs.iter().enumerate() {
                 let name = tab_name(&t.folder(&self.home), &t.program(&self.shell_name));
                 let title = if many {
@@ -1925,6 +1974,20 @@ impl App {
         match cmd {
             Cmd::NewTab => self.new_tab(ctx, None),
             Cmd::Settings => self.open_settings(None),
+            Cmd::OpenRecent => {
+                self.w.palette = Some(palette::Palette {
+                    focus: true,
+                    folders: true,
+                    ..Default::default()
+                });
+            }
+            Cmd::RemoteBrowse => {
+                let line = crate::shell::remote_setup();
+                if let Some(p) = self.pane() {
+                    p.session.write(format!("{line}\r").as_bytes());
+                }
+            }
+            Cmd::Broadcast => self.w.broadcast = !self.w.broadcast,
             Cmd::CheckUpdates => {
                 let wake = self.waker();
                 self.updates.check_now(true, wake);
@@ -2289,9 +2352,28 @@ impl App {
             return true;
         };
         let row = b.row;
+        let col = b.col;
         let action = b.key(key, m, &view);
         let block = browse::block_at(&blocks, row, bottom).map(|i| blocks[i].clone());
+        let mut fix = None;
         match action {
+            Action::FixIt { command, exit } => {
+                tab.browse = None;
+                fix = Some((command, exit));
+            }
+            Action::QuickLook => {
+                let line = tab.session.screen.lock().unwrap().line_text(row);
+                let dir = block
+                    .as_ref()
+                    .map(|b| b.cwd.clone())
+                    .filter(|d| !d.is_empty())
+                    .unwrap_or(cwd.clone());
+                if let Some(p) =
+                    browse::word_at(&line, col).and_then(|w| browse::as_path(&w, &dir, &self.home))
+                {
+                    crate::macos::quick_look(&p);
+                }
+            }
             Action::Stay => {}
             Action::Exit => tab.browse = None,
             Action::ExitAndPass => {
@@ -2338,6 +2420,10 @@ impl App {
                     ctx.copy_text(out.join("\n").trim_end().to_string());
                 }
             }
+        }
+        if let Some((command, exit)) = fix {
+            self.fix_it(ctx, &command, exit);
+            return true;
         }
         self.scroll_to_browse();
         true
@@ -2643,6 +2729,7 @@ impl eframe::App for App {
             smoke.theme = self.settings.theme.clone();
             smoke.asking = self.asking.is_some();
             smoke.crash_noticed = self.last_crash.is_some();
+            smoke.broadcast = self.w.broadcast;
             smoke.stats_programs = self.stats.runs.iter().map(|r| r.program.clone()).collect();
             smoke.ai_open = self.w.ai_open;
             smoke.ai_card = self.w.ai.items.iter().rev().find_map(|i| match i {
@@ -2817,11 +2904,29 @@ impl App {
             return;
         }
 
+        // Files dropped on the window: their paths at the prompt, quoted when
+        // needed (as Terminal does).
+        let dropped: Vec<String> = ctx.input(|i| {
+            i.raw
+                .dropped_files
+                .iter()
+                .map(|f| crate::shell::quote(&f.path().display().to_string()))
+                .collect()
+        });
+        if !dropped.is_empty()
+            && let Some(p) = self.pane_mut()
+        {
+            p.session
+                .write(format!("{} ", dropped.join(" ")).as_bytes());
+            p.typed = true;
+        }
+
         // Keyboard: app shortcuts first, then browse mode, then the shell.
         let mut swallow_text = false;
         let typing_in_field = ctx.memory(|m| m.focused().is_some());
         let events = ctx.input(|i| i.events.clone());
         for ev in events {
+            let mut broadcast: Option<Vec<u8>> = None;
             match ev {
                 egui::Event::Key {
                     key,
@@ -2882,6 +2987,7 @@ impl App {
                         s.term.selection = None;
                         drop(s);
                         tab.session.write(&bytes);
+                        broadcast = Some(bytes.clone());
                         if key != Key::ArrowUp && key != Key::ArrowDown && key != Key::Enter {
                             tab.typed = true;
                         }
@@ -2900,6 +3006,7 @@ impl App {
                             .term
                             .scroll_display(Scroll::Bottom);
                         tab.session.write(t.as_bytes());
+                        broadcast = Some(t.as_bytes().to_vec());
                     }
                 }
                 egui::Event::Paste(t) => {
@@ -2909,6 +3016,16 @@ impl App {
                 }
                 egui::Event::Copy if !typing_in_field => self.run(&ctx, Cmd::Copy),
                 _ => {}
+            }
+            // Broadcast Typing: the same keys to the tab's other panes.
+            if let Some(bytes) = broadcast
+                && self.w.broadcast
+                && let Some(t) = self.w.tabs.get(self.w.active)
+            {
+                let focus = t.pane().id;
+                for p in t.panes().into_iter().filter(|p| p.id != focus) {
+                    p.session.write(&bytes);
+                }
             }
         }
         if self.w.tabs.is_empty() {
@@ -2988,6 +3105,8 @@ impl App {
                 let mut context: Option<bool> = None; // right-clicked (with a selection?)
                 #[cfg_attr(target_os = "macos", allow(unused_mut))]
                 let mut context_cmd: Option<Cmd> = None;
+                let mut header_fix: Option<(String, i32)> = None;
+                let mut sticky_shown: Option<String> = None;
                 for &(id, rect) in &placed {
                     let response = ui.interact(
                         rect,
@@ -3114,6 +3233,25 @@ impl App {
                             if let Some(sel) = screen.term.selection.as_mut() {
                                 sel.update(point, side);
                             }
+                        } else if response.clicked() && ctx.input(|i| i.modifiers.command) {
+                            // ⌘-click: a link (OSC 8, or a web address), or
+                            // a file or folder, opens with its usual app.
+                            let cell = &screen.term.grid()[point];
+                            let link = cell.hyperlink().map(|h| h.uri().to_string());
+                            let abs =
+                                screen.term.grid().history_size() as i64 + point.line.0 as i64;
+                            let line = screen.line_text(abs);
+                            let target = link.or_else(|| {
+                                let w = browse::word_at(&line, point.column.0)?;
+                                if w.starts_with("http://") || w.starts_with("https://") {
+                                    return Some(w);
+                                }
+                                browse::as_path(&w, &screen.cwd, &self.home)
+                                    .map(|p| p.display().to_string())
+                            });
+                            if let Some(t) = target {
+                                crate::macos::open(&t);
+                            }
                         } else if response.clicked() && focused {
                             screen.term.selection = None;
                             // A click on an earlier line: browse mode there.
@@ -3140,6 +3278,27 @@ impl App {
                             format!("[the shell exited with code {code} — ⌘W to close]"),
                             view::mono(font_size * 0.9),
                             Color32::GRAY,
+                        );
+                    }
+                    let alt_screen = screen.term.mode().contains(TermMode::ALT_SCREEN);
+                    if !alt_screen {
+                        scrollbar(ui, &painter, rect, id, &mut screen, &self.theme);
+                        let (shown, f) =
+                            sticky_header(ui, rect, id, &mut screen, &self.theme, &ctx);
+                        if focused {
+                            sticky_shown = shown;
+                        }
+                        if f.is_some() {
+                            header_fix = f;
+                        }
+                    }
+                    if self.w.broadcast && multi {
+                        painter.text(
+                            rect.right_top() + Vec2::new(-12.0, 6.0),
+                            egui::Align2::RIGHT_TOP,
+                            "⌨ Broadcasting",
+                            egui::FontId::proportional(12.0),
+                            self.theme.cursor,
                         );
                     }
                     drop(screen);
@@ -3202,6 +3361,12 @@ impl App {
                 if let Some(cmd) = context_cmd {
                     self.run(&ctx, cmd);
                 }
+                if let Some((command, exit)) = header_fix {
+                    self.fix_it(&ctx, &command, exit);
+                }
+                if let Some(s) = self.smoke.as_mut() {
+                    s.sticky = sticky_shown;
+                }
                 if let Some((id, row, col)) = click_browse
                     && let Some(p) = self.w.tabs[a].tree_mut().find_mut(&|p: &Pane| p.id == id)
                 {
@@ -3227,6 +3392,14 @@ impl App {
                 if split { "Close Pane" } else { "Close Tab" },
             );
             let shown = self.w.tabs.len() > 1 || self.settings.show_tab_bar;
+            m.set_title(
+                Cmd::Broadcast,
+                if self.w.broadcast {
+                    "Stop Broadcasting Typing"
+                } else {
+                    "Broadcast Typing to All Panes"
+                },
+            );
             m.set_title(
                 Cmd::AiPanel,
                 if self.w.ai_open {
@@ -3288,6 +3461,188 @@ fn url_encode(s: &str) -> String {
             _ => format!("%{b:02X}"),
         })
         .collect()
+}
+
+/// The scrollbar on a pane's right edge, with a mark per command (failures
+/// longer and wider, not only red). Click or drag to scroll there.
+fn scrollbar(
+    ui: &mut egui::Ui,
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    pane: u64,
+    screen: &mut crate::session::Screen,
+    theme: &Theme,
+) {
+    let history = screen.term.grid().history_size() as f32;
+    if history <= 0.0 {
+        return;
+    }
+    let rows = screen.term.screen_lines() as f32;
+    let total = history + rows;
+    let track = egui::Rect::from_min_max(
+        egui::pos2(rect.right() - 8.0, rect.top() + 2.0),
+        egui::pos2(rect.right() - 1.0, rect.bottom() - 2.0),
+    );
+    let h = track.height();
+    let top = history - screen.term.grid().display_offset() as f32;
+    let y = |line: f32| track.top() + line / total * h;
+    painter.rect_filled(
+        egui::Rect::from_x_y_ranges(track.x_range(), y(top)..=y(top + rows).max(y(top) + 12.0)),
+        3.0,
+        theme.foreground.gamma_multiply(0.22),
+    );
+    for b in &screen.commands.blocks {
+        let at = y(b.prompt as f32);
+        if b.exit.is_some_and(|e| e != 0) {
+            painter.rect_filled(
+                egui::Rect::from_min_size(
+                    egui::pos2(track.left(), at - 1.5),
+                    Vec2::new(track.width(), 3.0),
+                ),
+                1.0,
+                theme.ansi[1],
+            );
+        } else {
+            painter.line_segment(
+                [
+                    egui::pos2(track.right() - 4.0, at),
+                    egui::pos2(track.right(), at),
+                ],
+                egui::Stroke::new(1.0, theme.foreground.gamma_multiply(0.45)),
+            );
+        }
+    }
+    let r = ui.interact(
+        track,
+        egui::Id::unique(("scrollbar", pane)),
+        Sense::click_and_drag(),
+    );
+    if let Some(p) = r
+        .interact_pointer_pos()
+        .filter(|_| r.clicked() || r.dragged())
+    {
+        let want_top = ((p.y - track.top()) / h * total - rows / 2.0).clamp(0.0, history);
+        let offset = (history - want_top).round() as i32;
+        let now = screen.term.grid().display_offset() as i32;
+        screen.term.scroll_display(Scroll::Delta(offset - now));
+    }
+}
+
+/// The sticky command header: when a command's prompt has scrolled off the
+/// top, a slim bar names it, its ✓/✕ and time, with Fix it (failures), Copy
+/// output and Skip to end. Clicking the command goes to it. Returns a Fix
+/// it request.
+fn sticky_header(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    pane: u64,
+    screen: &mut crate::session::Screen,
+    theme: &Theme,
+    ctx: &egui::Context,
+) -> (Option<String>, Option<(String, i32)>) {
+    let history = screen.term.grid().history_size() as i64;
+    let top = history - screen.term.grid().display_offset() as i64;
+    let bottom = screen.abs_cursor_line();
+    let Some(b) = screen
+        .commands
+        .blocks
+        .iter()
+        .find(|b| b.prompt < top && browse::block_end(b, bottom) >= top && !b.command.is_empty())
+        .cloned()
+    else {
+        return (None, None);
+    };
+    let bar = egui::Rect::from_min_size(rect.left_top(), Vec2::new(rect.width() - 10.0, 24.0));
+    let mut fix = None;
+    let mut go: Option<i64> = None;
+    ui.scope_builder(
+        egui::UiBuilder::new()
+            .max_rect(bar)
+            .id_salt(("sticky", pane)),
+        |ui| {
+            egui::Frame::new()
+                .fill(theme.background.gamma_multiply(0.92))
+                .stroke(egui::Stroke::new(
+                    1.0,
+                    theme.foreground.gamma_multiply(0.15),
+                ))
+                .inner_margin(egui::Margin::symmetric(8, 2))
+                .show(ui, |ui| {
+                    ui.set_min_width(bar.width() - 16.0);
+                    ui.horizontal(|ui| {
+                        let state = match b.exit {
+                            Some(0) => "✓".to_string(),
+                            Some(c) => format!("✕ exit {c}"),
+                            None => "… running".into(),
+                        };
+                        let secs = match (b.started_at, b.finished_at) {
+                            (Some(a), Some(z)) => format!(
+                                " · {}",
+                                crate::fun::duration(z.duration_since(a).as_secs())
+                            ),
+                            _ => String::new(),
+                        };
+                        let color = if b.exit.is_some_and(|e| e != 0) {
+                            theme.ansi[1]
+                        } else {
+                            theme.foreground
+                        };
+                        ui.label(RichText::new(state).color(color).monospace());
+                        if ui
+                            .add(
+                                egui::Label::new(
+                                    RichText::new(&b.command)
+                                        .monospace()
+                                        .color(theme.foreground),
+                                )
+                                .sense(Sense::click()),
+                            )
+                            .on_hover_text("Go to this command")
+                            .clicked()
+                        {
+                            go = Some(b.prompt);
+                        }
+                        ui.label(RichText::new(secs).color(theme.foreground.gamma_multiply(0.6)));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.small_button("Skip to end").clicked() {
+                                go = Some(browse::block_end(&b, bottom));
+                            }
+                            if ui.small_button("Copy output").clicked() {
+                                let from = b.start.unwrap_or(b.prompt + 1);
+                                let to = browse::block_end(&b, bottom);
+                                let out: Vec<String> =
+                                    (from..=to).map(|l| screen.line_text(l)).collect();
+                                ctx.copy_text(out.join("\n").trim_end().to_string());
+                            }
+                            if let Some(code) = b.exit.filter(|e| *e != 0)
+                                && ui
+                                    .small_button("Fix it")
+                                    .on_hover_text("Ask the AI for a corrected command")
+                                    .clicked()
+                            {
+                                fix = Some((b.command.clone(), code));
+                            }
+                        });
+                    });
+                });
+        },
+    );
+    if let Some(line) = go {
+        // Bring that line to the top (or the end into view).
+        let rows = screen.term.screen_lines() as i64;
+        let want_top = (line - 1).clamp(0, history);
+        let offset = (history - want_top).clamp(0, history);
+        let offset = if line > top + rows {
+            (history - (line - rows + 2)).clamp(0, history)
+        } else {
+            offset
+        };
+        let now = screen.term.grid().display_offset() as i64;
+        screen
+            .term
+            .scroll_display(Scroll::Delta((offset - now) as i32));
+    }
+    (Some(b.command), fix)
 }
 
 /// `App::front` while the Settings window is in front.

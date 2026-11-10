@@ -220,6 +220,41 @@ pub fn host_color(command: &str, hosts: &[HostColor]) -> Option<Color32> {
         .map(|h| hex(&h.color))
 }
 
+// ---- Recent folders --------------------------------------------------------
+
+/// The folders you've worked in, newest first (recent-folders.json, 0600;
+/// at most 20). Open Recent Folder (⇧⌘O) lists them.
+#[derive(Serialize, Deserialize, Default, Debug, PartialEq)]
+pub struct Recent {
+    pub folders: Vec<String>,
+}
+
+impl Recent {
+    pub fn load(path: &Path) -> Recent {
+        std::fs::read(path)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn save(&self, path: &Path) {
+        if let Ok(data) = serde_json::to_string(self) {
+            let _ = crate::restore::save(path, &data);
+        }
+    }
+
+    /// A folder was visited: it goes to the top. True if the list changed.
+    pub fn visit(&mut self, dir: &str) -> bool {
+        if dir.is_empty() || self.folders.first().is_some_and(|f| f == dir) {
+            return false;
+        }
+        self.folders.retain(|f| f != dir);
+        self.folders.insert(0, dir.to_string());
+        self.folders.truncate(20);
+        true
+    }
+}
+
 // ---- Finish line and notifications ---------------------------------------
 
 /// "3m 12s", "45s", "1h 2m".
@@ -443,6 +478,19 @@ mod tests {
             Some(Color32::from_rgb(255, 0, 0))
         );
         assert_eq!(host_color("ssh dev", &hosts), None);
+    }
+
+    #[test]
+    fn recent_folders() {
+        let mut r = Recent::default();
+        assert!(r.visit("/a") && r.visit("/b") && !r.visit("/b"));
+        assert!(r.visit("/a"));
+        assert_eq!(r.folders, ["/a", "/b"]);
+        for i in 0..30 {
+            r.visit(&format!("/x{i}"));
+        }
+        assert_eq!(r.folders.len(), 20);
+        assert_eq!(r.folders[0], "/x29");
     }
 
     #[test]

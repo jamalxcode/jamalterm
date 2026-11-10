@@ -65,6 +65,10 @@ pub struct Smoke {
     pub password_prompt: bool,
     /// The programs in Your Day's stats (from the app).
     pub stats_programs: Vec<String>,
+    /// The sticky header's command, when it shows (from the app).
+    pub sticky: Option<String>,
+    /// Broadcast Typing is on (from the app).
+    pub broadcast: bool,
     /// The crash notice is showing (from the app).
     pub crash_noticed: bool,
     /// The diagnostics report, once shown.
@@ -420,6 +424,116 @@ const STEPS: &[Step] = &[
         limit: Duration::from_secs(3),
     },
     Step {
+        name: "(a long output)",
+        act: |_, _, tabs, a| tabs[a].pane().session.write(b"seq 1 300\r"),
+        done: |_, tabs, a| {
+            blocks(tabs, a)
+                .iter()
+                .any(|b| b.command == "seq 1 300" && b.exit == Some(0))
+                .then(|| (true, String::new()))
+        },
+        limit: Duration::from_secs(10),
+    },
+    Step {
+        name: "scrolled up, the sticky header names the command",
+        act: |_, _, tabs, a| {
+            use alacritty_terminal::grid::Scroll;
+            tabs[a]
+                .pane()
+                .session
+                .screen
+                .lock()
+                .unwrap()
+                .term
+                .scroll_display(Scroll::Delta(120));
+        },
+        done: |s, _, _| {
+            s.sticky
+                .as_ref()
+                .map(|c| (c == "seq 1 300", format!("header: {c}")))
+        },
+        limit: Duration::from_secs(3),
+    },
+    Step {
+        name: "(screenshot: sticky header)",
+        act: |s, ctx, _, _| s.shot(ctx, "sticky"),
+        done: |_, _, _| None,
+        limit: Duration::from_millis(800),
+    },
+    Step {
+        name: "(back to the bottom)",
+        act: |_, _, tabs, a| {
+            use alacritty_terminal::grid::Scroll;
+            tabs[a]
+                .pane()
+                .session
+                .screen
+                .lock()
+                .unwrap()
+                .term
+                .scroll_display(Scroll::Bottom);
+        },
+        done: |s, _, _| s.sticky.is_none().then(|| (true, String::new())),
+        limit: Duration::from_secs(3),
+    },
+    Step {
+        name: "(split for broadcasting)",
+        act: |s, _, _, _| s.press(egui::Key::D, cmd_mods()),
+        done: |_, tabs, a| {
+            let t = &tabs[a];
+            (t.tree().count() == 2 && t.pane().session.screen.lock().unwrap().prompt_seen)
+                .then(|| (true, String::new()))
+        },
+        limit: Duration::from_secs(10),
+    },
+    Step {
+        name: "Broadcast Typing sends keys to every pane",
+        act: |s, _, _, _| {
+            s.cmds.push(Cmd::Broadcast);
+            s.script.push_back(vec![]);
+            s.script
+                .push_back(vec![egui::Event::Text("echo to-all".into())]);
+            s.script.push_back(vec![egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }]);
+        },
+        done: |s, tabs, a| {
+            let ran = |i: usize| {
+                tabs[a].panes()[i]
+                    .session
+                    .screen
+                    .lock()
+                    .unwrap()
+                    .commands
+                    .blocks
+                    .iter()
+                    .any(|b| b.command == "echo to-all" && b.exit == Some(0))
+            };
+            (ran(0) && ran(1)).then(|| (s.broadcast, "both panes ran it".into()))
+        },
+        limit: Duration::from_secs(10),
+    },
+    Step {
+        name: "(stop broadcasting, close the pane)",
+        act: |s, _, _, _| {
+            s.cmds.push(Cmd::Broadcast);
+            s.script.push_back(vec![]);
+            s.script.push_back(vec![]);
+        },
+        done: |s, _, _| (!s.broadcast).then(|| (true, String::new())),
+        limit: Duration::from_secs(3),
+    },
+    Step {
+        name: "(close the second pane)",
+        act: |s, _, _, _| s.press(egui::Key::W, cmd_mods()),
+        done: |_, tabs, a| (tabs[a].tree().count() == 1).then(|| (true, String::new())),
+        limit: Duration::from_secs(5),
+    },
+    Step {
         name: "⇧⌘P opens the command palette",
         act: |s, _, _, _| s.press(egui::Key::P, cmd_shift()),
         done: |s, _, _| s.palette_open.then(|| (true, String::new())),
@@ -754,6 +868,8 @@ impl Smoke {
             quit: false,
             password_prompt: false,
             crash_noticed: false,
+            sticky: None,
+            broadcast: false,
             stats_programs: vec![],
             diagnostics: None,
             ai_server,

@@ -45,6 +45,10 @@ pub enum Action {
     CopyCommand,
     /// Copy the output of the command under the cursor.
     CopyOutput,
+    /// Ask the AI to fix the (failed) command under the cursor.
+    FixIt { command: String, exit: i32 },
+    /// Quick Look the path under the cursor (a word like `src/main.rs:12`).
+    QuickLook,
 }
 
 /// The command whose lines include `row` (prompt through output).
@@ -153,6 +157,16 @@ impl Browse {
             Key::E => self.edit(v),
             Key::C => Action::CopyCommand,
             Key::O => Action::CopyOutput,
+            Key::F => match block_at(v.blocks, self.row, v.bottom).map(|i| &v.blocks[i]) {
+                Some(b) if !b.command.is_empty() && b.exit.is_some_and(|e| e != 0) => {
+                    Action::FixIt {
+                        command: b.command.clone(),
+                        exit: b.exit.unwrap_or(1),
+                    }
+                }
+                _ => Action::Stay,
+            },
+            Key::Space => Action::QuickLook,
             Key::Questionmark | Key::Slash if m.shift || key == Key::Questionmark => {
                 self.all_keys = !self.all_keys;
                 Action::Stay
@@ -204,6 +218,8 @@ impl Browse {
                 ("⇧⏎", "edit"),
                 ("C", "copy"),
                 ("O", "copy output"),
+                ("F", "fix it (AI)"),
+                ("space", "Quick Look"),
                 ("esc", "back"),
                 ("?", "fewer keys"),
             ]
@@ -218,6 +234,48 @@ impl Browse {
         };
         (status, keys)
     }
+}
+
+/// The word at a column of a line (spaces and quotes end it), for Quick
+/// Look and ⌘-click: "see src/main.rs:12 here" at 6 → "src/main.rs:12".
+pub fn word_at(line: &str, col: usize) -> Option<String> {
+    let chars: Vec<char> = line.chars().collect();
+    let stop = |c: char| c.is_whitespace() || "'\"`()<>[]{},;".contains(c);
+    if col >= chars.len() || stop(chars[col]) {
+        return None;
+    }
+    let mut a = col;
+    while a > 0 && !stop(chars[a - 1]) {
+        a -= 1;
+    }
+    let mut z = col;
+    while z + 1 < chars.len() && !stop(chars[z + 1]) {
+        z += 1;
+    }
+    let w: String = chars[a..=z].iter().collect();
+    Some(w.trim_end_matches(['.', ':']).to_string())
+}
+
+/// A word as a file path, if it is one: relative paths from `cwd`, `~`,
+/// and a `:line` (`:line:col`) suffix dropped.
+pub fn as_path(word: &str, cwd: &str, home: &str) -> Option<std::path::PathBuf> {
+    let mut w = word.to_string();
+    // main.go:12 / main.go:12:3
+    while let Some((head, tail)) = w.rsplit_once(':') {
+        if !tail.is_empty() && tail.chars().all(|c| c.is_ascii_digit()) {
+            w = head.to_string();
+        } else {
+            break;
+        }
+    }
+    let p = if let Some(rest) = w.strip_prefix("~/") {
+        std::path::Path::new(home).join(rest)
+    } else if w.starts_with('/') {
+        std::path::PathBuf::from(&w)
+    } else {
+        std::path::Path::new(cwd).join(&w)
+    };
+    p.exists().then_some(p)
 }
 
 /// What typing a command onto the prompt sends: clear the line first (emacs
@@ -250,6 +308,27 @@ fn shell_quote(s: &str) -> String {
 mod tests {
     use super::*;
     use std::time::Instant;
+
+    #[test]
+    fn words_and_paths_under_the_cursor() {
+        let line = "error in src/main.rs:12:3 (see 'notes.txt').";
+        assert_eq!(word_at(line, 12).as_deref(), Some("src/main.rs:12:3"));
+        assert_eq!(word_at(line, 33).as_deref(), Some("notes.txt"));
+        assert_eq!(word_at(line, 5), None, "a space");
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/main.rs"), "").unwrap();
+        let cwd = dir.path().display().to_string();
+        assert_eq!(
+            as_path("src/main.rs:12:3", &cwd, "/nowhere"),
+            Some(dir.path().join("src/main.rs"))
+        );
+        assert_eq!(
+            as_path("~/src/main.rs", "/", &cwd),
+            Some(dir.path().join("src/main.rs"))
+        );
+        assert_eq!(as_path("missing.txt", &cwd, "/"), None);
+    }
 
     fn block(prompt: i64, end: Option<i64>, cmd: &str, cwd: &str, exit: Option<i32>) -> Block {
         Block {

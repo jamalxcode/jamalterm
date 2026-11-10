@@ -130,3 +130,25 @@ pub fn chime() {
         }
     }
 }
+
+/// Quick Look (Space in browse mode on a path).
+pub fn quick_look(path: &std::path::Path) {
+    if cfg!(target_os = "macos") {
+        let _ = std::process::Command::new("/usr/bin/qlmanage")
+            .arg("-p")
+            .arg(path)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+    }
+}
+
+/// Opens a file, folder or web page with its usual app (⌘-click).
+pub fn open(target: &str) {
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    let _ = std::process::Command::new(opener).arg(target).spawn();
+}

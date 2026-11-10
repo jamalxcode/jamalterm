@@ -162,6 +162,8 @@ pub enum Action {
     Settings(Pane),
     /// Use this AI assistant.
     Provider(&'static str),
+    /// Open a new tab in this folder (Open Recent Folder).
+    OpenFolder(String),
 }
 
 #[derive(Clone, Debug)]
@@ -353,6 +355,8 @@ pub struct Palette {
     pub query: String,
     pub selected: usize,
     pub focus: bool,
+    /// Open Recent Folder: only folders are listed.
+    pub folders: bool,
 }
 
 #[cfg(test)]

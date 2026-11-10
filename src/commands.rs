@@ -11,6 +11,12 @@ use egui::Key;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Cmd {
     Settings,
+    /// ⇧⌘O: the folders you've worked in, opened in a new tab.
+    OpenRecent,
+    /// Types one line into an ssh session that turns on browse mode there.
+    RemoteBrowse,
+    /// ⌥⌘I: typing goes to every pane of the tab.
+    Broadcast,
     CheckUpdates,
     /// Go back to the version before the last update.
     GoBack,
@@ -165,6 +171,13 @@ pub const TABLE: &[Entry] = &[
     e(Cmd::NewWindow, "New Window", Menu::Shell, Key::N, false),
     e(Cmd::NewTab, "New Tab", Menu::Shell, Key::T, false),
     e(
+        Cmd::OpenRecent,
+        "Open Recent Folder…",
+        Menu::Shell,
+        Key::O,
+        true,
+    ),
+    e(
         Cmd::SplitRight,
         "Split Pane Right",
         Menu::Shell,
@@ -208,6 +221,11 @@ pub const TABLE: &[Entry] = &[
         false,
     ),
     e(Cmd::Clear, "Clear Scrollback", Menu::Edit, Key::K, false),
+    item(
+        Cmd::RemoteBrowse,
+        "Enable Browse Mode on This Server",
+        Menu::Shell,
+    ),
     e(Cmd::Palette, "Command Palette…", Menu::View, Key::P, true),
     e(Cmd::AiPanel, "Show AI Panel", Menu::View, Key::I, false),
     // "Hide Tab Bar" while it's shown (the menu says what it'll do).

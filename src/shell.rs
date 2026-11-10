@@ -222,6 +222,44 @@ pub struct ShellSpec {
     pub extra_env: Vec<(String, String)>,
 }
 
+/// One line to type into a bash or zsh on another machine (over ssh) that
+/// turns on browse mode there for that session only: nothing is written to
+/// the server. It starts with a space so most shells keep it out of the
+/// history. (3.x's, unchanged.)
+pub fn remote_setup() -> String {
+    use base64::Engine;
+    let script = SCRIPTS
+        .iter()
+        .find(|(name, _)| *name == "remote.sh")
+        .map(|(_, body)| *body)
+        .unwrap_or("");
+    // Comments don't need to travel.
+    let keep: Vec<&str> = script
+        .lines()
+        .filter(|l| {
+            let t = l.trim();
+            !t.is_empty() && !t.starts_with('#')
+        })
+        .collect();
+    let b = base64::engine::general_purpose::STANDARD.encode(keep.join("\n") + "\n");
+    // GNU base64 takes -d, older macOS -D.
+    format!(" eval \"$(printf '%s' '{b}' | {{ base64 -d 2>/dev/null || base64 -D; }})\"")
+}
+
+/// A path for typing at a prompt: quoted only when it needs it (as Terminal
+/// does when you drop a file).
+pub fn quote(path: &str) -> String {
+    if !path.is_empty()
+        && path
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "/._-+~@%:,=".contains(c))
+    {
+        path.to_string()
+    } else {
+        format!("'{}'", path.replace('\'', "'\\''"))
+    }
+}
+
 /// The command to run in the PTY.
 pub fn command(spec: &ShellSpec) -> CommandBuilder {
     let shell = if spec.shell.is_empty() {
@@ -278,6 +316,31 @@ pub fn command(spec: &ShellSpec) -> CommandBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remote_line_and_quoting() {
+        let line = remote_setup();
+        assert!(
+            line.starts_with(" eval "),
+            "a space: kept out of the history"
+        );
+        let b64 = line.split('\'').nth(3).unwrap();
+        use base64::Engine;
+        let script = String::from_utf8(
+            base64::engine::general_purpose::STANDARD
+                .decode(b64)
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(script.contains("133"), "the marks");
+        assert!(
+            !script.lines().any(|l| l.trim().starts_with('#')),
+            "no comments"
+        );
+        assert_eq!(quote("/Users/me/notes.txt"), "/Users/me/notes.txt");
+        assert_eq!(quote("/tmp/My File.txt"), "'/tmp/My File.txt'");
+        assert_eq!(quote("it's"), "'it'\\''s'");
+    }
 
     #[test]
     fn hooks_per_shell() {
