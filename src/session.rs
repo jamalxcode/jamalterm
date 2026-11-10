@@ -238,6 +238,7 @@ impl Session {
         cols: u16,
         rows: u16,
         scrollback: usize,
+        preface: &[u8],
         repaint: Arc<dyn Fn() + Send + Sync>,
     ) -> anyhow::Result<Session> {
         let pty = native_pty_system().openpty(PtySize {
@@ -259,11 +260,16 @@ impl Session {
             scrolling_history: scrollback,
             ..Config::default()
         };
-        let term = Term::new(
+        let mut term = Term::new(
             config,
             &TermSize::new(cols as usize, rows as usize),
             listener,
         );
+        // Restored output goes on screen before the shell starts.
+        if !preface.is_empty() {
+            let mut p: Processor = Processor::new();
+            p.advance(&mut term, preface);
+        }
         let cwd = spec
             .dir
             .as_ref()
@@ -372,6 +378,57 @@ pub(crate) mod tests {
     use super::*;
     use std::time::Duration;
 
+    /// A restored pane: its saved output is on screen, then the new prompt
+    /// and commands below it, with their marks on the right lines.
+    #[test]
+    fn restored_output_comes_first() {
+        let Some(zsh) = ["/bin/zsh", "/usr/bin/zsh"]
+            .into_iter()
+            .find(|p| std::path::Path::new(p).exists())
+        else {
+            return eprintln!("zsh not installed, skipped");
+        };
+        let home = tempfile::tempdir().unwrap();
+        let spec = ShellSpec {
+            shell: zsh.into(),
+            args: Some(vec![]),
+            dir: Some(home.path().to_path_buf()),
+            integration: true,
+            extra_env: vec![("HOME".into(), home.path().display().to_string())],
+        };
+        let saved = b"\x1b[0;32mold output\x1b[0m\r\nline two\r\n";
+        let s = Session::spawn(&spec, 80, 24, 1000, saved, Arc::new(|| {})).unwrap();
+        let until = Instant::now() + Duration::from_secs(15);
+        let mut done = false;
+        while Instant::now() < until && !done {
+            if s.screen.lock().unwrap().prompt_seen && !done {
+                s.write(b"echo after\r");
+                done = true;
+            }
+            std::thread::sleep(Duration::from_millis(30));
+        }
+        assert!(done, "no prompt");
+        let until = Instant::now() + Duration::from_secs(10);
+        loop {
+            let sc = s.screen.lock().unwrap();
+            if let Some(b) = sc
+                .commands
+                .blocks
+                .iter()
+                .find(|b| b.command == "echo after")
+            {
+                assert_eq!(sc.line_text(0), "old output");
+                assert_eq!(sc.line_text(1), "line two");
+                assert!(b.prompt >= 2, "the new prompt is below the old output");
+                assert!(sc.line_text(b.prompt).contains("echo after"));
+                break;
+            }
+            drop(sc);
+            assert!(Instant::now() < until, "the command never finished");
+            std::thread::sleep(Duration::from_millis(30));
+        }
+    }
+
     /// Real shells, with jamalterm's hooks, in a PTY: each command is found
     /// with its text and exit code (3.x's TestIntegration, ported).
     #[test]
@@ -403,7 +460,7 @@ pub(crate) mod tests {
                     ),
                 ],
             };
-            let s = Session::spawn(&spec, 100, 30, 1000, Arc::new(|| {})).unwrap();
+            let s = Session::spawn(&spec, 100, 30, 1000, b"", Arc::new(|| {})).unwrap();
             let wait = |what: &str, f: &dyn Fn(&Screen) -> bool| {
                 let until = Instant::now() + Duration::from_secs(15);
                 while Instant::now() < until {
@@ -626,7 +683,7 @@ mod setups {
                     ),
                 ],
             };
-            let s = Session::spawn(&spec, 100, 30, 1000, Arc::new(|| {})).unwrap();
+            let s = Session::spawn(&spec, 100, 30, 1000, b"", Arc::new(|| {})).unwrap();
             let wait = |what: &str, f: &dyn Fn(&Screen) -> bool| {
                 let until = Instant::now() + Duration::from_secs(40);
                 while Instant::now() < until {

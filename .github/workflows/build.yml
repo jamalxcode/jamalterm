@@ -44,6 +44,12 @@ jobs:
             timeout 120 xvfb-run -a -s "-screen 0 1400x900x24" target/debug/jamalterm
           cat smoke/report.json
           python3 -c "import json,sys; sys.exit(0 if json.load(open('smoke/report.json'))['ok'] else 1)"
+      - name: Self-test, second run (the saved window comes back)
+        run: |
+          HOME="$PWD/smoke/home" SHELL=/usr/bin/zsh JAMALTERM_SMOKE="$PWD/smoke" JAMALTERM_SETTINGS="$PWD/smoke/settings.json" JAMALTERM_SMOKE_RESTORE=1 \
+            timeout 60 xvfb-run -a -s "-screen 0 1400x900x24" target/debug/jamalterm
+          cat smoke/report-restore.json
+          python3 -c "import json,sys; sys.exit(0 if json.load(open('smoke/report-restore.json'))['ok'] else 1)"
 
   shells:
     # Browse mode under oh-my-zsh, Powerlevel10k (instant prompt), prezto and

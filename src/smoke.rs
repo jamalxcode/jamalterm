@@ -31,6 +31,8 @@ pub struct Smoke {
     pub keys: Vec<egui::Event>,
     /// The find bar's "3 of 17" (None when closed), from the app each frame.
     pub find_status: Option<String>,
+    /// Lets the app write session.json (the self-test checks it at the end).
+    pub save_session: bool,
     /// Whether the Mac menu bar was installed (None where there is none).
     pub menu_bar: Option<bool>,
     dir: PathBuf,
@@ -236,12 +238,66 @@ const STEPS: &[Step] = &[
         limit: Duration::from_secs(5),
     },
     Step {
+        name: "the session is saved (tabs, folders, output)",
+        act: |s, _, _, _| s.save_session = true,
+        done: |s, _, _| {
+            let w = crate::restore::load(&s.dir.join("session.json"));
+            let groups = w.first()?.groups();
+            (groups.len() == 2).then(|| {
+                let crate::restore::SavedNode::Leaf { tab } = &groups[0] else {
+                    return (false, "the first tab was saved split".into());
+                };
+                (
+                    tab.output.contains("smoke-ok") && !tab.cwd.is_empty(),
+                    format!("2 tabs, {} bytes of output", tab.output.len()),
+                )
+            })
+        },
+        limit: Duration::from_secs(5),
+    },
+    Step {
         name: "(screenshot: two tabs)",
         act: |s, ctx, _, _| s.shot(ctx, "tabs"),
         done: |_, _, _| None,
         limit: Duration::from_secs(2),
     },
 ];
+
+/// The second run (JAMALTERM_SMOKE_RESTORE=1): the window the first run
+/// saved comes back.
+const RESTORE_STEPS: &[Step] = &[
+    Step {
+        name: "the saved tabs come back with their output",
+        act: |_, _, _, _| {},
+        done: |_, tabs, _| {
+            let first = tabs.first()?;
+            let s = first.pane().session.screen.lock().unwrap();
+            let text: Vec<String> = (0..s.abs_cursor_line()).map(|l| s.line_text(l)).collect();
+            let back = text.iter().any(|l| l.contains("smoke-ok"));
+            let marked = text
+                .iter()
+                .any(|l| l.contains("Restored from the last session"));
+            (back && marked && s.prompt_seen).then(|| {
+                (
+                    tabs.len() == 2,
+                    format!("{} tabs, the output and a new prompt", tabs.len()),
+                )
+            })
+        },
+        limit: Duration::from_secs(15),
+    },
+    Step {
+        name: "(screenshot: restored)",
+        act: |s, ctx, _, _| s.shot(ctx, "restored"),
+        done: |_, _, _| None,
+        limit: Duration::from_millis(800),
+    },
+];
+
+/// Whether this run checks restoring (see RESTORE_STEPS).
+pub fn restore_run() -> bool {
+    std::env::var_os("JAMALTERM_SMOKE_RESTORE").is_some()
+}
 
 impl Smoke {
     pub fn from_env() -> Option<Smoke> {
@@ -251,6 +307,7 @@ impl Smoke {
             keys: vec![],
             find_status: None,
             menu_bar: None,
+            save_session: false,
             dir,
             started: Instant::now(),
             step: 0,
@@ -286,15 +343,21 @@ impl Smoke {
     /// Called every frame.
     pub fn step(&mut self, ctx: &egui::Context, tabs: &[Tab], active: usize) {
         ctx.request_repaint_after(Duration::from_millis(50));
-        let Some(step) = STEPS.get(self.step) else {
+        let steps = if restore_run() { RESTORE_STEPS } else { STEPS };
+        let Some(step) = steps.get(self.step) else {
             let report = serde_json::json!({
                 "ok": self.checks.iter().all(|c| c.ok),
                 "checks": self.checks,
                 "firstPromptMs": self.checks.first().map(|_| self.started.elapsed().as_millis()),
                 "tabs": tabs.len(),
             });
+            let name = if restore_run() {
+                "report-restore.json"
+            } else {
+                "report.json"
+            };
             let _ = std::fs::write(
-                self.dir.join("report.json"),
+                self.dir.join(name),
                 serde_json::to_vec_pretty(&report).unwrap(),
             );
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);

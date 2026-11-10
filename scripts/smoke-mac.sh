@@ -20,11 +20,18 @@ for _ in $(seq 1 120); do [[ -f "$OUT/report.json" ]] && break; sleep 0.5; done
 kill "$PID" 2>/dev/null
 tail -20 "$OUT/app.log"
 
+# Second run: the window the first run saved comes back.
+JAMALTERM_SMOKE_RESTORE=1 "$APP/Contents/MacOS/jamalterm" >>"$OUT/app.log" 2>&1 &
+PID=$!
+for _ in $(seq 1 60); do [[ -f "$OUT/report-restore.json" ]] && break; sleep 0.5; done
+kill "$PID" 2>/dev/null
+
 python3 - "$OUT" "$(( $(date +%s) - T0 ))" <<'PY'
 import json, os, sys
 out, secs = sys.argv[1], sys.argv[2]
 try:
     r = json.load(open(os.path.join(out, "report.json")))
+    r["checks"] += json.load(open(os.path.join(out, "report-restore.json")))["checks"]
 except Exception as e:
     print(f"::error::No smoke report: {e}")
     sys.exit(1)

@@ -5,6 +5,7 @@ use crate::commands::{self, Cmd};
 use crate::find::Find;
 use crate::input::{is_app_shortcut, key_bytes, paste_bytes};
 use crate::panes::{self, Dir, Node};
+use crate::restore;
 use crate::session::Session;
 use crate::settings::{self, Settings};
 use crate::shell::ShellSpec;
@@ -14,7 +15,7 @@ use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::TermMode;
 use egui::{Color32, Key, RichText, Sense, Vec2};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -175,6 +176,37 @@ pub fn tab_name(folder: &str, program: &str) -> String {
     }
 }
 
+/// What the app starts with, read before the window opens (the saved window
+/// frame is needed for that).
+pub struct Startup {
+    settings_path: PathBuf,
+    settings: Settings,
+    session_path: PathBuf,
+    /// The window to bring back (when Settings → Restore windows is on).
+    pub restored: Option<restore::SavedWindow>,
+}
+
+impl Startup {
+    pub fn load() -> Startup {
+        let settings_path = std::env::var_os("JAMALTERM_SETTINGS")
+            .map(PathBuf::from)
+            .unwrap_or_else(settings::default_path);
+        let settings = settings::load(&settings_path);
+        let session_path = settings_path.with_file_name("session.json");
+        // The self-test starts fresh, except in its restore run.
+        let smoke = std::env::var_os("JAMALTERM_SMOKE").is_some();
+        let restored = (settings.restore_session && (!smoke || crate::smoke::restore_run()))
+            .then(|| restore::load(&session_path).into_iter().next())
+            .flatten();
+        Startup {
+            settings_path,
+            settings,
+            session_path,
+            restored,
+        }
+    }
+}
+
 pub struct App {
     tabs: Vec<Tab>,
     /// The next pane's id.
@@ -182,6 +214,11 @@ pub struct App {
     active: usize,
     settings: Settings,
     settings_path: PathBuf,
+    /// session.json, next to settings.json.
+    session_path: PathBuf,
+    /// What was last written there (it's only written when it changes).
+    last_saved: String,
+    saved_at: Instant,
     theme: Theme,
     grid: (u16, u16),
     home: String,
@@ -194,6 +231,9 @@ pub struct App {
     focus_find: bool,
     /// Where each pane of the tab in front was last drawn (for ⌥⌘ arrows).
     pane_rects: Vec<(u64, egui::Rect)>,
+    /// The window is closing (quitting): save one last time.
+    exiting: bool,
+    ctx: egui::Context,
     /// The divider being dragged.
     dragging: Option<panes::Divider>,
     #[cfg(target_os = "macos")]
@@ -201,12 +241,14 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext) -> Self {
+    pub fn new(cc: &eframe::CreationContext, start: Startup) -> Self {
         crate::fonts::install(&cc.egui_ctx);
-        let settings_path = std::env::var_os("JAMALTERM_SETTINGS")
-            .map(PathBuf::from)
-            .unwrap_or_else(settings::default_path);
-        let settings = settings::load(&settings_path);
+        let Startup {
+            settings_path,
+            settings,
+            session_path,
+            restored,
+        } = start;
         let theme = themes::by_id(&settings.theme);
         let shell = if settings.shell.is_empty() {
             crate::shell::default_shell()
@@ -225,12 +267,17 @@ impl App {
             shell_name: shell.rsplit('/').next().unwrap_or("shell").to_string(),
             settings,
             settings_path,
+            session_path,
+            last_saved: String::new(),
+            saved_at: Instant::now(),
             selecting: false,
             started: Instant::now(),
             smoke: crate::smoke::Smoke::from_env(),
             find: None,
             focus_find: false,
             pane_rects: vec![],
+            exiting: false,
+            ctx: cc.egui_ctx.clone(),
             dragging: None,
             #[cfg(target_os = "macos")]
             menu: crate::menu::MacMenu::install(&cc.egui_ctx),
@@ -239,13 +286,100 @@ impl App {
         if let Some(s) = app.smoke.as_mut() {
             s.menu_bar = Some(app.menu.is_some());
         }
-        app.new_tab(&cc.egui_ctx, None);
+        if let Some(w) = restored {
+            app.restore(&cc.egui_ctx, &w);
+        }
+        if app.tabs.is_empty() {
+            app.new_tab(&cc.egui_ctx, None);
+        }
         app
+    }
+
+    /// Brings back a saved window's tabs and splits, each pane in its
+    /// folder with its recent output.
+    fn restore(&mut self, ctx: &egui::Context, w: &restore::SavedWindow) {
+        for g in w.groups() {
+            let mut focus = None;
+            let node = restore::to_node(&g).filter_map(&mut |t: restore::SavedTab| {
+                let dir = (!t.cwd.is_empty() && Path::new(&t.cwd).is_dir())
+                    .then(|| PathBuf::from(&t.cwd));
+                let mut preface = t.output.clone().into_bytes();
+                if !preface.is_empty() {
+                    preface.extend_from_slice(
+                        b"\r\n\x1b[2m[Restored from the last session]\x1b[0m\r\n",
+                    );
+                }
+                let p = self.spawn_pane(ctx, dir, &preface)?;
+                if t.focused {
+                    focus = Some(p.id);
+                }
+                Some(p)
+            });
+            if let Some(root) = node {
+                let first = root.leaves()[0].id;
+                self.tabs.push(Tab {
+                    root: Some(root),
+                    focus: focus.unwrap_or(first),
+                });
+            }
+        }
+        self.active = w.active.min(self.tabs.len().saturating_sub(1));
+    }
+
+    /// This window as it's saved: tabs, splits, folders, recent output, frame.
+    fn snapshot(&self, ctx: &egui::Context) -> restore::SavedWindow {
+        let groups = self
+            .tabs
+            .iter()
+            .map(|t| save_node(t.tree(), t.focus))
+            .collect();
+        let frame = ctx.input(|i| {
+            let v = i.viewport();
+            let (outer, inner) = (v.outer_rect?, v.inner_rect?);
+            Some(restore::Frame {
+                x: outer.min.x.round() as i32,
+                y: outer.min.y.round() as i32,
+                w: inner.width().round() as i32,
+                h: inner.height().round() as i32,
+            })
+        });
+        restore::SavedWindow {
+            active: self.active,
+            groups,
+            tabs: vec![],
+            frame,
+        }
+    }
+
+    /// Writes session.json if anything changed. With no tabs left the file
+    /// is emptied: closing the last tab starts fresh next time.
+    fn save_session(&mut self, ctx: &egui::Context) {
+        self.saved_at = Instant::now();
+        if self.smoke.is_some() && !self.smoke.as_ref().is_some_and(|s| s.save_session) {
+            return;
+        }
+        let windows = if self.tabs.is_empty() {
+            vec![]
+        } else {
+            vec![self.snapshot(ctx)]
+        };
+        let data = restore::encode(&windows);
+        if data != self.last_saved {
+            match restore::save(&self.session_path, &data) {
+                Ok(()) => self.last_saved = data,
+                Err(e) => eprintln!("jamalterm: the session wasn't saved: {e}"),
+            }
+        }
     }
 
     /// Starts a shell for a new tab or pane, in the focused pane's folder
     /// (like Terminal), or in `dir`.
-    fn spawn_pane(&mut self, ctx: &egui::Context, dir: Option<PathBuf>) -> Option<Pane> {
+    fn spawn_pane(
+        &mut self,
+        ctx: &egui::Context,
+        dir: Option<PathBuf>,
+        preface: &[u8],
+    ) -> Option<Pane> {
         let (dir, grid) = match self.pane() {
             Some(p) => {
                 let cwd = p.session.screen.lock().unwrap().cwd.clone();
@@ -265,7 +399,14 @@ impl App {
         };
         let ctx2 = ctx.clone();
         let repaint: Arc<dyn Fn() + Send + Sync> = Arc::new(move || ctx2.request_repaint());
-        match Session::spawn(&spec, grid.0, grid.1, self.settings.scrollback, repaint) {
+        match Session::spawn(
+            &spec,
+            grid.0,
+            grid.1,
+            self.settings.scrollback,
+            preface,
+            repaint,
+        ) {
             Ok(session) => {
                 self.next_id += 1;
                 Some(Pane {
@@ -285,7 +426,7 @@ impl App {
     }
 
     fn new_tab(&mut self, ctx: &egui::Context, dir: Option<PathBuf>) {
-        if let Some(p) = self.spawn_pane(ctx, dir) {
+        if let Some(p) = self.spawn_pane(ctx, dir, b"") {
             self.tabs.push(Tab::new(p));
             self.active = self.tabs.len() - 1;
         }
@@ -293,7 +434,7 @@ impl App {
 
     /// Splits the focused pane (⌘D right, ⇧⌘D down).
     fn split(&mut self, ctx: &egui::Context, dir: Dir) {
-        if let Some(p) = self.spawn_pane(ctx, None)
+        if let Some(p) = self.spawn_pane(ctx, None, b"")
             && let Some(t) = self.tabs.get_mut(self.active)
         {
             t.split(dir, p);
@@ -350,6 +491,7 @@ impl App {
         }
         self.tabs.remove(i); // dropping the session ends its shell
         if self.tabs.is_empty() {
+            self.save_session(ctx);
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
         }
@@ -741,6 +883,12 @@ impl App {
 }
 
 impl eframe::App for App {
+    /// Quitting (⌘Q included) saves the session one last time.
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        let ctx = self.ctx.clone();
+        self.save_session(&ctx);
+    }
+
     /// The self-test's key presses arrive as if typed.
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
         if let Some(s) = self.smoke.as_mut() {
@@ -1104,6 +1252,24 @@ impl eframe::App for App {
             m.set_split(self.tabs[self.active].tree().count() > 1);
         }
 
+        // Saved every 15 s when something changed (and on quit), so a crash
+        // loses little.
+        let smoke_wants = self
+            .smoke
+            .as_ref()
+            .is_some_and(|s| s.save_session && self.last_saved.is_empty());
+        if smoke_wants || self.saved_at.elapsed() > Duration::from_secs(15) {
+            self.save_session(&ctx);
+        }
+        ctx.input(|i| {
+            if i.viewport().close_requested() {
+                self.exiting = true;
+            }
+        });
+        if self.exiting {
+            self.save_session(&ctx);
+        }
+
         // The window title: "Home — zsh".
         let tab = &self.tabs[self.active];
         let title = tab_name(&tab.folder(&self.home), &tab.program(&self.shell_name));
@@ -1115,6 +1281,29 @@ impl eframe::App for App {
             smoke.find_status = self.find.as_ref().map(|f| f.status());
             smoke.step(&ctx, &self.tabs, self.active);
         }
+    }
+}
+
+/// A tab's tree as it's saved.
+fn save_node(n: &Node<Pane>, focus: u64) -> restore::SavedNode {
+    match n {
+        Node::Leaf(p) => {
+            let s = p.session.screen.lock().unwrap();
+            restore::SavedNode::Leaf {
+                tab: restore::SavedTab {
+                    cwd: s.cwd.clone(),
+                    output: restore::serialize(&s.term),
+                    focused: p.id == focus,
+                    ..Default::default()
+                },
+            }
+        }
+        Node::Split { dir, ratio, a, b } => restore::SavedNode::Split {
+            dir: restore::dir_name(*dir).into(),
+            ratio: *ratio,
+            a: Box::new(save_node(a, focus)),
+            b: Box::new(save_node(b, focus)),
+        },
     }
 }
 

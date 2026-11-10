@@ -135,6 +135,23 @@ impl<T> Node<T> {
         }
     }
 
+    /// The same tree with each pane made into another; panes `f` can't make
+    /// are left out (their neighbours take the space). None if none are left.
+    pub fn filter_map<U>(self, f: &mut impl FnMut(T) -> Option<U>) -> Option<Node<U>> {
+        match self {
+            Node::Leaf(t) => f(t).map(Node::Leaf),
+            Node::Split { dir, ratio, a, b } => match (a.filter_map(f), b.filter_map(f)) {
+                (Some(a), Some(b)) => Some(Node::Split {
+                    dir,
+                    ratio,
+                    a: Box::new(a),
+                    b: Box::new(b),
+                }),
+                (a, b) => a.or(b),
+            },
+        }
+    }
+
     /// Where every pane and divider goes in `rect`.
     pub fn layout<'a>(
         &'a self,
@@ -305,6 +322,21 @@ mod tests {
         assert_eq!(rects(&n), vec![(3, area())]);
         let (n, gone) = n.remove(&|p| *p == 3);
         assert!(n.is_none() && gone == Some(3), "the last pane");
+    }
+
+    #[test]
+    fn mapping_a_tree_leaves_out_what_fails() {
+        let n = split(split(Node::Leaf(1), 1, Dir::Right, 2), 2, Dir::Down, 3);
+        let m = n.filter_map(&mut |p| (p != 2).then_some(p * 10)).unwrap();
+        assert_eq!(m.leaves(), vec![&10, &30]);
+        assert!(matches!(
+            m,
+            Node::Split {
+                dir: Dir::Right,
+                ..
+            }
+        ));
+        assert!(Node::Leaf(1).filter_map(&mut |_| None::<u32>).is_none());
     }
 
     #[test]
