@@ -163,6 +163,44 @@ impl Screen {
         out
     }
 
+    /// The whole line that `abs` is part of, when a long line wraps onto
+    /// several rows (a long prompt and what's typed after it).
+    pub fn wrapped_line_text(&self, abs: i64) -> String {
+        let g = self.term.grid();
+        let top = -(g.history_size() as i64);
+        let last = g.columns().saturating_sub(1);
+        let wraps = |a: i64| {
+            let l = a - g.history_size() as i64;
+            l >= top
+                && l < g.screen_lines() as i64
+                && g[Line(l as i32)][Column(last)]
+                    .flags
+                    .contains(alacritty_terminal::term::cell::Flags::WRAPLINE)
+        };
+        let mut start = abs;
+        while start > 0 && wraps(start - 1) {
+            start -= 1;
+        }
+        let mut end = abs;
+        while wraps(end) {
+            end += 1;
+        }
+        let mut out = String::new();
+        for a in start..=end {
+            let row: String = {
+                let l = Line((a - g.history_size() as i64) as i32);
+                if l.0 < top as i32 || l.0 >= g.screen_lines() as i32 {
+                    String::new()
+                } else {
+                    (0..g.columns()).map(|c| g[l][Column(c)].c).collect()
+                }
+            };
+            out.push_str(&row);
+        }
+        out.truncate(out.trim_end().len());
+        out
+    }
+
     /// Feeds output to the emulator. When the history is full, old lines drop
     /// off the top and alacritty_terminal doesn't say how many, so the oldest
     /// lines are noted first and found again afterwards: how far they moved is
@@ -617,6 +655,19 @@ pub(crate) mod tests {
             images: vec![],
             cell_px: (10.0, 20.0),
         }
+    }
+
+    #[test]
+    fn a_wrapped_line_reads_whole() {
+        let mut s = screen(10, 5, 100);
+        let mut p = Processor::new();
+        s.feed(&mut p, b"first\r\n~/a/long/path % echo hi");
+        let cur = s.abs_cursor_line();
+        assert_eq!(s.line_text(cur), " hi", "only the last row");
+        for a in cur - 2..=cur {
+            assert_eq!(s.wrapped_line_text(a), "~/a/long/path % echo hi");
+        }
+        assert_eq!(s.wrapped_line_text(cur - 3), "first");
     }
 
     #[test]

@@ -771,7 +771,7 @@ const STEPS: &[Step] = &[
         },
         done: |s, tabs, a| {
             let sc = tabs[a].pane().session.screen.lock().unwrap();
-            let line = sc.line_text(sc.abs_cursor_line());
+            let line = sc.wrapped_line_text(sc.abs_cursor_line());
             let ran = sc
                 .commands
                 .blocks
@@ -797,8 +797,9 @@ const STEPS: &[Step] = &[
         act: |_, _, tabs, a| tabs[a].pane().session.write(b"\x05\x15"),
         done: |_, tabs, a| {
             let s = tabs[a].pane().session.screen.lock().unwrap();
-            (!s.line_text(s.abs_cursor_line()).contains("from-the-bar"))
-                .then(|| (true, String::new()))
+            (!s.wrapped_line_text(s.abs_cursor_line())
+                .contains("from-the-bar"))
+            .then(|| (true, String::new()))
         },
         limit: Duration::from_secs(3),
     },
