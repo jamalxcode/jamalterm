@@ -34,6 +34,8 @@
     if (cmd === 'echo') out = rest.join(' ') + '\r\n'
     else if (cmd === 'cd') sh.cwd = rest[0] || '/home/u'
     else if (cmd === 'false') code = 1
+    else if (cmd === 'seq') out = Array.from({ length: +rest[0] || 10 }, (_, i) => `${i + 1}\r\n`).join('')
+    else if (cmd === 'build') { out = Array.from({ length: +rest[0] || 80 }, (_, i) => `step ${i + 1}\r\n`).join('') + 'error: it broke\r\n'; code = 2 }
     else if (cmd === 'osc52') out = `\x1b]52;c;${btoa(rest.join(' '))}\x07`
     else if (cmd) { out = `${cmd}: command not found\r\n`; code = 127 }
     emit('pty:data', { id, data: b64(`\r\n\x1b]6973;cmd;${b64(line)}\x07\x1b]133;C\x07${out}\x1b]133;D;${code}\x07`) })

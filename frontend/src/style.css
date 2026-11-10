@@ -903,3 +903,30 @@ details.advanced > summary:focus-visible { outline: 2px solid var(--accent); out
 .term-preview .cur.bar { height: 1.1em; width: 0; border-left: 2px solid; }
 .term-preview .cur.under { border-bottom: 2px solid; }
 label.check.disabled { opacity: 0.45; }
+
+/* The command the output at the top belongs to (overlay.ts). */
+.sticky-cmd {
+  position: absolute; z-index: 3; height: 26px; box-sizing: border-box;
+  display: flex; align-items: center; gap: 8px; padding: 0 8px;
+  pointer-events: auto; font: 12px var(--ui);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  border-bottom: 1px solid var(--border); border-left: 3px solid var(--green);
+  border-radius: 0 0 6px 6px; backdrop-filter: blur(6px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+.sticky-cmd.bad { border-left-color: var(--red); }
+.sticky-cmd .mark { font-weight: 800; width: 12px; text-align: center; }
+.sticky-cmd .mark.ok { color: var(--green); } .sticky-cmd .mark.bad { color: var(--red); } .sticky-cmd .mark.run { color: var(--blue); }
+.sticky-cmd .cmd { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px var(--mono, monospace); color: var(--fg); background: none; border: 0; padding: 0; cursor: pointer; }
+.sticky-cmd .cmd:hover { text-decoration: underline; }
+.sticky-cmd .info { color: var(--muted); white-space: nowrap; }
+.sticky-cmd .act { flex: none; padding: 2px 8px; font-size: 11.5px; border-radius: 6px; border: 1px solid var(--border); background: none; color: var(--fg); }
+.sticky-cmd .act:hover { background: color-mix(in srgb, var(--fg) 10%, transparent); }
+.sticky-cmd .act.fix { border-color: color-mix(in srgb, var(--magenta) 60%, var(--border)); }
+
+/* Markers beside the scrollbar (overlay.ts). */
+.cmd-rail { position: absolute; right: 1px; width: 7px; pointer-events: none; }
+.cmd-rail .tick { position: absolute; left: 0; width: 7px; height: 3px; padding: 0; border: 0; border-radius: 1px; pointer-events: auto; background: color-mix(in srgb, var(--fg) 35%, transparent); cursor: pointer; }
+.cmd-rail .tick.bad { background: var(--red); height: 4px; }
+.cmd-rail .tick.run { background: var(--blue); }
+.cmd-rail .tick:hover { transform: scaleX(1.6); transform-origin: right; }

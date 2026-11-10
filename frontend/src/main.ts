@@ -59,6 +59,11 @@ const hooks = {
     t.exitBrowse()
     void ai.explain(t, b)
   },
+  onFix: (t: Tab, b: Parameters<AIPanel['explain']>[1]) => {
+    if (!aiReady()) return
+    t.exitBrowse()
+    void ai.fix(t, b)
+  },
   onCommandDone: (t: Tab, b: Parameters<AIPanel['explain']>[1]) => {
     // Tell the user when a long command finishes while they're elsewhere.
     if (!cfg.notifyLongCommands || !b.startedAt || !b.finishedAt || !b.command) return

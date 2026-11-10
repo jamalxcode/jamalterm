@@ -41,6 +41,7 @@ export interface Block {
 export interface TabHooks {
   onChange(tab: Tab): void // title or state changed
   onExplain(tab: Tab, block: Block): void // "ask AI about this block"
+  onFix?(tab: Tab, block: Block): void // "Fix it": a corrected command for a failed one
   onCommandDone(tab: Tab, block: Block): void // for long-command notifications
   settings(): Settings
   shellName(): string
@@ -902,6 +903,10 @@ export class Tab {
         if (block) this.hooks.onExplain(this, block)
         else toast('Move to a command first')
         return true
+      case 'f':
+        if (block?.end && block.exitCode !== 0) (this.hooks.onFix ?? this.hooks.onExplain)(this, block)
+        else toast(block ? 'That command didn’t fail' : 'Move to a command first')
+        return true
       case '?':
         // The short key list, or all of them.
         allKeys = !allKeys
@@ -971,7 +976,7 @@ export class Tab {
     const keys = allKeys
       ? '<span class="keys">Move <kbd>↑</kbd><kbd>↓</kbd></span><span class="keys">Commands <kbd>⌥↑</kbd><kbd>⌥↓</kbd></span>' +
         '<span class="keys">Run <kbd>⏎</kbd></span><span class="keys">Edit <kbd>⇧⏎</kbd></span><span class="keys">Copy <kbd>C</kbd></span>' +
-        '<span class="keys">Copy output <kbd>O</kbd></span><span class="keys">Ask AI <kbd>A</kbd></span><span class="keys">Back <kbd>esc</kbd></span>' +
+        '<span class="keys">Copy output <kbd>O</kbd></span><span class="keys">Ask AI <kbd>A</kbd></span><span class="keys">Fix it <kbd>F</kbd></span><span class="keys">Back <kbd>esc</kbd></span>' +
         '<span class="keys">Fewer keys <kbd>?</kbd></span>'
       : '<span class="keys">Run <kbd>⏎</kbd></span><span class="keys">Edit <kbd>⇧⏎</kbd></span><span class="keys">Copy <kbd>C</kbd></span>' +
         '<span class="keys">Ask AI <kbd>A</kbd></span><span class="keys">Back <kbd>esc</kbd></span><span class="keys more">More keys <kbd>?</kbd></span>'
@@ -1101,7 +1106,10 @@ export class Tab {
     if (this.overlayFrame) return
     this.overlayFrame = requestAnimationFrame(() => {
       this.overlayFrame = 0
-      this.overlayKey = renderOverlay(this, this.overlayKey, (b) => this.hooks.onExplain(this, b))
+      this.overlayKey = renderOverlay(this, this.overlayKey, {
+        explain: (b) => this.hooks.onExplain(this, b),
+        fix: (b) => (this.hooks.onFix ?? this.hooks.onExplain)(this, b),
+      })
     })
   }
 }

@@ -247,6 +247,14 @@ export class AIPanel {
     this.send(q, tab.aiContext(block))
   }
 
+  /** "Fix it": a corrected command for a failed one, as a code block with
+   * Run and Insert (Run goes through the usual safety check). */
+  async fix(tab: Tab, block: Block) {
+    await this.show(false)
+    const q = `\`${block.command}\` failed (exit ${block.exitCode}). Reply with the corrected command first, in one shell code block, then one short sentence saying what was wrong. If it can't be fixed with a command, say what to do instead.`
+    this.send(q, tab.aiContext(block))
+  }
+
   send(text?: string, context?: string) {
     const tab = this.host.activeTab()
     if (!tab || this.streaming) return
