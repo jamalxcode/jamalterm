@@ -47,4 +47,4 @@ go test ./internal/... && go test .      # `go test .` needs frontend/dist built
   - the smoke test;
   - the shell setups job (oh-my-zsh, Powerlevel10k, prezto, starship);
   - the Sigstore proof and its check.
-- **To release:** add a `## X.Y.Z` section to `CHANGELOG.md` and push a commit titled `Release X.Y.Z` (`Release X.Y.Z-beta.N` for the Beta channel). CI publishes it when every job passes. Release notes come from that section plus `.github/release-notes.md`.
+- **To release:** add a `## X.Y.Z` section to `CHANGELOG.md` and push a commit titled `Release X.Y.Z` (`Release X.Y.Z-beta.N` for the Beta channel). CI publishes it when every job passes. Release notes come from that section plus `.github/release-notes.md`. Follow the **release** skill (`.claude/skills/release/SKILL.md`): it covers waiting, publish failures and confirming.
