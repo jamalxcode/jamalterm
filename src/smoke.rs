@@ -75,6 +75,9 @@ pub struct Smoke {
     pub crash_noticed: bool,
     /// The diagnostics report, once shown.
     pub diagnostics: Option<String>,
+    /// How long the current step has waited (a step can say why before it
+    /// times out).
+    pub waited: Duration,
     /// Done: the app should quit.
     pub quit: bool,
     /// How many windows are open (from the app each frame).
@@ -737,7 +740,7 @@ const STEPS: &[Step] = &[
         limit: Duration::from_secs(5),
     },
     Step {
-        name: "(type in the command bar)",
+        name: "text goes into the command bar",
         act: |s, _, _, _| {
             s.script.push_back(vec![]);
             s.script.push_back(vec![]);
@@ -745,6 +748,9 @@ const STEPS: &[Step] = &[
                 .push_back(vec![egui::Event::Text("say hello".into())]);
         },
         done: |s, _, _| {
+            if s.waited > Duration::from_secs(4) {
+                return Some((false, format!("bar: {:?}", s.bar)));
+            }
             s.bar
                 .as_ref()
                 .filter(|(text, _)| text == "say hello")
@@ -774,7 +780,11 @@ const STEPS: &[Step] = &[
             if line.contains("echo from-the-bar") {
                 return Some((!ran, format!("prompt: {line:?}")));
             }
-            // Still open with an answer or an error: say what it shows.
+            // Still open with an answer or an error, or about to time out:
+            // say what it shows.
+            if s.waited > Duration::from_secs(9) {
+                return Some((false, format!("bar: {:?}, prompt: {line:?}", s.bar)));
+            }
             s.bar
                 .as_ref()
                 .filter(|(_, status)| status.starts_with("result"))
@@ -965,6 +975,7 @@ impl Smoke {
             windows: 1,
             cmds: vec![],
             quit: false,
+            waited: Duration::ZERO,
             password_prompt: false,
             crash_noticed: false,
             sticky: None,
@@ -1077,6 +1088,7 @@ impl Smoke {
             self.at = Instant::now();
             return;
         }
+        self.waited = self.at.elapsed();
         let result = (step.done)(self, tabs, active);
         let timed_out = self.at.elapsed() > step.limit;
         if result.is_none() && !timed_out {
