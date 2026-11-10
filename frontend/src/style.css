@@ -115,11 +115,13 @@ body.mac .new-tab, body.mac #ai-button { height: 22px; }
   min-width: 16px; height: 16px; padding: 0 3px;
   border-radius: 4px;
   font: 600 10px var(--ui);
-  color: var(--bg);
-  background: color-mix(in srgb, var(--fg) 55%, transparent);
+  /* An outlined number in the tab's own text color: readable on every
+     frame and theme (a filled badge vanished on the system frame). */
+  color: currentColor;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 55%, transparent);
   flex: none;
 }
-.tab.active .num { background: var(--fg); }
 .tab .state.failed, .tab .state.running { opacity: 1; } /* status stays readable on background tabs */
 
 .tab:hover { background: color-mix(in srgb, var(--fg) 13%, transparent); color: var(--fg); }
@@ -130,14 +132,8 @@ body.mac .new-tab, body.mac #ai-button { height: 22px; }
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--fg) 80%, transparent), 0 2px 10px rgba(0, 0, 0, 0.35);
 }
 
-.tab.active::after {
-  content: "";
-  position: absolute;
-  left: 8px; right: 8px; bottom: -4px;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--fg);
-}
+/* The active tab: brighter fill, outline and bold text (no underline as
+   well: one clear signal, not two). */
 .tab .label { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .tab .cmd { font-weight: 700; }
 .tab .sep { opacity: 0.7; font-weight: 400; }
@@ -153,7 +149,10 @@ body.mac .new-tab, body.mac #ai-button { height: 22px; }
   border-right-color: transparent;
   animation: spin 0.9s linear infinite;
 }
-.tab .state.failed { color: var(--red); font: 700 12px var(--ui); }
+.tab .state.failed {
+  width: 15px; height: 15px; border-radius: 50%;
+  background: var(--red); color: #fff; font: 800 11px var(--ui);
+}
 .tab .state.exited { border-radius: 50%; border: 1.5px dashed currentColor; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .tab .close {
@@ -219,8 +218,14 @@ body.browsing #main { bottom: 30px; }
   transition: transform 0.1s;
 }
 .overlay .dot:hover { transform: scale(1.5); opacity: 1; }
-/* Margin markers use shapes too: ring = OK, ✕ = failed, spinner = running. */
-.dot.ok { background: none; border: 1.5px solid var(--green); opacity: 0.7; }
+/* Margin markers use shapes too: ✓ = OK, ✕ = failed, spinner = running
+   (a hollow ring read as "still waiting"). */
+.dot.ok {
+  width: 12px; height: 12px; margin: -2px 0 0 -2px;
+  background: none; border-radius: 0;
+  color: var(--green); font: 800 11px/12px var(--ui); text-align: center;
+  opacity: 0.75;
+}
 .dot.bad {
   width: 12px; height: 12px; margin: -2px 0 0 -2px;
   background: none; border-radius: 0;
@@ -235,6 +240,8 @@ body.browsing #main { bottom: 30px; }
   background: var(--highlight);
   box-shadow: inset 0 0 0 1px var(--highlight-strong);
 }
+/* The selected command: a solid accent bar on the left plus a clear fill. */
+.block-hl { box-shadow: inset 3px 0 0 var(--accent), inset 0 0 0 1px var(--highlight-strong); background: color-mix(in srgb, var(--accent) 16%, var(--highlight)); }
 .block-hl.bad { box-shadow: inset 3px 0 0 var(--red), inset 0 0 0 1px var(--highlight-strong); }
 .line-hl { position: absolute; background: var(--highlight); border-radius: 3px; }
 .float-cursor {
@@ -646,6 +653,9 @@ button:disabled { opacity: 0.5; }
   z-index: 60;
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
+/* Tips sit over the terminal, never over the AI panel. */
+body.ai-open #toast { left: calc((100% - 372px) / 2); }
+body.browsing #toast { bottom: 40px; }
 #toast.error { border-color: var(--red); }
 
 /* ---- Diagnostics ---- */
@@ -779,7 +789,9 @@ body.no-tab-bar #window-title {
 }
 /* With the system frame, tabs look like the Mac's: equal widths across the bar. */
 .frame-system #titlebar { background: var(--titlebar-bg); }
-.frame-system .tab { flex: 1 1 0; max-width: none; justify-content: center; }
+/* Tabs don't stretch across the whole window: room for the folder, branch
+   and program, then empty bar. */
+.frame-system .tab { flex: 0 1 240px; max-width: 280px; }
 .frame-system .tab.active { background: color-mix(in srgb, var(--fg) 12%, transparent); }
 /* Keyboard focus is always visible, in your accent color. */
 :focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: 1px; }
@@ -857,3 +869,7 @@ details.advanced > summary::before { content: '▸'; display: inline-block; widt
 details.advanced[open] > summary::before { transform: rotate(90deg); }
 details.advanced > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 @media (prefers-reduced-motion: reduce) { details.advanced > summary::before { transition: none; } }
+
+/* Browse mode's key bar: "Run ⏎", grouped, with room between groups. */
+#hint .keys { display: inline-flex; align-items: center; gap: 4px; margin-left: 12px; white-space: nowrap; }
+#hint .keys.more { opacity: 0.75; }

@@ -62,6 +62,9 @@ export function setGpuOff(off: boolean) {
   gpuOff = off
 }
 
+/** Browse mode's key bar: the short list, or every key (? toggles). */
+let allKeys = false
+
 export class Tab {
   readonly term: Terminal
   readonly fit = new FitAddon()
@@ -898,6 +901,11 @@ export class Tab {
         if (block) this.hooks.onExplain(this, block)
         else toast('Move to a command first')
         return true
+      case '?':
+        // The short key list, or all of them.
+        allKeys = !allKeys
+        this.updateBrowse()
+        return true
       case 'k':
         this.moveTo(b.row - 1)
         return true
@@ -958,9 +966,14 @@ export class Tab {
   browseHint(): string {
     if (!this.browse.active) return ''
     const block = this.blockAt(this.browse.row)
-    const keys =
-      '<kbd>↑</kbd><kbd>↓</kbd> move <kbd>⌥↑</kbd><kbd>⌥↓</kbd> commands <kbd>⏎</kbd> run <kbd>⇧⏎</kbd> edit ' +
-      '<kbd>C</kbd> copy <kbd>O</kbd> output <kbd>A</kbd> ask AI <kbd>esc</kbd> back'
+    // The everyday keys, grouped; ? shows the rest.
+    const keys = allKeys
+      ? '<span class="keys">Move <kbd>↑</kbd><kbd>↓</kbd></span><span class="keys">Commands <kbd>⌥↑</kbd><kbd>⌥↓</kbd></span>' +
+        '<span class="keys">Run <kbd>⏎</kbd></span><span class="keys">Edit <kbd>⇧⏎</kbd></span><span class="keys">Copy <kbd>C</kbd></span>' +
+        '<span class="keys">Copy output <kbd>O</kbd></span><span class="keys">Ask AI <kbd>A</kbd></span><span class="keys">Back <kbd>esc</kbd></span>' +
+        '<span class="keys">Fewer keys <kbd>?</kbd></span>'
+      : '<span class="keys">Run <kbd>⏎</kbd></span><span class="keys">Edit <kbd>⇧⏎</kbd></span><span class="keys">Copy <kbd>C</kbd></span>' +
+        '<span class="keys">Ask AI <kbd>A</kbd></span><span class="keys">Back <kbd>esc</kbd></span><span class="keys more">More keys <kbd>?</kbd></span>'
     if (this.browse.confirm) {
       const b = this.browse.confirm
       if (b.cwd && this.cwd && b.cwd !== this.cwd) {

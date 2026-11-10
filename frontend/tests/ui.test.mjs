@@ -127,7 +127,7 @@ test('vi prompt keys clear the line with Esc cc', async () => {
   await page.close()
 })
 
-test('tabs: new tab, numbers, failed command shows ✕', async () => {
+test('tabs: new tab, numbers, a failed command shows a ! badge (not a ✕ like close)', async () => {
   const page = await open()
   await type(page, 'false')
   await page.evaluate(() => window.__emit('menu', 'newTab'))
@@ -137,7 +137,11 @@ test('tabs: new tab, numbers, failed command shows ✕', async () => {
   assert.deepEqual(tabs.map((t) => t.num), ['1', '2'])
   assert.match(tabs[1].cls, /active/)
   assert.match(tabs[0].cls, /failed/)
-  assert.equal(tabs[0].state, '✕')
+  assert.equal(tabs[0].state, '!')
+  assert.equal(tabs[1].state, undefined, 'an idle tab shows no status mark')
+  // The margin: ✓ for success, ✕ for failure.
+  await type(page, 'echo ok')
+  assert.equal(await page.locator('.group.active .dot.ok').first().innerText(), '✓')
   await page.close()
 })
 
@@ -287,7 +291,7 @@ test('split panes: ⌘D right, ⇧⌘D down, focus moves, ⌘W closes one pane, 
   await page.waitForTimeout(300)
   assert.equal(await page.locator('.group.active .pane').count(), 2)
   assert.equal(await page.locator('.tab').count(), 1)
-  assert.match(await page.locator('.tab.active').innerText(), /⊞2/)
+  assert.match(await page.locator('.tab.active').innerText(), /2 panes/)
   await type(page, 'echo right pane')
   assert.match(await screen(page), /right pane/)
   assert.doesNotMatch(await screen(page), /left pane/)
@@ -719,4 +723,19 @@ test('Settings: rarely used options wait under Advanced; search opens it', async
   await found.waitForTimeout(100)
   assert.equal(await found.locator('section[data-page="shell"]').getByText('Scrollback lines').isVisible(), true, 'search unfolds Advanced')
   await found.context().close()
+})
+
+test('browse mode: a short key list, ? shows them all', async () => {
+  const page = await open()
+  await type(page, 'echo one')
+  await page.keyboard.press('Meta+ArrowUp')
+  await page.waitForTimeout(150)
+  if (!(await page.isVisible('#hint'))) { await page.keyboard.press('ArrowUp'); await page.waitForTimeout(150) }
+  const short = await page.locator('#hint').innerText()
+  assert.match(short, /Run[\s\S]*Edit[\s\S]*Copy[\s\S]*Ask AI[\s\S]*More keys/)
+  assert.doesNotMatch(short, /Copy output/)
+  await page.keyboard.press('Shift+?')
+  await page.waitForTimeout(100)
+  assert.match(await page.locator('#hint').innerText(), /Copy output[\s\S]*Fewer keys/)
+  await page.close()
 })

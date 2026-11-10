@@ -400,7 +400,7 @@ function renderTabs() {
     if (t.branch) label.append(el('span', { class: 'branch' }, el('i', { class: 'nf', text: '\ue725' }), t.branch))
     if (status === 'exited') label.append(el('span', { class: 'sep', text: ' (exited)' }))
     if (g.tabs().some((x) => x.passwordMode)) label.append(el('span', { class: 'lock', title: 'Password prompt: typing is protected', text: '🔒' }))
-    if (g.count > 1) label.append(el('span', { class: 'panes', title: `${g.count} panes`, text: ` ⊞${g.count}` }))
+    if (g.count > 1) label.append(el('span', { class: 'panes', title: `Split into ${g.count} panes (⌘] next pane)`, text: ` · ${g.count} panes` }))
     if (g.broadcast) label.append(el('span', { class: 'broadcast', title: 'Typing goes to every pane in this tab (⌥⌘I)', text: ' 📣' }))
     const hc = hostColor(t)
     if (hc) {
@@ -421,9 +421,12 @@ function renderTabs() {
     ].filter(Boolean).join('\n')
 
     const close = el('button', { class: 'close', title: 'Close tab (⌘W)' }, '×')
-    const icon = el('i', { class: `state ${status}`, 'aria-label': STATUS_TEXT[status] }, status === 'failed' ? '✕' : '')
+    // Failure is a filled "!" badge, never a ✕ (that's the close button).
+    // Idle shows nothing.
+    const icon = status === 'idle' ? null
+      : el('i', { class: `state ${status}`, title: STATUS_TEXT[status], 'aria-label': STATUS_TEXT[status] }, status === 'failed' ? '!' : '')
     const num = el('span', { class: 'num', text: String(i + 1) })
-    const item = el('div', { class: `tab ${g.has(active!) ? 'active' : ''} ${status}`, title: tip }, ...(i < 9 ? [num] : []), icon, label, close)
+    const item = el('div', { class: `tab ${g.has(active!) ? 'active' : ''} ${status}`, title: tip }, ...(i < 9 ? [num] : []), ...(icon ? [icon] : []), label, close)
     item.addEventListener('mousedown', (e) => {
       if (e.button === 1) closeGroup(g)
       else if (e.target !== close) activate(g.focused)

@@ -2,7 +2,7 @@ import { CommandRisk, AIAsk, AICancel, AIReset, HasAPIKey, AIToolResult, SetAIPr
 import { EventsOn } from './backend'
 import type { Tab, Block } from './tab'
 import { providers, providerInfo } from './providers'
-import { el, renderMarkdown, copyText, toast, SIGN_IN_COMMAND } from './util'
+import { el, renderMarkdown, copyText, toast, hideToast, SIGN_IN_COMMAND } from './util'
 
 type Risk = { level: string; reasons: string[] | null }
 type ToolEvent = { id: string; toolId: string; command: string; run: boolean; risk?: Risk }
@@ -127,6 +127,7 @@ export class AIPanel {
   async show(focus = true) {
     this.root.hidden = false
     document.body.classList.add('ai-open')
+    hideToast()
     this.refreshHeader()
     this.syncTab()
     if (!(await HasAPIKey())) this.showSetup()

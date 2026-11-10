@@ -1,4 +1,4 @@
-// What's drawn over the terminal: a dot beside each command (ring = OK,
+// What's drawn over the terminal: a mark beside each command (✓ = OK,
 // ✕ = failed, spinner = running) and, in browse mode, the free-floating
 // cursor with its line and command highlighted.
 import type { Tab, Block } from './tab'
@@ -63,8 +63,8 @@ export function renderOverlay(t: Tab, lastKey: string, explain: (b: Block) => vo
     const line = dotLine(t, b)
     if (line < vy || line >= vy + rows) continue
     const state = !b.end ? 'run' : b.exitCode === 0 ? 'ok' : 'bad'
-    // Shapes as well as colors: ring = OK, ✕ = failed, spinner = running.
-    const dot = el('button', { class: `dot ${state}` }, state === 'bad' ? '✕' : '')
+    // Shapes as well as colors: ✓ = OK, ✕ = failed, spinner = running.
+    const dot = el('button', { class: `dot ${state}`, 'aria-label': state === 'bad' ? 'failed' : state === 'ok' ? 'succeeded' : 'running' }, state === 'bad' ? '✕' : state === 'ok' ? '✓' : '')
     dot.style.top = `${y(line) + g.ch / 2 - 4}px`
     dot.style.left = `${Math.max(2, g.left - 12)}px`
     const took = b.finishedAt && b.startedAt ? ` · took ${duration(b.finishedAt - b.startedAt)}` : ''

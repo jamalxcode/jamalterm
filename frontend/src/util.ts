@@ -37,7 +37,15 @@ export function toast(message: string, kind: 'info' | 'error' = 'info') {
   t.textContent = message
   t.className = 'show ' + kind
   clearTimeout(toastTimer)
-  toastTimer = window.setTimeout(() => (t.className = ''), 2600)
+  // Long enough to read: about 2.6 s, plus time for longer messages.
+  toastTimer = window.setTimeout(() => (t.className = ''), Math.min(6000, 2600 + message.length * 25))
+}
+
+/** Hides the tip at once (a panel or the palette opened over it). */
+export function hideToast() {
+  clearTimeout(toastTimer)
+  const t = document.getElementById('toast')
+  if (t) t.className = ''
 }
 
 export async function copyText(text: string) {

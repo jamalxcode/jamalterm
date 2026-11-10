@@ -3,7 +3,7 @@
 import { themes } from './themes'
 import { providers } from './providers'
 import type { SettingsPage } from './settingsView'
-import { el } from './util'
+import { el, hideToast } from './util'
 import { commands, keyLabel } from './keys'
 import type { Settings } from './types'
 
@@ -107,6 +107,7 @@ export class Palette {
   get visible() { return !this.root.hidden }
 
   open() {
+    hideToast()
     if (this.visible) return this.close()
     this.root.hidden = false
     this.input.value = ''
