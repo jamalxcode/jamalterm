@@ -315,3 +315,8 @@ func (a *App) Confirm(ctx context.Context, title, message, action string) bool {
 		return false
 	}
 }
+
+// CommandRisk checks a command before you run it from an AI answer (the
+// Run buttons on code blocks): risky ones need a second confirmation.
+// shown is the terminal text the AI was given.
+func (a *App) CommandRisk(command, shown string) ai.Risk { return ai.CommandRisk(command, shown) }

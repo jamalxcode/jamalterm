@@ -80,6 +80,7 @@
     KeychainKeysWaiting: () => !!(state.keychainWaiting ?? window.__keychainWaiting),
     MoveKeysFromKeychain: () => { state.keychainWaiting = false; return 2 },
     KeysUnreadable: () => false,
+    CommandRisk: (cmd) => /rm -rf|\|\s*sh\b/.test(cmd) ? { level: 'danger', reasons: ['deletes files recursively from a broad location (/, ~, * or ..)'] } : { level: '', reasons: null },
     Diagnostics: () => 'jamalterm diagnostics\nVersion:   test\nRecent problems: none\n',
     GitBranch: () => '', ResolvePath: () => '', PreviousVersion: () => '',
     Start: (id, cols, rows, cwd) => { state.shells[id] = { cwd: cwd || '/home/u', line: '' }; setTimeout(() => prompt(id), 10) },
@@ -87,7 +88,7 @@
     AIAsk: (req) => {
       setTimeout(() => {
         if (state.aiTool) {
-          emit('ai:tool', { id: req.id, toolId: 't1', command: state.aiTool.command, run: state.aiTool.run })
+          emit('ai:tool', { id: req.id, toolId: 't1', command: state.aiTool.command, run: state.aiTool.run, risk: state.aiTool.risk })
           return
         }
         emit('ai:delta', { id: req.id, text: state.aiReply })

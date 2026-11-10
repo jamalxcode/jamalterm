@@ -133,6 +133,15 @@ export function CloseWindowNow(): $CancellablePromise<void> {
 }
 
 /**
+ * CommandRisk checks a command before you run it from an AI answer (the
+ * Run buttons on code blocks): risky ones need a second confirmation.
+ * shown is the terminal text the AI was given.
+ */
+export function CommandRisk(command: string, shown: string): $CancellablePromise<ai$0.Risk> {
+    return $Call.ByID(3831186673, command, shown);
+}
+
+/**
  * Commands lists every command (for the palette and ⌘ keys in the window).
  */
 export function Commands(): $CancellablePromise<$models.Command[] | null> {

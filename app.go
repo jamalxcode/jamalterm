@@ -471,7 +471,7 @@ func (a *App) AIAsk(ctx context.Context, req ai.Request) {
 		text, err := a.ai.Ask(a.ctx, req, func(delta string) {
 			a.emitTo(win, eventAIDelta, aiEvent{ID: req.ID, Text: delta})
 		}, func(call ai.ToolCall) (string, bool) {
-			return a.runTool(req.ID, call)
+			return a.runTool(req.ID, call, req.Context)
 		})
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
@@ -489,7 +489,7 @@ func (a *App) AIAsk(ctx context.Context, req ai.Request) {
 
 // runTool asks the window to type (or, after the user confirms, run) a
 // command and waits for what happened.
-func (a *App) runTool(reqID string, call ai.ToolCall) (string, bool) {
+func (a *App) runTool(reqID string, call ai.ToolCall, shown string) (string, bool) {
 	ch := make(chan toolReply, 1)
 	a.mu.Lock()
 	a.toolWait[call.ID] = ch
@@ -499,7 +499,10 @@ func (a *App) runTool(reqID string, call ai.ToolCall) (string, bool) {
 		delete(a.toolWait, call.ID)
 		a.mu.Unlock()
 	}()
-	a.emitTo(a.aiWindow(reqID), eventAITool, map[string]any{"id": reqID, "toolId": call.ID, "command": call.Command, "run": call.Run})
+	// How careful to be: risky commands (and ones that appear in the output
+	// the AI was shown) need a second confirmation in the window.
+	risk := ai.CommandRisk(call.Command, shown)
+	a.emitTo(a.aiWindow(reqID), eventAITool, map[string]any{"id": reqID, "toolId": call.ID, "command": call.Command, "run": call.Run, "risk": risk})
 	select {
 	case r := <-ch:
 		return r.result, r.isError

@@ -107,3 +107,21 @@ export interface Request {
      */
     "shell": string;
 }
+
+/**
+ * Risk says how careful to be before running a command an AI suggested.
+ * Terminal output is sent to the AI, so text on screen (a log, a README, a
+ * web page you cat) could try to talk it into running something harmful.
+ * The Run button always asks; risky commands ask twice and say why.
+ */
+export interface Risk {
+    /**
+     * "", "caution" or "danger"
+     */
+    "level": string;
+
+    /**
+     * plain-language explanations
+     */
+    "reasons": string[] | null;
+}

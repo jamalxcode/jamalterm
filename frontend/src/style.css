@@ -812,3 +812,10 @@ body.settings-window { overflow: auto; background: var(--panel); user-select: no
 /* Right-click in the terminal: the native menu (contextmenu.go). */
 .pane { --custom-contextmenu: terminal; }
 .dialog.about .app-icon { display: block; margin: 18px auto 4px; }
+
+/* ---- Risky AI commands ---- */
+.risk { margin: 8px 0; padding: 8px 10px; border-radius: 8px; font-size: 12px; line-height: 1.4; }
+.risk ul { margin: 4px 0 0; padding-left: 18px; }
+.risk.caution { background: color-mix(in srgb, var(--yellow) 16%, transparent); border: 1px solid color-mix(in srgb, var(--yellow) 60%, transparent); }
+.risk.danger { background: color-mix(in srgb, var(--red) 16%, transparent); border: 2px solid var(--red); }
+button.danger { background: var(--red) !important; color: #fff !important; }

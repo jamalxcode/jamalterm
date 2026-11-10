@@ -4,5 +4,6 @@
 export type {
     Account,
     ProviderInfo,
-    Request
+    Request,
+    Risk
 } from "./models.js";

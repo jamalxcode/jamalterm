@@ -1,10 +1,11 @@
-import { AIAsk, AICancel, AIReset, HasAPIKey, AIToolResult, SetAIProvider, SignInOpenRouter } from './backend'
+import { CommandRisk, AIAsk, AICancel, AIReset, HasAPIKey, AIToolResult, SetAIProvider, SignInOpenRouter } from './backend'
 import { EventsOn } from './backend'
 import type { Tab, Block } from './tab'
 import { providers, providerInfo } from './providers'
 import { el, renderMarkdown, copyText, toast, SIGN_IN_COMMAND } from './util'
 
-type ToolEvent = { id: string; toolId: string; command: string; run: boolean }
+type Risk = { level: string; reasons: string[] | null }
+type ToolEvent = { id: string; toolId: string; command: string; run: boolean; risk?: Risk }
 type Usage = { id: string; model: string; input: number; output: number }
 type Handler = { delta(t: string): void; done(t: string): void; error(e: string): void; tool?(e: ToolEvent): void; redacted?(n: number): void; usage?(u: Usage): void }
 const handlers = new Map<string, Handler>()
@@ -349,6 +350,10 @@ export class AIPanel {
     const runBtn = el('button', { class: 'primary small' }, '▶ Run')
     const noBtn = el('button', { class: 'ghost small' }, 'Cancel')
     const actions = el('div', { class: 'code-actions' }, runBtn, noBtn)
+    // Risky commands (or ones copied from the output) say why and need a
+    // second, deliberate click.
+    const warn = riskWarning(e.risk)
+    if (warn) card.append(warn)
     card.append(actions)
     card.classList.add('ask')
     this.pendingTool = () => {
@@ -363,7 +368,14 @@ export class AIPanel {
       status.textContent = 'You cancelled it'
       reply('The user chose not to run this command.')
     })
+    let armed = !warn
     runBtn.addEventListener('click', async () => {
+      if (!armed) {
+        armed = true
+        runBtn.textContent = '⚠ Run Anyway'
+        runBtn.classList.add('danger')
+        return
+      }
       actions.remove()
       card.classList.remove('ask')
       status.textContent = 'Running…'
@@ -416,7 +428,25 @@ export class AIPanel {
       b.addEventListener('click', fn)
       bar.append(b)
     }
-    mk('▶ Run', 'Run in the terminal', () => this.host.activeTab()?.sendCommand(command, true))
+    mk('▶ Run', 'Run in the terminal', async () => {
+      const tab = this.host.activeTab()
+      if (!tab) return
+      // The same check as the AI's own requests: risky commands warn first.
+      const risk = await CommandRisk(command, tab.aiContext())
+      if (risk.level) {
+        const old = bar.previousElementSibling
+        if (old?.classList.contains('risk')) {
+          old.remove()
+          tab.sendCommand(command, true)
+          return
+        }
+        const w = riskWarning(risk)!
+        w.append(el('div', { class: 'help', text: 'Press ▶ Run again to run it anyway, or Insert to look at it on the prompt first.' }))
+        pre.insertBefore(w, bar)
+        return
+      }
+      tab.sendCommand(command, true)
+    })
     mk('Insert', 'Put on the prompt to edit first', () => this.host.activeTab()?.sendCommand(command, false))
     mk('Copy', 'Copy', () => {
       copyText(command)
@@ -530,4 +560,13 @@ export class CommandBar {
       ? 'Try describing it differently. <kbd>esc</kbd> cancel'
       : '<kbd>⏎</kbd> put on the prompt <kbd>⌘⏎</kbd> run now <kbd>esc</kbd> cancel · edit the text to ask again'
   }
+}
+
+/** A red (danger) or amber (caution) note saying why a command is risky. */
+function riskWarning(risk?: Risk): HTMLElement | null {
+  if (!risk?.level || !risk.reasons?.length) return null
+  const title = risk.level === 'danger' ? '⚠ Careful: this command could do real damage' : '⚠ Check this command before running it'
+  return el('div', { class: `risk ${risk.level}`, role: 'alert' },
+    el('strong', { text: title }),
+    el('ul', {}, ...risk.reasons.map((r) => el('li', { text: 'It ' + r.replace(/^it /, '') }))))
 }
