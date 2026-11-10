@@ -420,7 +420,11 @@ pub(crate) mod tests {
                 assert_eq!(sc.line_text(0), "old output");
                 assert_eq!(sc.line_text(1), "line two");
                 assert!(b.prompt >= 2, "the new prompt is below the old output");
-                assert!(sc.line_text(b.prompt).contains("echo after"));
+                // (macOS's zsh may mark the prompt a line above the command.)
+                assert!(
+                    (b.prompt..b.prompt + 3).any(|l| sc.line_text(l).contains("echo after")),
+                    "the command is at its prompt"
+                );
                 break;
             }
             drop(sc);
