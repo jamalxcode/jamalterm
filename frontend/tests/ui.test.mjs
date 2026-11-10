@@ -867,3 +867,38 @@ test('browse mode: Space previews the file under the cursor (Quick Look)', async
   assert.equal(ql?.[2], 'notes.txt', 'Quick Look for the word under the cursor')
   await page.close()
 })
+
+test('a long command ending while you watch gets a finish-line moment; stats keep program names only', async () => {
+  const page = await open()
+  await page.keyboard.type('build 3')
+  // Pretend it took 2 minutes: each clock reading jumps ahead a minute.
+  await page.evaluate(() => { const real = Date.now; let n = 0; window.__realNow = real; Date.now = () => real() + (n++) * 60000 })
+  await page.keyboard.press('Enter')
+  await page.evaluate(() => { setTimeout(() => (Date.now = window.__realNow), 50) })
+  await page.waitForTimeout(300)
+  const card = await page.locator('#finish-line').count()
+  // The page may not have focus in a headless run; then the stats still count.
+  const stats = await page.evaluate(() => JSON.parse(localStorage.getItem('jt-stats')))
+  const day = Object.values(stats)[0]
+  assert.equal(day.commands, 1)
+  assert.equal(day.failed, 1)
+  assert.deepEqual(Object.keys(day.programs), ['build'], 'program name only, never the arguments')
+  assert.ok(!JSON.stringify(stats).includes('build 3'))
+  if (card) assert.match(await page.locator('#finish-line').innerText(), /build failed after \d+m/)
+  await page.evaluate(() => window.__emit('menu', 'stats'))
+  await page.waitForTimeout(100)
+  assert.match(await page.locator('.dialog.stats').innerText(), /1\s*commands today[\s\S]*1\s*failed/)
+  await page.close()
+})
+
+test('cursor effect: our gliding cursor follows the real one', async () => {
+  const page = await open({ settings: { cursorEffect: 'glow' } })
+  const fx = page.locator('.group.active .pane.focused .fx-cursor')
+  assert.equal(await fx.isVisible(), true)
+  assert.match(await fx.getAttribute('class'), /glow/)
+  const before = await fx.evaluate((e) => e.style.transform)
+  await page.keyboard.type('abc')
+  await page.waitForTimeout(150)
+  assert.notEqual(await fx.evaluate((e) => e.style.transform), before, 'moved with the typing')
+  await page.close()
+})

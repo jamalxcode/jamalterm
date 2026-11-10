@@ -74,6 +74,10 @@ export class Tab {
   readonly pane: HTMLDivElement
   readonly host: HTMLDivElement
   readonly overlay: HTMLDivElement
+  /** Our own cursor for Settings → Cursor effect ("smooth" glides, "glow"
+   * glows); xterm's is made invisible while it's on. */
+  private fxCursor: HTMLDivElement
+  private cursorEffect = 'none'
 
   running = false // shell process alive
   private starting = false
@@ -100,7 +104,8 @@ export class Tab {
     this.cwd = cwd
     this.host = el('div', { class: 'term-host' })
     this.overlay = el('div', { class: 'overlay' })
-    this.pane = el('div', { class: 'pane' }, this.host, this.overlay)
+    this.fxCursor = el('div', { class: 'fx-cursor', hidden: '' })
+    this.pane = el('div', { class: 'pane' }, this.host, this.overlay, this.fxCursor)
     parent.append(this.pane)
 
     const s = hooks.settings()
@@ -111,7 +116,7 @@ export class Tab {
       fontFamily: fontStack(s.fontFamily),
       fontSize: s.fontSize,
       lineHeight: s.lineHeight,
-      theme: termTheme(theme, s.opacity),
+      theme: this.cursorTheme(s, theme),
       cursorBlink: s.cursorBlink,
       cursorStyle: s.cursorStyle as 'block' | 'bar' | 'underline',
       cursorInactiveStyle: 'outline',
@@ -166,7 +171,8 @@ export class Tab {
       this.oscTitle = t
       hooks.onChange(this)
     })
-    this.term.onRender(() => this.scheduleOverlay())
+    this.term.onRender(() => { this.scheduleOverlay(); this.placeFxCursor() })
+    this.term.onCursorMove(() => this.placeFxCursor())
     this.term.onScroll(() => this.scheduleOverlay())
     this.term.attachCustomKeyEventHandler((e) => this.onKey(e))
     this.setupMouse()
@@ -427,7 +433,7 @@ export class Tab {
   applySettings(s: Settings, theme: Theme) {
     this.setRenderer(s.ligatures)
     const o = this.term.options
-    o.theme = termTheme(theme, s.opacity)
+    o.theme = this.cursorTheme(s, theme)
     o.fontFamily = fontStack(s.fontFamily)
     o.fontSize = s.fontSize
     o.lineHeight = s.lineHeight
@@ -439,6 +445,35 @@ export class Tab {
     this.refit()
     this.overlayKey = ''
     this.scheduleOverlay()
+  }
+
+  /** The terminal colors, with xterm's cursor made invisible when a cursor
+   * effect is on (ours is drawn instead). */
+  private cursorTheme(s: Settings, theme: Theme) {
+    this.cursorEffect = s.cursorEffect || 'none'
+    const fx = this.cursorEffect !== 'none'
+    this.fxCursor.hidden = !fx
+    this.fxCursor.className = `fx-cursor ${this.cursorEffect} ${s.cursorStyle}${s.cursorBlink ? ' blink' : ''}`
+    this.fxCursor.style.setProperty('--fx', theme.colors.cursor ?? '#fff')
+    requestAnimationFrame(() => this.placeFxCursor())
+    return fx ? { ...termTheme(theme, s.opacity), cursor: 'rgba(0,0,0,0)', cursorAccent: theme.colors.foreground } : termTheme(theme, s.opacity)
+  }
+
+  /** Moves our cursor to xterm's (only when a cursor effect is on). */
+  private placeFxCursor() {
+    if (this.cursorEffect === 'none') return
+    const g = this.geometry()
+    const buf = this.term.buffer.active
+    const row = buf.baseY + buf.cursorY - buf.viewportY
+    if (!g || row < 0 || row >= this.term.rows) {
+      this.fxCursor.style.opacity = '0'
+      return
+    }
+    this.fxCursor.style.opacity = ''
+    this.fxCursor.style.width = `${g.cw}px`
+    this.fxCursor.style.height = `${g.ch}px`
+    this.fxCursor.style.transform = `translate(${g.left + buf.cursorX * g.cw}px, ${g.top + row * g.ch}px)`
+    this.fxCursor.classList.toggle('unfocused', !this.pane.contains(document.activeElement))
   }
 
   setFontSize(size: number) {

@@ -1,6 +1,6 @@
 // The command palette (⇧⌘P): type a few letters of any action, setting,
 // theme, assistant or tab and press ⏎.
-import { themes } from './themes'
+import { themes, specialThemes } from './themes'
 import { providers } from './providers'
 import type { SettingsPage } from './settingsView'
 import { el, hideToast } from './util'
@@ -32,6 +32,8 @@ export const toggles: [Bool, string, SettingsPage][] = [
   ['cursorBlink', 'Blinking cursor', 'appearance'],
   ['ligatures', 'Font ligatures (=> != …)', 'appearance'],
   ['projectColors', 'Color tabs by project', 'appearance'],
+  ['finishMoments', 'Celebrate when long commands finish', 'shell'],
+  ['finishSound', 'Sound when long commands finish', 'shell'],
   ['blur', 'Blur behind see-through window', 'appearance'],
   ['shellIntegration', 'Shell integration', 'shell'],
   ['arrowBrowse', '↑ at an empty prompt browses commands', 'shell'],
@@ -149,6 +151,9 @@ export class Palette {
     }))
     for (const p of providers) {
       out.push({ title: `Use ${p.name}`, group: 'AI', detail: cfg.aiProvider === p.id ? 'in use' : p.company, run: () => void h.save({ ...cfg, aiProvider: p.id } as Settings) })
+    }
+    for (const [id, name] of specialThemes) {
+      out.push({ title: `Theme: ${name}`, group: 'Theme', detail: cfg.theme === id ? 'in use' : '', run: () => void h.save({ ...cfg, theme: id } as Settings) })
     }
     for (const th of themes) {
       out.push({ title: `Theme: ${th.name}`, group: 'Theme', detail: cfg.theme === th.id ? 'in use' : '', run: () => void h.save({ ...cfg, theme: th.id } as Settings) })

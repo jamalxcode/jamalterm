@@ -94,7 +94,88 @@ export const themes: Theme[] = [
 ]
 
 export function themeById(id: string): Theme {
+  if (id === 'weekly') return weeklyTheme()
+  if (id === 'wallpaper') return wallpaperTheme()
   return themes.find((x) => x.id === id) ?? themes[0]
+}
+
+/** Special choices next to the fixed themes: [id, name]. */
+export const specialThemes: [string, string][] = [
+  ['wallpaper', 'Match my wallpaper'],
+  ['weekly', 'Theme of the week'],
+]
+
+/** A different built-in theme each week (the same in every window). */
+export function weeklyTheme(now = new Date()): Theme {
+  const week = Math.floor((now.getTime() / 86_400_000 + 3) / 7) // weeks since 1970, starting Monday
+  const base = themes[week % themes.length]
+  return { ...base, id: 'weekly', name: `Theme of the week (${base.name})` }
+}
+
+// ---- "Match my wallpaper" ---------------------------------------------------------
+
+let wallpaperColors: string[] = (() => {
+  try { return JSON.parse(localStorage.getItem('jt-wallpaper') ?? '[]') } catch { return [] }
+})()
+
+/** Remembers colors from the desktop picture (main.ts asks Go for them). */
+export function setWallpaperColors(colors: string[]): boolean {
+  if (JSON.stringify(colors) === JSON.stringify(wallpaperColors)) return false
+  wallpaperColors = colors
+  try { localStorage.setItem('jt-wallpaper', JSON.stringify(colors)) } catch { /* unavailable */ }
+  return true
+}
+
+function lum(c: string): number {
+  const ch = hex(c).map((v) => {
+    const s = v / 255
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
+  })
+  return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2]
+}
+export function contrast(a: string, b: string): number {
+  const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p)
+  return (x + 0.05) / (y + 0.05)
+}
+function toHex(rgb: string): string {
+  const m = /^rgb\((\d+), (\d+), (\d+)\)$/.exec(rgb)
+  if (!m) return rgb
+  return '#' + [m[1], m[2], m[3]].map((v) => (+v).toString(16).padStart(2, '0')).join('')
+}
+/** Lightens a color until it reads on bg (WCAG 4.5:1). */
+function readable(c: string, bg: string): string {
+  let out = c
+  for (let i = 0; i < 12 && contrast(out, bg) < 4.5; i++) out = toHex(mix(out, '#ffffff', 0.15))
+  return out
+}
+
+/** A dark theme made from the desktop picture: its darkest shade for the
+ * background, its most colorful ones for blue, magenta, cyan and the cursor.
+ * Every color is checked for readable contrast. */
+export function wallpaperTheme(): Theme {
+  const base = themes[0]
+  if (wallpaperColors.length < 2) return { ...base, id: 'wallpaper', name: 'Match my wallpaper' }
+  const [avg, darkest, ...vivid] = wallpaperColors
+  // Dark enough to read on: the darkest shade, tinted by the average.
+  let bg = toHex(mix(darkest, avg, 0.15))
+  for (let i = 0; i < 10 && lum(bg) > 0.03; i++) bg = toHex(mix(bg, '#000000', 0.25))
+  const fg = readable(toHex(mix('#e6e9f0', avg, 0.12)), bg)
+  const pick = (i: number, fallback: string) => readable(vivid[i] ?? fallback, bg)
+  const c = base.colors
+  return {
+    id: 'wallpaper', name: 'Match my wallpaper',
+    colors: {
+      ...c,
+      background: bg, foreground: fg, cursorAccent: bg,
+      cursor: pick(0, c.cursor!),
+      blue: pick(1, c.blue!), magenta: pick(2, c.magenta!), cyan: pick(3, c.cyan!),
+      brightBlue: pick(1, c.brightBlue!), brightMagenta: pick(2, c.brightMagenta!), brightCyan: pick(3, c.brightCyan!),
+      red: readable(c.red!, bg), green: readable(c.green!, bg), yellow: readable(c.yellow!, bg),
+      white: readable(c.white!, bg), brightWhite: readable(c.brightWhite!, bg),
+      black: toHex(mix(bg, fg, 0.12)), brightBlack: readable(toHex(mix(bg, fg, 0.45)), bg),
+      selectionBackground: toHex(mix(bg, vivid[0] ?? c.blue!, 0.35)),
+    },
+  }
 }
 
 // ---- Window colors, derived from the terminal colors -------------------------

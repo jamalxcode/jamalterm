@@ -4,7 +4,7 @@
 // Run: node --test --experimental-strip-types tests/contrast.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { themes } from '../src/themes.ts'
+import { themes, wallpaperTheme, setWallpaperColors, weeklyTheme } from '../src/themes.ts'
 
 const lum = (hex) => {
   const h = hex.replace('#', '').slice(0, 6)
@@ -32,3 +32,29 @@ for (const th of themes) {
     assert.deepEqual(bad, [], `${th.name} on ${c.background}:\n  ` + bad.join('\n  '))
   })
 }
+
+// "Match my wallpaper" makes a theme from any picture: it must still read.
+const wallpapers = {
+  'a bright beach': ['#d8c7a6', '#8a7a5c', '#f4b860', '#3fa7d6', '#ffffff'],
+  'a dark forest': ['#1f2a1e', '#050805', '#5f8f3a', '#2d4a2a', '#a3c45f'],
+  'a pink sunset': ['#c06c84', '#355c7d', '#f67280', '#f8b195', '#6c5b7b'],
+  'plain grey': ['#808080', '#7a7a7a'],
+}
+for (const [name, colors] of Object.entries(wallpapers)) {
+  test(`a theme from ${name} is readable`, () => {
+    setWallpaperColors(colors)
+    const c = wallpaperTheme().colors
+    const bad = []
+    if (contrast(c.foreground, c.background) < 4.5) bad.push(`text ${contrast(c.foreground, c.background).toFixed(2)}`)
+    for (const k of ansi) if (contrast(c[k], c.background) < 3) bad.push(`${k} ${c[k]} ${contrast(c[k], c.background).toFixed(2)}`)
+    assert.deepEqual(bad, [])
+  })
+}
+
+test('theme of the week changes weekly and is a real theme', () => {
+  const a = weeklyTheme(new Date('2026-11-09T10:00:00Z')) // a Monday
+  const b = weeklyTheme(new Date('2026-11-15T10:00:00Z')) // that Sunday
+  const c = weeklyTheme(new Date('2026-11-16T10:00:00Z')) // next Monday
+  assert.equal(a.colors.background, b.colors.background, 'same all week')
+  assert.notEqual(a.colors.background, c.colors.background, 'new the next week')
+})

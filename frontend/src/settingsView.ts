@@ -1,6 +1,6 @@
 import { SetAPIKey, HasSavedAPIKey, AnthropicAccount, BlurActive, ForgetSession, SetProviderKey, HasSavedProviderKey, ListProviderModels, SignInOpenRouter, ShowProblemLog, FindLocalServers, KeychainKeysWaiting, MoveKeysFromKeychain, KeysUnreadable, UpdateStatus, CheckForUpdate, PreviewTheme } from './backend'
 import type { UpdateStatus as UpdateStatusT } from '../bindings/jamalterm/models'
-import { themes, themeById } from './themes'
+import { themes, themeById, specialThemes } from './themes'
 import { providers, providerInfo, modelOf, setModelOf } from './providers'
 import { el, toast, SIGN_IN_COMMAND, SIGN_OUT_COMMAND } from './util'
 import type { Settings } from './types'
@@ -135,10 +135,11 @@ export class SettingsView {
 
     // Theme swatches
     const swatches = el('div', { class: 'swatches' })
-    for (const th of themes) {
+    for (const th of [...themes, ...specialThemes.map(([id]) => themeById(id))]) {
       const c = th.colors
       const sw = el('button', { class: 'swatch' + (th.id === s.theme ? ' on' : ''), title: th.name, type: 'button' })
       sw.style.background = c.background!
+      if (th.id === 'wallpaper' || th.id === 'weekly') sw.classList.add('special')
       sw.innerHTML = `<span style="color:${c.foreground}">${th.name}</span><i>${[c.red, c.green, c.yellow, c.blue, c.magenta, c.cyan]
         .map((x) => `<b style="background:${x}"></b>`)
         .join('')}</i>`
@@ -273,6 +274,9 @@ export class SettingsView {
         field('Cursor', select([['block', 'Block ▇'], ['bar', 'Bar ▏'], ['underline', 'Underline ▁']], s.cursorStyle, (v) => { s.cursorStyle = v; live() })),
         el('label', { class: 'check' }, check(s.cursorBlink, (v) => { s.cursorBlink = v; live() }), ' Blinking cursor'),
       ),
+      el('div', { class: 'row' },
+        field('Cursor effect', select([['none', 'None'], ['smooth', 'Smooth: glides as you type'], ['glow', 'Glow: smooth, with a soft glow']], s.cursorEffect, (v) => { s.cursorEffect = v; live() })),
+      ),
       opacityRow,
       el('label', { class: 'check' }, check(s.showTabBar, (v) => { s.showTabBar = v; live() }), ' Always show the tab bar (otherwise it appears when there are two tabs, as in Terminal)'),
       advanced(
@@ -302,6 +306,8 @@ export class SettingsView {
         el('label', { class: 'check' }, check(s.notifyLongCommands, (v) => (s.notifyLongCommands = v)), ' Notify me when a command that takes longer than'),
         number(s.notifyAfterSeconds, 1, 3600, 1, (v) => (s.notifyAfterSeconds = v)),
         el('span', { text: 'seconds finishes while jamalterm is in the background' })),
+      el('label', { class: 'check' }, check(s.finishMoments, (v) => (s.finishMoments = v)), ' Celebrate when a command that took over a minute finishes (“✓ build done in 3m 12s”)'),
+      el('label', { class: 'check', style: 'margin-left: 24px' }, check(s.finishSound, (v) => (s.finishSound = v)), ' With a soft sound'),
       el('label', { class: 'check' }, check(s.screenReader, (v) => { s.screenReader = v; live() }), ' Screen reader support (VoiceOver can read the terminal)'),
       advanced(
         field('Shell', text(s.shell, 'Your login shell (leave empty)', (v) => (s.shell = v.trim())), 'For example /bin/zsh, /bin/bash, /bin/tcsh or /opt/homebrew/bin/fish. Applies to new tabs.'),

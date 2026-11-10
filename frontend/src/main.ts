@@ -6,11 +6,12 @@ import './style.css'
 import { Settings, SaveSettings, ShowProblemLog, ShellName, HomeDir, CloseWindow, WindowID, GPUOff, SetWindowOpacity, SaveSession, LoadSession, IsPrimaryWindow, NewWindow, StartDir, Notify } from './backend'
 import { EventsOn, WindowSetTitle } from './backend'
 import { Tab, setGpuOff, hostMatches, type SavedTab } from './tab'
-import { themeById, applyChrome } from './themes'
+import { themeById, applyChrome, setWallpaperColors } from './themes'
 import { applySystemLook } from './system'
 import { AIPanel, CommandBar } from './ai'
 import { Updater } from './updater'
 import { showWelcome, showLastCrash, showWhatsNew } from './cards'
+import { finishLine, recordStat, showStats, FINISH_AFTER_MS } from './fun'
 import { showDiagnostics, logWindowErrors } from './diagnostics'
 import { Palette } from './palette'
 import { FindBar } from './find'
@@ -21,7 +22,7 @@ import { SmokeMode } from './backend'
 import { Group, type Dir, type SavedNode, type PaneNode } from './panes'
 import { loadProviders, providerInfo, modelOf } from './providers'
 import { el, isMac, toast, duration, quotePath, stored, store } from './util'
-import { OpenURL, Confirm, OpenSettingsAt, SetMenuState, BusyTabs, QuitNow, CloseWindowNow, SetActiveTab, LiveTabs, RemoteSetupLine, Write } from './backend'
+import { WallpaperColors, OpenURL, Confirm, OpenSettingsAt, SetMenuState, BusyTabs, QuitNow, CloseWindowNow, SetActiveTab, LiveTabs, RemoteSetupLine, Write } from './backend'
 import type { Settings as Prefs } from './types'
 
 let cfg: Prefs
@@ -67,9 +68,14 @@ const hooks = {
     void ai.fix(t, b)
   },
   onCommandDone: (t: Tab, b: Parameters<AIPanel['explain']>[1]) => {
-    // Tell the user when a long command finishes while they're elsewhere.
-    if (!cfg.notifyLongCommands || !b.startedAt || !b.finishedAt || !b.command) return
+    if (!b.startedAt || !b.finishedAt || !b.command) return
     const took = b.finishedAt - b.startedAt
+    const done = { command: b.command, ok: b.exitCode === 0, exitCode: b.exitCode ?? 0, ms: took }
+    recordStat(done) // private: program name and timing only
+    // You're watching: a small "finish line" moment for long commands.
+    if (document.hasFocus() && cfg.finishMoments && took >= FINISH_AFTER_MS && t === active) finishLine(done, cfg.finishSound)
+    // Tell the user when a long command finishes while they're elsewhere.
+    if (!cfg.notifyLongCommands) return
     if (took < cfg.notifyAfterSeconds * 1000 || document.hasFocus()) return
     const ok = b.exitCode === 0
     void Notify(`${ok ? '✓ Finished' : `✕ Failed (exit ${b.exitCode})`}: ${b.command.slice(0, 60)}`, `${duration(took)} · ${t.prettyCwd || t.title}`)
@@ -150,6 +156,18 @@ function applySettings(s: Prefs) {
   SetWindowOpacity(s.opacity) // also used for the live preview in Settings
   for (const t of tabs) t.applySettings(s, theme)
   document.body.classList.toggle('no-ai', !s.aiEnabled)
+  if (s.theme === 'wallpaper') void refreshWallpaper()
+}
+
+/** "Match my wallpaper": read the desktop picture's colors (macOS) and
+ * redraw if they changed since last time. */
+async function refreshWallpaper() {
+  try {
+    const colors = (await WallpaperColors()) ?? []
+    if (colors.length >= 2 && setWallpaperColors(colors) && cfg.theme === 'wallpaper') applySettings(cfg)
+  } catch {
+    /* not on a Mac, or no picture: keep the last colors */
+  }
 }
 
 // ---- Tabs -----------------------------------------------------------------------
@@ -611,6 +629,7 @@ function runMenu(cmd: string) {
     case 'settings': return void OpenSettingsAt('', '')
     case 'newTab': return void newTab()
     case 'recentFolders': return openRecentFolder()
+    case 'stats': return showStats(() => active?.term.focus())
     case 'newWindow': return void NewWindow(active?.cwd ?? '')
     case 'closeTab': return closeTab()
     case 'nextTab': return cycle(1)

@@ -108,6 +108,7 @@ var commands = func() []Command {
 
 		Command{ID: "help", Title: "jamalterm Help", Menu: "Help", Native: true, Palette: true},
 		Command{ID: "shortcuts", Title: "Keyboard Shortcuts", Menu: "Help", Palette: true},
+		Command{ID: "stats", Title: "Your Day in jamalterm…", Menu: "Help", Palette: true},
 		Command{ID: "diagnostics", Title: "Copy Diagnostics…", Menu: "Help", Palette: true, Sep: true},
 		Command{ID: "showLog", Title: "Show Problem Log", Menu: "Help", Native: true, Palette: true},
 	)
