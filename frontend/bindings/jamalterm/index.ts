@@ -10,5 +10,6 @@ export type {
     BusyTab,
     Command,
     LocalServer,
+    MenuState,
     UpdateInfo
 } from "./models.js";

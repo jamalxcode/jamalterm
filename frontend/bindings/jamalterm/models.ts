@@ -41,7 +41,8 @@ export interface Command {
 
     /**
      * Kind of menu entry: "" a plain item; "check" Secure Keyboard Entry;
-     * "providers" the AI assistant choices; "edit" the standard Edit menu.
+     * "toggle" an item with a checkmark the window sets; "providers" the AI
+     * assistant choices; "role" a standard macOS item (Role says which).
      */
     "kind"?: string;
 }
@@ -53,6 +54,16 @@ export interface LocalServer {
     "name": string;
     "url": string;
     "models": string[] | null;
+}
+
+/**
+ * MenuState is what the window in front tells the menu bar, so items say
+ * what they will do ("Close Pane" vs "Close Tab", "Hide Tab Bar"…).
+ */
+export interface MenuState {
+    "split": boolean;
+    "tabBar": boolean;
+    "broadcast": boolean;
 }
 
 /**

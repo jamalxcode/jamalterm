@@ -39,9 +39,25 @@ func (a *App) emitTo(w application.Window, name string, data any) {
 	w.DispatchWailsEvent(&application.CustomEvent{Name: name, Data: data})
 }
 
-// toFront sends an event to the window in front (menu commands).
+// toFront sends an event to the window in front (menu commands). While
+// Settings is in front, ⌘W closes it and other commands go to the terminal
+// window used last.
 func (a *App) toFront(name string, data any) {
 	w := a.app.Window.Current()
+	if w != nil && w.Name() == settingsWindowName {
+		if name == eventMenu && (data == "closeTab" || data == "closeWindow" || data == "closeGroup") {
+			w.Close()
+			return
+		}
+		if name == eventMenu && (data == "selectAll" || data == "find") {
+			a.emitTo(w, name, data) // Settings handles these itself
+			return
+		}
+		w = a.lastTerminal()
+		if w != nil {
+			w.Focus()
+		}
+	}
 	if w == nil {
 		if all := a.windows(); len(all) > 0 {
 			w = all[0]
@@ -132,9 +148,12 @@ func (a *App) openWindow(startDir, restore string, cascade int) application.Wind
 			Backdrop: backdrop,
 		},
 	}
-	// A new window steps down and right from the one in front. Windows
-	// reopened at launch step from the top left, one after another.
-	if cascade > 0 {
+	// A reopened window goes back where it was, at its size. A new window
+	// steps down and right from the one in front.
+	if f, ok := frameOf(restore); ok {
+		opts.InitialPosition = application.WindowXY
+		opts.X, opts.Y, opts.Width, opts.Height = f.X, f.Y, f.W, f.H
+	} else if cascade > 0 {
 		opts.InitialPosition = application.WindowXY
 		opts.X, opts.Y = 40+28*cascade, 30+28*cascade
 	} else if cur := a.app.Window.Current(); cur != nil && cascade == 0 {
@@ -151,6 +170,7 @@ func (a *App) openWindow(startDir, restore string, cascade int) application.Wind
 		a.windowClosing(name)
 	})
 	a.reloadOnCrash(w)
+	a.trackFocus(w, name)
 	return w
 }
 
@@ -268,7 +288,7 @@ func (a *App) SaveSession(ctx context.Context, data string) error {
 	if !a.primary || w == nil {
 		return nil
 	}
-	if err := a.saved.Set(w.Name(), data); err != nil {
+	if err := a.saved.Set(w.Name(), withFrame(data, w)); err != nil {
 		return a.problem("session", err)
 	}
 	return a.writeSessions()

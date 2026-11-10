@@ -278,3 +278,40 @@ func (a *App) FindLocalServers() []LocalServer {
 	}
 	return out
 }
+
+// KeychainKeysWaiting: an older version left keys in the Keychain (Settings
+// offers to move them; checking never shows a password prompt).
+func (a *App) KeychainKeysWaiting() bool { return a.secrets.KeychainKeysWaiting() }
+
+// MoveKeysFromKeychain moves those keys into jamalterm's own encrypted
+// file and deletes the Keychain item. macOS asks one last time.
+func (a *App) MoveKeysFromKeychain() (int, error) {
+	n, err := a.secrets.MoveFromKeychain()
+	return n, a.problem("keys", err)
+}
+
+// KeysUnreadable: saved keys couldn't be unlocked on this computer (the
+// folder was copied from another Mac); they need entering again.
+func (a *App) KeysUnreadable() bool { return a.secrets.Unreadable() }
+
+// Confirm shows a native macOS alert, as a sheet on the calling window, and
+// reports whether you chose the action. Cancel is the default button (⏎ and
+// Esc), as Apple suggests when the action can't be undone.
+func (a *App) Confirm(ctx context.Context, title, message, action string) bool {
+	ch := make(chan bool, 1)
+	d := a.app.Dialog.Warning().SetTitle(title).SetMessage(message)
+	d.AddButton(action).OnClick(func() { ch <- true })
+	cancel := d.AddButton("Cancel").OnClick(func() { ch <- false })
+	d.SetDefaultButton(cancel)
+	d.SetCancelButton(cancel)
+	if w := winOf(ctx); w != nil {
+		d.AttachToWindow(w)
+	}
+	d.Show()
+	select {
+	case v := <-ch:
+		return v
+	case <-ctx.Done():
+		return false
+	}
+}

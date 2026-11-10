@@ -21,6 +21,13 @@ type Settings struct {
 	// Opacity of the window in percent (30–100). Below 100 the desktop
 	// shows through.
 	Opacity int `json:"opacity"`
+	// WindowFrame: "system" (tabs, panels and dialogs follow macOS's light or
+	// dark appearance and accent color, like Terminal) or "theme" (they
+	// take the terminal theme's colors).
+	WindowFrame string `json:"windowFrame"`
+	// ShowTabBar keeps the tab bar visible with one tab (View → Show Tab
+	// Bar). Off, it appears once there are two tabs, as in Terminal.
+	ShowTabBar bool `json:"showTabBar"`
 	// Blur what's behind a see-through window (macOS; applies on restart).
 	Blur        bool `json:"blur"`
 	CursorBlink bool `json:"cursorBlink"`
@@ -101,6 +108,7 @@ func Defaults() Settings {
 		LineHeight:         1.15,
 		CursorStyle:        "block",
 		Opacity:            100,
+		WindowFrame:        "system",
 		Blur:               true,
 		CursorBlink:        true,
 		Scrollback:         10000,
@@ -223,6 +231,9 @@ func (c Settings) normalized() Settings {
 	c.HostColors = hosts
 	if strings.TrimSpace(c.LocalURL) == "" {
 		c.LocalURL = d.LocalURL
+	}
+	if c.WindowFrame != "theme" {
+		c.WindowFrame = "system"
 	}
 	if c.UpdateChannel != "beta" {
 		c.UpdateChannel = "stable"

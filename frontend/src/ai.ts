@@ -212,7 +212,7 @@ export class AIPanel {
       const company = info ? `${info.company} (${info.keyWhere})` : who.name
       this.list.append(el('div', { class: 'ai-setup' },
         el('p', {}, el('strong', { text: `Add your ${who.name} API key to turn on AI.` })),
-        el('p', { class: 'dim', text: `Create a key at ${company}, then paste it in Settings → AI assistant. It's stored in your macOS Keychain.` }),
+        el('p', { class: 'dim', text: `Create a key at ${company}, then paste it in Settings → AI assistant. It's stored encrypted on this Mac, readable only by you.` }),
         open))
       return
     }

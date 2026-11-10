@@ -1,4 +1,4 @@
-import { SaveSettings, SetAPIKey, HasSavedAPIKey, AnthropicAccount, BlurActive, ForgetSession, SetProviderKey, HasSavedProviderKey, ListProviderModels, SignInOpenRouter, ShowProblemLog, FindLocalServers } from './backend'
+import { SetAPIKey, HasSavedAPIKey, AnthropicAccount, BlurActive, ForgetSession, SetProviderKey, HasSavedProviderKey, ListProviderModels, SignInOpenRouter, ShowProblemLog, FindLocalServers, KeychainKeysWaiting, MoveKeysFromKeychain, KeysUnreadable } from './backend'
 import { themes } from './themes'
 import { providers, providerInfo, modelOf, setModelOf } from './providers'
 import { el, toast, SIGN_IN_COMMAND, SIGN_OUT_COMMAND } from './util'
@@ -19,51 +19,61 @@ const models = [
   ['claude-haiku-5-5', 'Claude Haiku 5.5 — fastest, cheapest'],
 ]
 
+// Settings lives in its own window (settings.html, settingsPage.ts) and,
+// as on the Mac, every change applies at once: there's no Save button.
 export interface SettingsHost {
   current(): Settings
-  preview(s: Settings): void // live preview while the window is open
-  saved(s: Settings): void
-  closed(): void
+  save(s: Settings): void // called (debounced) after each change
+  close(): void
   checkUpdates(): void
   runInNewTab(command: string): void
   diagnostics(): void
+  setTitle(title: string): void // the window title names the pane
 }
 
-/** The Settings pages, in sidebar order. */
+/** The Settings panes, in toolbar order: [id, title, SF-Symbol-like icon]. */
 export const settingsPages = [
-  ['appearance', 'Appearance', '🎨'],
-  ['shell', 'Shell', '⌨'],
-  ['ai', 'AI', '✦'],
-  ['privacy', 'Privacy', '🔒'],
-  ['updates', 'Updates', '↻'],
+  ['appearance', 'Appearance', 'paintpalette'],
+  ['shell', 'Shell', 'terminal'],
+  ['ai', 'AI', 'sparkles'],
+  ['privacy', 'Privacy', 'hand.raised'],
+  ['updates', 'Updates', 'arrow.triangle.2.circlepath'],
 ] as const
+
+// Simple line icons in the style of SF Symbols (drawn as SVG, since web
+// pages can't use the system's symbols).
+const icons: Record<string, string> = {
+  paintpalette: '<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.8 1.6-1.6 0-.5-.2-.8-.4-1.1-.3-.3-.4-.7-.4-1.1 0-.9.7-1.6 1.6-1.6H16a5 5 0 0 0 5-5c0-4.2-4-7.6-9-7.6Z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="10" cy="7" r="1.2"/><circle cx="14.5" cy="7" r="1.2"/><circle cx="17" cy="11" r="1.2"/>',
+  terminal: '<rect x="3" y="4.5" width="18" height="15" rx="3"/><path d="m7.5 9.5 3 2.5-3 2.5M12.5 15h4"/>',
+  sparkles: '<path d="M10 3.5 11.6 8 16 9.6 11.6 11.2 10 15.7 8.4 11.2 4 9.6 8.4 8Z"/><path d="M17.5 13.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8Z"/>',
+  'hand.raised': '<path d="M8 12V6.5a1.5 1.5 0 0 1 3 0V11V4.8a1.5 1.5 0 0 1 3 0V11V6a1.5 1.5 0 0 1 3 0v7.5c0 4-2.5 6.5-6 6.5-2.5 0-3.8-1.2-5.3-3.4L4 13.3a1.4 1.4 0 0 1 2.2-1.7L8 13.5"/>',
+  'arrow.triangle.2.circlepath': '<path d="M5 12a7 7 0 0 1 12-4.9L19 9M19 4.5V9h-4.5M19 12a7 7 0 0 1-12 4.9L5 15M5 19.5V15h4.5"/>',
+}
+const icon = (name: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] ?? ''}</svg>`
 export type SettingsPage = (typeof settingsPages)[number][0]
 
 export class SettingsView {
-  private root = document.getElementById('settings')!
-  private before: Settings | null = null
   private page: SettingsPage = 'appearance'
+  private saveTimer = 0
+  /** True while something here was changed and not yet saved. */
+  pending = false
 
-  constructor(private host: SettingsHost) {
-    this.root.addEventListener('mousedown', (e) => {
-      if (e.target === this.root) this.cancel()
-    })
-  }
+  constructor(private host: SettingsHost, private root: HTMLElement) {}
 
-  get visible() {
-    return !this.root.hidden
-  }
-
-  /** Opens Settings on a page; find highlights the setting whose label
+  /** Builds the window on a pane; find highlights the setting whose label
    * contains that text (used by the command palette). */
   async open(page?: SettingsPage, find?: string) {
-    if (this.visible) {
-      if (page) this.show(page, find)
-      return
-    }
     if (page) this.page = page
     const s = { ...this.host.current() }
-    this.before = { ...s }
+    // Every change is saved shortly after it's made (no Save button).
+    const changed = () => {
+      this.pending = true
+      clearTimeout(this.saveTimer)
+      this.saveTimer = window.setTimeout(() => {
+        this.pending = false
+        this.host.save({ ...s })
+      }, 200)
+    }
     const account = await AnthropicAccount()
     const savedKey = await HasSavedAPIKey()
     this.root.textContent = ''
@@ -115,7 +125,7 @@ export class SettingsView {
       return t
     }
 
-    const live = () => this.host.preview(s)
+    const live = changed
 
     // Theme swatches
     const swatches = el('div', { class: 'swatches' })
@@ -137,7 +147,7 @@ export class SettingsView {
 
     const keyInput = el('input', {
       type: 'password',
-      placeholder: savedKey ? '•••••••• saved in your Keychain' : 'sk-ant-…  (optional if you signed in)',
+      placeholder: savedKey ? '•••••••• saved (encrypted on this Mac)' : 'sk-ant-…  (optional if you signed in)',
       spellcheck: 'false',
       autocomplete: 'off',
     }) as HTMLInputElement
@@ -163,11 +173,9 @@ export class SettingsView {
     slider.addEventListener('input', () => {
       s.opacity = parseInt(slider.value, 10)
       pct.textContent = `${s.opacity}%`
-      this.root.classList.toggle('peek', true) // lighten the dialog backdrop to show the effect
       live()
       updateBlurNote()
     })
-    slider.addEventListener('change', () => this.root.classList.remove('peek'))
     const opacityRow = el('div', { class: 'field' },
       el('span', { class: 'label', text: 'Window opacity' }),
       el('div', { class: 'row slider-row' }, el('span', { class: 'dim', text: 'See-through' }), slider, el('span', { class: 'dim', text: 'Solid' }), pct),
@@ -220,6 +228,9 @@ export class SettingsView {
         el('label', { class: 'check' }, check(s.cursorBlink, (v) => { s.cursorBlink = v; live() }), ' Blinking cursor'),
       ),
       opacityRow,
+      field('Window frame', select([['system', 'Match macOS (light or dark, your accent color)'], ['theme', 'Match the terminal theme']], s.windowFrame, (v) => { s.windowFrame = v; live() }),
+        'The tab bar, panels and dialogs around the terminal. The terminal itself always uses the theme above.'),
+      el('label', { class: 'check' }, check(s.showTabBar, (v) => { s.showTabBar = v; live() }), ' Always show the tab bar (otherwise it appears when there are two tabs, as in Terminal)'),
       el('label', { class: 'check' }, check(s.ligatures, (v) => { s.ligatures = v; live() }), ' Font ligatures (=> != ->) in fonts that have them, like JetBrains Mono and Fira Code (drawn without the GPU)'),
       hostColorsField(),
     )
@@ -252,7 +263,6 @@ export class SettingsView {
 
     // Sign in with Anthropic (OAuth via the ant CLI) — no key to copy.
     const runAndClose = (cmd: string) => {
-      this.cancel()
       this.host.runInNewTab(cmd)
     }
     const signInBtn = el('button', { type: 'button', class: 'primary small' }, account.signedIn ? 'Sign in again' : 'Sign in with Anthropic')
@@ -272,7 +282,7 @@ export class SettingsView {
     // Claude: sign-in or key, and a model.
     const claudeBox = el('div', { class: 'provider-box' },
       accountRow,
-      field('Or use an API key', el('div', { class: 'keyrow' }, keyInput, removeKey), 'From console.anthropic.com → API Keys. Stored in your macOS Keychain, never in a file. A saved key is used instead of the sign-in.'),
+      field('Or use an API key', el('div', { class: 'keyrow' }, keyInput, removeKey), 'From console.anthropic.com → API Keys. Stored encrypted on this Mac, readable only by you. A saved key is used instead of the sign-in.'),
       field('Model', select(models, s.aiModel, (v) => (s.aiModel = v))),
     )
 
@@ -313,7 +323,7 @@ export class SettingsView {
       if (p.local) return localBox()
       const info = { name: p.name, company: p.company, url: p.signIn === 'openrouter' ? `${p.keyWhere}, or use Sign in with ${p.name} above` : p.keyWhere, bill: p.billing, auto: `Automatic: ${p.autoModel}` }
       const saved = await HasSavedProviderKey(id)
-      const key = el('input', { type: 'password', placeholder: saved ? '•••••••• saved in your Keychain' : p.keyHint, spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement
+      const key = el('input', { type: 'password', placeholder: saved ? '•••••••• saved (encrypted on this Mac)' : p.keyHint, spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement
       compatKeys[id] = key
       const remove = el('button', { type: 'button', class: 'ghost small' }, 'Remove saved key')
       remove.hidden = !saved
@@ -352,9 +362,9 @@ export class SettingsView {
           note.textContent = 'Waiting for you to approve in the browser…'
           try {
             await SignInOpenRouter()
-            note.textContent = '✓ Signed in. Your OpenRouter key is saved in your Keychain.'
+            note.textContent = '✓ Signed in. Your OpenRouter key is saved, encrypted, on this Mac.'
             note.classList.add('ok')
-            key.placeholder = '•••••••• saved in your Keychain'
+            key.placeholder = '•••••••• saved (encrypted on this Mac)'
             remove.hidden = false
           } catch (err) {
             note.textContent = String(err)
@@ -366,7 +376,7 @@ export class SettingsView {
       }
       return el('div', { class: 'provider-box' },
         ...signIn,
-        field(p.signIn ? 'Or paste an API key' : `${info.company} API key`, el('div', { class: 'keyrow' }, key, remove), `From ${info.url}. Stored in your macOS Keychain. ${info.bill}`),
+        field(p.signIn ? 'Or paste an API key' : `${info.company} API key`, el('div', { class: 'keyrow' }, key, remove), `From ${info.url}. Stored encrypted on this Mac. ${info.bill}`),
         field('Model', el('div', { class: 'keyrow' }, modelInput, load, datalist)),
         modelHelp,
       )
@@ -376,9 +386,33 @@ export class SettingsView {
     const showBox = () => Object.entries(boxes).forEach(([id, b]) => (b.hidden = id !== s.aiProvider))
     showBox()
 
+    // Keys an older version left in the Keychain: moved only if you ask
+    // (reading them makes macOS ask for your password one last time).
+    const keyNotes: HTMLElement[] = []
+    if (await KeychainKeysWaiting()) {
+      const move = el('button', { type: 'button', class: 'primary small' }, 'Move Keys from Keychain…')
+      const note = el('span', { class: 'help', text: 'An older version of jamalterm kept your API keys in the macOS Keychain. jamalterm no longer uses it. Move them into jamalterm’s own encrypted file (macOS asks for your password one last time), or just enter your keys again below.' })
+      const card = el('div', { class: 'provider-box notice' }, note, el('div', { class: 'keyrow' }, move))
+      move.addEventListener('click', async () => {
+        try {
+          const n = await MoveKeysFromKeychain()
+          note.textContent = n ? `✓ Moved ${n} key${n === 1 ? '' : 's'}. The Keychain item is deleted; jamalterm won’t ask for your password again.` : '✓ Nothing left to move. The Keychain item is deleted.'
+          note.classList.add('ok')
+          move.remove()
+        } catch (err) {
+          note.textContent = String(err)
+        }
+      })
+      keyNotes.push(card)
+    }
+    if (await KeysUnreadable()) {
+      keyNotes.push(el('div', { class: 'provider-box notice' }, el('span', { class: 'help', text: 'Your saved API keys can’t be unlocked on this Mac (the settings folder was probably copied from another computer). Enter them again below.' })))
+    }
+
     const aiSec = el(
       'section', { 'data-page': 'ai' },
       el('h3', { text: 'AI assistant' }),
+      ...keyNotes,
       el('label', { class: 'check' }, check(s.aiEnabled, (v) => (s.aiEnabled = v)), ' Turn on AI features'),
       field('Assistant', select(providers.map((p) => [p.id, p.label]), s.aiProvider, (v) => { s.aiProvider = v; showBox() })),
       ...Object.values(boxes),
@@ -403,14 +437,11 @@ export class SettingsView {
     const showLog = el('button', { type: 'button', class: 'ghost small' }, 'Show problem log')
     showLog.addEventListener('click', () => ShowProblemLog())
     const diag = el('button', { type: 'button', class: 'ghost small' }, 'Copy diagnostics…')
-    diag.addEventListener('click', () => {
-      this.cancel()
-      this.host.diagnostics()
-    })
+    diag.addEventListener('click', () => this.host.diagnostics())
     const privacy = el(
       'section', { 'data-page': 'privacy' },
       el('h3', { text: 'Privacy' }),
-      el('p', { class: 'help', text: 'jamalterm sends nothing anywhere on its own. AI questions go only to the assistant you choose, with secrets hidden first. Your keys stay in the macOS Keychain.' }),
+      el('p', { class: 'help', text: 'jamalterm sends nothing anywhere on its own. AI questions go only to the assistant you choose, with secrets hidden first. Your API keys are kept in an encrypted file on this Mac that only your account can open, and that a copy can’t unlock on another computer; jamalterm never uses the Keychain, so it never asks for your password.' }),
       el('label', { class: 'check' }, check(s.keepProblemLog, (v) => (s.keepProblemLog = v)), ' Keep a private problem log on this Mac (errors only: no commands, output or questions; turning it off deletes it)'),
       el('div', { class: 'row', style: 'margin: 0 0 10px 24px' }, showLog, diag),
       el('label', { class: 'check' }, check(s.aiShareOutput, (v) => (s.aiShareOutput = v)), ' Send recent command output with AI questions (otherwise only the commands)'),
@@ -420,43 +451,49 @@ export class SettingsView {
         el('span', { class: 'help', text: 'To reopen tabs after a restart, jamalterm keeps their recent output in a private file on this Mac (Shell → Reopen tabs).' })),
     )
 
-    const nav = el('nav', { class: 'settings-nav', role: 'tablist' })
-    for (const [id, label, icon] of settingsPages) {
-      const b = el('button', { type: 'button', role: 'tab', 'data-page': id }, el('span', { class: 'icon', text: icon }), label)
+    // A toolbar of panes across the top, like Terminal's and Safari's.
+    const nav = el('nav', { class: 'settings-toolbar', role: 'tablist', 'aria-label': 'Settings' })
+    for (const [id, label, ic] of settingsPages) {
+      const b = el('button', { type: 'button', role: 'tab', 'data-page': id })
+      b.innerHTML = `${icon(ic)}<span>${label}</span>`
       b.addEventListener('click', () => this.show(id))
       nav.append(b)
     }
 
-    const cancel = el('button', { type: 'button', class: 'ghost' }, 'Cancel')
-    const save = el('button', { type: 'submit', class: 'primary' }, 'Save')
-    const form = el('form', { class: 'dialog settings' },
-      el('div', { class: 'dialog-head' }, el('h2', { text: 'Settings' })),
-      el('div', { class: 'settings-main' }, nav, el('div', { class: 'dialog-body settings-pages' }, appearance, shellSec, aiSec, privacy, updates)),
-      el('div', { class: 'dialog-foot' }, cancel, save),
-    )
-    cancel.addEventListener('click', () => this.cancel())
-    form.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        this.cancel()
-      }
+    // Any change to a field saves (keys are saved, encrypted, when you
+    // leave the field).
+    const body = el('div', { class: 'settings-pages' }, appearance, shellSec, aiSec, privacy, updates)
+    body.addEventListener('input', (e) => {
+      if ((e.target as HTMLInputElement).type !== 'password') changed()
     })
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault()
+    body.addEventListener('change', (e) => {
+      if ((e.target as HTMLInputElement).type !== 'password') changed()
+    })
+    const saveKey = async (input: HTMLInputElement, save: (v: string) => Promise<void>, then: () => void) => {
+      const v = input.value.trim()
+      if (!v) return
       try {
-        if (keyInput.value.trim()) await SetAPIKey(keyInput.value.trim())
-        for (const [id, input] of Object.entries(compatKeys)) if (input.value.trim()) await SetProviderKey(id, input.value.trim())
-        const saved = await SaveSettings(s)
-        this.before = null
-        this.close()
-        this.host.saved(saved)
-        toast('Settings saved')
+        await save(v)
+        input.value = ''
+        input.placeholder = '•••••••• saved (encrypted on this Mac)'
+        then()
+        toast('Key saved (encrypted on this Mac)')
       } catch (err) {
         toast(String(err), 'error')
       }
-    })
-    this.root.append(form)
-    this.root.hidden = false
+    }
+    keyInput.addEventListener('change', () => void saveKey(keyInput, SetAPIKey, () => (removeKey.hidden = false)))
+    for (const [id, input] of Object.entries(compatKeys)) {
+      input.addEventListener('change', () => void saveKey(input, (v) => SetProviderKey(id, v), () => undefined))
+    }
+    this.root.textContent = ''
+    this.root.append(nav, body)
+    this.root.onkeydown = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        this.host.close()
+      }
+    }
     this.show(this.page, find)
     if (this.page === 'appearance' && !find) (swatches.querySelector('.on') as HTMLElement | null)?.focus()
   }
@@ -464,8 +501,9 @@ export class SettingsView {
   /** Shows one page; find scrolls to and highlights a setting. */
   show(page: SettingsPage, find?: string) {
     this.page = page
+    this.host.setTitle(settingsPages.find((p) => p[0] === page)?.[1] ?? 'Settings')
     this.root.querySelectorAll<HTMLElement>('.settings-pages > section').forEach((sec) => (sec.hidden = sec.dataset.page !== page))
-    this.root.querySelectorAll<HTMLElement>('.settings-nav button').forEach((b) => {
+    this.root.querySelectorAll<HTMLElement>('.settings-toolbar button').forEach((b) => {
       const on = b.dataset.page === page
       b.classList.toggle('on', on)
       b.setAttribute('aria-selected', String(on))
@@ -483,17 +521,5 @@ export class SettingsView {
     void hit.offsetWidth
     hit.classList.add('flash')
     hit.querySelector<HTMLElement>('input, select, button')?.focus()
-  }
-
-  cancel() {
-    if (this.before) this.host.preview(this.before)
-    this.before = null
-    this.close()
-  }
-
-  private close() {
-    this.root.hidden = true
-    this.root.textContent = ''
-    this.host.closed()
   }
 }

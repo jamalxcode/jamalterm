@@ -7,8 +7,8 @@ import { Settings, SaveSettings, ShowProblemLog, ShellName, HomeDir, CloseWindow
 import { EventsOn, WindowSetTitle } from './backend'
 import { Tab, setGpuOff, hostMatches, type SavedTab } from './tab'
 import { themeById, applyChrome } from './themes'
+import { applySystemLook } from './system'
 import { AIPanel, CommandBar } from './ai'
-import { SettingsView } from './settingsView'
 import { Updater } from './updater'
 import { showDiagnostics, logWindowErrors } from './diagnostics'
 import { Palette } from './palette'
@@ -19,8 +19,8 @@ import { runSmoke } from './smoke'
 import { SmokeMode } from './backend'
 import { Group, type Dir, type SavedNode, type PaneNode } from './panes'
 import { loadProviders, providerInfo, modelOf } from './providers'
-import { el, isMac, toast, duration, confirmDialog } from './util'
-import { BusyTabs, QuitNow, CloseWindowNow, SetActiveTab, LiveTabs, RemoteSetupLine, Write } from './backend'
+import { el, isMac, toast, duration } from './util'
+import { Confirm, OpenSettingsAt, SetMenuState, BusyTabs, QuitNow, CloseWindowNow, SetActiveTab, LiveTabs, RemoteSetupLine, Write } from './backend'
 import type { Settings as Prefs } from './types'
 
 let cfg: Prefs
@@ -79,7 +79,7 @@ const hooks = {
 const aiHost = {
   activeTab: () => active,
   shellName: () => shellName,
-  openSettings: () => void settingsView.open(),
+  openSettings: () => void OpenSettingsAt('ai', ''),
   assistant: () => {
     const info = providerInfo(cfg.aiProvider) ?? providerInfo('anthropic')
     const id = info?.id ?? 'anthropic'
@@ -90,16 +90,6 @@ const aiHost = {
 }
 const ai = new AIPanel(aiHost)
 const commandBar = new CommandBar(aiHost)
-const settingsView = new SettingsView({
-  current: () => cfg,
-  preview: (s) => applySettings(s),
-  saved: (s) => applySettings(s),
-  closed: () => active?.term.focus(),
-  checkUpdates: () => void updater.check(true),
-  runInNewTab: (cmd) => void runInNewTab(cmd),
-  diagnostics: () => void showDiagnostics(() => active?.term.focus()),
-})
-
 const palette = new Palette({
   run: (id) => {
     const c = commands.find((x) => x.id === id)
@@ -114,7 +104,7 @@ const palette = new Palette({
       toast(String(err), 'error')
     }
   },
-  openSettings: (page, find) => void settingsView.open(page, find),
+  openSettings: (page, find) => void OpenSettingsAt(page, find ?? ''),
   tabs: () => groups.map((g) => ({ title: g.focused.title + (g.count > 1 ? ` (${g.count} panes)` : ''), detail: g.focused.prettyCwd, go: () => activate(g.focused) })),
   focus: () => active?.term.focus(),
 })
@@ -147,7 +137,7 @@ function applySettings(s: Prefs) {
     void ai.refreshHeader()
   }
   const theme = themeById(s.theme)
-  applyChrome(theme, s.opacity / 100)
+  applyChrome(theme, s.opacity / 100, s.windowFrame === 'theme' ? 'theme' : 'system')
   SetWindowOpacity(s.opacity) // also used for the live preview in Settings
   for (const t of tabs) t.applySettings(s, theme)
   document.body.classList.toggle('no-ai', !s.aiEnabled)
@@ -296,16 +286,25 @@ function activate(tab: Tab) {
   updateChrome()
 }
 
-/** Asks before stopping programs that are still running in these tabs. */
+/** "vim (~/proj), npm (~/web)" for the programs running in these tabs. */
+function runningList(busy: { id: number; name: string }[]): string {
+  return busy.map((b) => {
+    const where = tabs.find((t) => t.id === b.id)?.prettyCwd
+    return where ? `${b.name} (${where})` : b.name
+  }).join(', ')
+}
+
+/** Asks (a native alert, as in Terminal) before stopping programs still
+ * running in these tabs. */
 async function okToStop(list: Tab[], what: string): Promise<boolean> {
   const busy = await BusyTabs(list.map((t) => t.id))
   if (!busy?.length) return true
-  return confirmDialog({
-    title: `Close ${what}?`,
-    body: busy.length === 1 ? 'This program is still running and will be stopped:' : `These ${busy.length} programs are still running and will be stopped:`,
-    items: busy.map((b) => `${b.name}  —  ${tabs.find((t) => t.id === b.id)?.prettyCwd ?? ''}`),
-    ok: `Close ${what}`,
-  })
+  const scope = what === 'Window' ? 'this window' : what === 'Pane' ? 'this pane' : 'this tab'
+  return Confirm(
+    `Do you want to terminate running processes in ${scope}?`,
+    `Closing ${scope} will terminate: ${runningList(busy)}.`,
+    'Terminate',
+  )
 }
 
 /** Closes a terminal: the focused pane, or the whole tab if it's alone. */
@@ -433,9 +432,33 @@ function renderTabs() {
   tabsEl.append(plus)
 }
 
+/** Close Window (⇧⌘W): asks first if something is running in it. */
+async function closeWindow() {
+  if (!(await okToStop(tabs.filter((t) => t.running), 'Window'))) return
+  await saveSessionNow()
+  void CloseWindowNow()
+}
+
+/** Tells the menu bar what its items would do here. */
+function syncMenu() {
+  const g = groupOf(active)
+  void SetMenuState({ split: (g?.count ?? 0) > 1, tabBar: tabBarShown(), broadcast: !!g?.broadcast })
+}
+
+/** As in Terminal, the tab bar appears with two or more tabs (or always,
+ * with View → Show Tab Bar). */
+function tabBarShown() {
+  return groups.length > 1 || !!cfg.showTabBar
+}
+
 function updateChrome() {
   paintHosts()
+  document.body.classList.toggle('no-tab-bar', !tabBarShown())
+  syncMenu()
   if (!active) return
+  // "~/proj — zsh", or "~/proj — vim" while something runs (like Terminal).
+  const what = active.runningName || shellName
+  windowTitle.textContent = active.prettyCwd ? `${active.prettyCwd} — ${what}` : what
   const g = groupOf(active)
   broadcastBar.hidden = !g?.broadcast
   if (g?.broadcast) broadcastBar.textContent = `📣 Typing goes to all ${g.count} panes in this tab — ⌥⌘I to stop`
@@ -449,6 +472,9 @@ function updateChrome() {
 }
 
 const broadcastBar = el('div', { id: 'broadcast-bar', role: 'status', hidden: '' })
+// With one tab, the title bar shows the window's title instead, like Terminal.
+const windowTitle = el('div', { id: 'window-title', 'aria-hidden': 'true' })
+document.getElementById('titlebar')!.insertBefore(windowTitle, document.getElementById('ai-button'))
 document.body.append(broadcastBar)
 
 function toggleBroadcast() {
@@ -479,8 +505,28 @@ function runMenu(cmd: string) {
 
   const t = active
   if (cmd.startsWith('toast:')) return toast(cmd.slice(6), 'error')
+  if (cmd.startsWith('run:')) return void runInNewTab(cmd.slice(4)) // from Settings (sign in…)
   switch (cmd) {
-    case 'about': return void about()
+    case 'about':
+    case 'shortcuts': return void about()
+    case 'selectAll': {
+      // In a text field, select its text; in the terminal, all its output.
+      const f = document.activeElement as HTMLElement | null
+      if (f && /^(INPUT|TEXTAREA)$/.test(f.tagName) && !f.classList.contains('xterm-helper-textarea')) (f as HTMLInputElement).select()
+      else t?.term.selectAll()
+      return
+    }
+    case 'aiAskSelection': {
+      const sel = t?.term.getSelection().trim()
+      if (!sel || !aiReady()) return sel ? undefined : toast('Select some text first')
+      void ai.show().then(() => ai.send(`Explain this:\n\n${sel.slice(0, 4000)}`))
+      return
+    }
+    case 'findNext': return find.next()
+    case 'findPrevious': return find.next(true)
+    case 'findSelection': return find.useSelection()
+    case 'toggleTabBar': return void SaveSettings({ ...cfg, showTabBar: !cfg.showTabBar }).then(applySettings)
+    case 'closeWindow': return void closeWindow()
     case 'palette': return palette.open()
     case 'remoteIntegration':
       if (!t) return
@@ -493,7 +539,7 @@ function runMenu(cmd: string) {
     case 'diagnostics': return void showDiagnostics(() => active?.term.focus())
     case 'checkUpdates': return void updater.check(true)
     case 'revertUpdate': return void updater.offerRevert()
-    case 'settings': return void settingsView.open()
+    case 'settings': return void OpenSettingsAt('', '')
     case 'newTab': return void newTab()
     case 'newWindow': return void NewWindow(active?.cwd ?? '')
     case 'closeTab': return closeTab()
@@ -550,7 +596,6 @@ EventsOn('menu', runMenu)
 window.addEventListener('keydown', (e) => {
   const c = commandForKey(e)
   if (!c) return
-  if (settingsView.visible && c.id !== 'settings') return
   e.preventDefault()
   e.stopPropagation() // xterm.js must not handle it a second time
   runCommand(c, runMenu)
@@ -566,13 +611,11 @@ EventsOn('pty:exit', (e: { id: number; code: number }) => tabs.find((t) => t.id 
 // Quitting or closing the window would stop running programs: ask first.
 EventsOn('confirm', async (e: { kind: string; busy: { id: number; name: string }[] }) => {
   const quit = e.kind === 'quit'
-  const where = (id: number) => tabs.find((t) => t.id === id)?.prettyCwd ?? 'another window'
-  const ok = await confirmDialog({
-    title: quit ? 'Quit jamalterm?' : 'Close this window?',
-    body: e.busy.length === 1 ? 'This program is still running and will be stopped:' : `These ${e.busy.length} programs are still running and will be stopped:`,
-    items: e.busy.map((b) => `${b.name}  —  ${where(b.id)}`),
-    ok: quit ? 'Quit' : 'Close Window',
-  })
+  const ok = await Confirm(
+    quit ? 'Do you want to terminate running processes and quit?' : 'Do you want to terminate running processes in this window?',
+    `${quit ? 'Quitting jamalterm' : 'Closing this window'} will terminate: ${runningList(e.busy)}.`,
+    quit ? 'Terminate and Quit' : 'Terminate',
+  )
   if (!ok) return active?.term.focus()
   if (quit) {
     await saveSessionNow()
@@ -605,6 +648,8 @@ document.getElementById('ai-button')!.addEventListener('click', () => runMenu('a
 export const bootTimes: Record<string, number> = {}
 
 async function boot() {
+  // Re-colour the window frame when macOS switches light/dark.
+  applySystemLook(() => cfg && applySettings(cfg))
   // Tab numbers are unique across windows.
   nextId = (await WindowID()) * 100000 + 1
   const mark = (name: string) => (bootTimes[name] = Math.round(performance.now()))

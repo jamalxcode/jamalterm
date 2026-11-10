@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -45,7 +46,7 @@ func TestRoundTripAndDefaults(t *testing.T) {
 }
 
 func TestProviderKeysAreSeparate(t *testing.T) {
-	s := &Secrets{fileDir: t.TempDir()}
+	s := testSecrets(t.TempDir(), "mac-1")
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("DEEPSEEK_API_KEY", "ds-env")
 	if err := s.SetKeyFor("openai", "sk-oa"); err != nil {
@@ -66,27 +67,77 @@ func TestProviderKeysAreSeparate(t *testing.T) {
 	}
 }
 
+func testSecrets(dir, machine string) *Secrets {
+	return &Secrets{dir: dir, machine: func() string { return machine }, keychainService: "jamalterm-test-none"}
+}
+
 func TestSecretsFile(t *testing.T) {
 	dir := t.TempDir()
-	s := &Secrets{fileDir: dir}
+	s := testSecrets(dir, "mac-1")
 	t.Setenv("ANTHROPIC_API_KEY", "from-env")
 	if s.APIKey() != "from-env" || s.HasSavedKey() {
 		t.Fatal("env fallback")
 	}
-	if err := s.SetAPIKey("  sk-test  "); err != nil {
+	if err := s.SetAPIKey("  sk-ant-test-123  "); err != nil {
 		t.Fatal(err)
 	}
-	if s.APIKey() != "sk-test" || !s.HasSavedKey() {
+	if s.APIKey() != "sk-ant-test-123" || !s.HasSavedKey() {
 		t.Fatal("saved key")
 	}
-	if fi, _ := os.Stat(filepath.Join(dir, "api-key")); fi.Mode().Perm() != 0o600 {
-		t.Fatalf("key file mode %v", fi.Mode().Perm())
+	for _, f := range []string{keysFile, secretFile} {
+		fi, err := os.Stat(filepath.Join(dir, f))
+		if err != nil || fi.Mode().Perm() != 0o600 {
+			t.Fatalf("%s: %v %v", f, fi, err)
+		}
+	}
+	// Encrypted: the key isn't in the file.
+	raw, _ := os.ReadFile(filepath.Join(dir, keysFile))
+	if strings.Contains(string(raw), "sk-ant-test") {
+		t.Fatal("key stored in plain text")
+	}
+	// A fresh reader on the same computer finds it.
+	if testSecrets(dir, "mac-1").APIKey() != "sk-ant-test-123" {
+		t.Fatal("not read back")
 	}
 	if err := s.SetAPIKey(""); err != nil || s.HasSavedKey() {
 		t.Fatal("delete")
 	}
 	if s.SetAPIKey("a\nb") == nil {
 		t.Fatal("multi-line key accepted")
+	}
+}
+
+// A copy of the folder can't be read on another computer.
+func TestSecretsTiedToThisComputer(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OPENAI_API_KEY", "")
+	if err := testSecrets(dir, "mac-1").SetKeyFor("openai", "sk-secret-1"); err != nil {
+		t.Fatal(err)
+	}
+	other := testSecrets(dir, "mac-2")
+	if other.KeyFor("openai") != "" || !other.Unreadable() {
+		t.Fatal("another computer read the key")
+	}
+	// Saving there starts over instead of failing.
+	if err := other.SetKeyFor("openai", "sk-new"); err != nil || other.Unreadable() {
+		t.Fatal("couldn't start over")
+	}
+}
+
+// Plain key files from development builds are moved in and deleted.
+func TestOldKeyFilesMoved(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "api-key"), []byte("sk-ant-old\n"), 0o600)
+	os.WriteFile(filepath.Join(dir, "api-key-openrouter"), []byte("sk-or-old"), 0o600)
+	s := testSecrets(dir, "m")
+	if s.KeyFor("anthropic") != "sk-ant-old" || s.KeyFor("openrouter") != "sk-or-old" {
+		t.Fatal("not moved")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "api-key")); !os.IsNotExist(err) {
+		t.Fatal("old file left behind")
+	}
+	if s.KeychainKeysWaiting() {
+		t.Fatal("no Keychain item expected")
 	}
 }
 

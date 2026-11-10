@@ -1,10 +1,11 @@
-// The About box, with the main shortcuts.
+// Help → Keyboard Shortcuts (the About box itself is the Mac's own panel).
 import { Version } from './backend'
+import iconUrl from './icon.png'
 
 export async function showAbout(onClose: () => void) {
   const box = document.getElementById('about')!
   const version = await Version()
-  box.innerHTML = `<div class="dialog about"><div class="logo">&gt;_</div><h2>jamalterm</h2>
+  box.innerHTML = `<div class="dialog about"><img class="app-icon" src="${iconUrl}" alt="" width="96" height="96"><h2>jamalterm</h2>
     <p class="dim">Version ${version}</p>
     <p>A terminal with a free-floating cursor and AI built in.</p>
     <table class="keys">

@@ -95,6 +95,10 @@ type App struct {
 	activeTab  map[string]int  // window name → focused tab
 	appActive  bool
 	secureItem *application.MenuItem
+	menuItems  map[string]*application.MenuItem // by command ID
+	// lastTermName: the terminal window used most recently (menu commands
+	// go there while Settings is in front).
+	lastTermName string
 }
 
 type toolReply struct {
@@ -121,6 +125,7 @@ func NewApp() *App {
 		accepted:      map[int]bool{},
 		activeTab:     map[string]int{},
 		appActive:     true,
+		menuItems:     map[string]*application.MenuItem{},
 	}
 	a.ctx = context.Background()
 	a.primary = a.takeInstanceLock()
@@ -407,7 +412,7 @@ func (a *App) refreshProviderMenu() {
 }
 
 // SignInOpenRouter runs OpenRouter's browser sign-in and saves the key
-// it returns in the Keychain. It returns once the user has approved.
+// it returns (encrypted on this Mac). It returns once the user has approved.
 func (a *App) SignInOpenRouter() error {
 	ctx, cancel := context.WithTimeout(a.ctx, 6*time.Minute)
 	defer cancel()
@@ -415,7 +420,7 @@ func (a *App) SignInOpenRouter() error {
 	if err != nil {
 		return a.problem("openrouter sign-in", err)
 	}
-	return a.problem("keychain", a.secrets.SetKeyFor(ai.ProviderOpenRouter, key))
+	return a.problem("keys", a.secrets.SetKeyFor(ai.ProviderOpenRouter, key))
 }
 
 // AIProviders lists the assistants to choose from (Claude, ChatGPT, DeepSeek).
@@ -424,9 +429,9 @@ func (a *App) AIProviders() []ai.ProviderInfo { return ai.Providers }
 // HasSavedProviderKey reports whether a key for provider is saved in jamalterm.
 func (a *App) HasSavedProviderKey(provider string) bool { return a.secrets.HasSavedKeyFor(provider) }
 
-// SetProviderKey saves a provider's API key in the Keychain ("" removes it).
+// SetProviderKey saves a provider's API key ("" removes it).
 func (a *App) SetProviderKey(provider, key string) error {
-	return a.problem("keychain", a.secrets.SetKeyFor(provider, key))
+	return a.problem("keys", a.secrets.SetKeyFor(provider, key))
 }
 
 // ListProviderModels asks ChatGPT or DeepSeek which chat models the saved
@@ -444,8 +449,8 @@ func (a *App) AnthropicAccount() ai.Account { return ai.SignedInAccount() }
 // HasSavedAPIKey reports whether a key is saved in jamalterm (vs. the env).
 func (a *App) HasSavedAPIKey() bool { return a.secrets.HasSavedKey() }
 
-// SetAPIKey saves the Claude API key in the Keychain ("" removes it).
-func (a *App) SetAPIKey(key string) error { return a.problem("keychain", a.secrets.SetAPIKey(key)) }
+// SetAPIKey saves the Claude API key ("" removes it).
+func (a *App) SetAPIKey(key string) error { return a.problem("keys", a.secrets.SetAPIKey(key)) }
 
 // ---- AI ---------------------------------------------------------------------
 

@@ -2,6 +2,10 @@
 
 package settings
 
+// The Keychain is no longer where keys are kept (see secret.go). This only
+// lets "Move keys from the Keychain" read the item older versions saved,
+// once, when you ask, and then delete it.
+
 /*
 #cgo LDFLAGS: -framework Security -framework CoreFoundation
 #include <Security/Security.h>
@@ -22,19 +26,16 @@ static CFMutableDictionaryRef jt_query(const char *service, const char *account)
 	return q;
 }
 
-// Replaces the item. Items added by an app through SecItemAdd trust only
-// that app: other programs (including the `security` tool) must ask.
-static int jt_set(const char *service, const char *account, const char *data, int len) {
+// Whether the item exists, asking only for its attributes: that never
+// shows a password prompt (reading the secret data would).
+static int jt_exists(const char *service, const char *account) {
 	CFMutableDictionaryRef q = jt_query(service, account);
-	SecItemDelete(q);
-	CFDataRef d = CFDataCreate(NULL, (const UInt8 *)data, len);
-	CFDictionarySetValue(q, kSecValueData, d);
-	CFStringRef label = CFStringCreateWithCString(NULL, "jamalterm API keys", kCFStringEncodingUTF8);
-	CFDictionarySetValue(q, kSecAttrLabel, label);
-	OSStatus st = SecItemAdd(q, NULL);
-	CFRelease(label);
-	CFRelease(d);
+	CFDictionarySetValue(q, kSecReturnAttributes, kCFBooleanTrue);
+	CFDictionarySetValue(q, kSecMatchLimit, kSecMatchLimitOne);
+	CFTypeRef res = NULL;
+	OSStatus st = SecItemCopyMatching(q, &res);
 	CFRelease(q);
+	if (res != NULL) CFRelease(res);
 	return (int)st;
 }
 
@@ -72,7 +73,7 @@ import (
 
 const errSecItemNotFound = -25300
 
-func nativeKeychainAvailable() bool { return true }
+func keychainAvailable() bool { return true }
 
 // keychainGet returns the item's data; found is false when there is none.
 func keychainGet(service, account string) (data []byte, found bool, err error) {
@@ -92,18 +93,12 @@ func keychainGet(service, account string) (data []byte, found bool, err error) {
 	return C.GoBytes(unsafe.Pointer(out), n), true, nil
 }
 
-func keychainSet(service, account string, data []byte) error {
+// keychainExists reports whether the item is there, without a prompt.
+func keychainExists(service, account string) bool {
 	cs, ca := C.CString(service), C.CString(account)
 	defer C.free(unsafe.Pointer(cs))
 	defer C.free(unsafe.Pointer(ca))
-	var p *C.char
-	if len(data) > 0 {
-		p = (*C.char)(unsafe.Pointer(&data[0]))
-	}
-	if st := C.jt_set(cs, ca, p, C.int(len(data))); st != 0 {
-		return fmt.Errorf("Keychain error %d", int(st))
-	}
-	return nil
+	return C.jt_exists(cs, ca) == 0
 }
 
 func keychainDelete(service, account string) error {

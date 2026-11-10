@@ -47,6 +47,24 @@ export class FindBar {
     this.input.focus()
   }
 
+  /** Find Next / Find Previous (⌘G, ⇧⌘G). */
+  next(back = false) {
+    if (!this.input.value) return this.open()
+    this.watch()
+    const t = this.active()
+    if (back) t?.search.findPrevious(this.input.value, { decorations })
+    else t?.search.findNext(this.input.value, { decorations })
+  }
+
+  /** Use Selection for Find (⌘E). */
+  useSelection() {
+    const sel = this.active()?.term.getSelection().trim()
+    if (!sel) return
+    this.input.value = sel.split('\n')[0]
+    this.box.hidden = false
+    this.next()
+  }
+
   close() {
     if (this.box.hidden) return
     this.box.hidden = true

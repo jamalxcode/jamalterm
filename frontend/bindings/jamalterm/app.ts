@@ -103,6 +103,13 @@ export function CheckForUpdate(): $CancellablePromise<$models.UpdateInfo> {
 }
 
 /**
+ * CloseSettings closes the Settings window (Esc, ⌘W).
+ */
+export function CloseSettings(): $CancellablePromise<void> {
+    return $Call.ByID(254067910);
+}
+
+/**
  * CloseTab ends tab id's shell.
  */
 export function CloseTab(id: number): $CancellablePromise<void> {
@@ -130,6 +137,15 @@ export function CloseWindowNow(): $CancellablePromise<void> {
  */
 export function Commands(): $CancellablePromise<$models.Command[] | null> {
     return $Call.ByID(1390709563);
+}
+
+/**
+ * Confirm shows a native macOS alert, as a sheet on the calling window, and
+ * reports whether you chose the action. Cancel is the default button (⏎ and
+ * Esc), as Apple suggests when the action can't be undone.
+ */
+export function Confirm(title: string, message: string, action: string): $CancellablePromise<boolean> {
+    return $Call.ByID(3228319335, title, message, action);
 }
 
 /**
@@ -217,6 +233,29 @@ export function IsPrimaryWindow(): $CancellablePromise<boolean> {
 }
 
 /**
+ * IsSettingsWindow: the calling window is Settings.
+ */
+export function IsSettingsWindow(): $CancellablePromise<boolean> {
+    return $Call.ByID(1838061292);
+}
+
+/**
+ * KeychainKeysWaiting: an older version left keys in the Keychain (Settings
+ * offers to move them; checking never shows a password prompt).
+ */
+export function KeychainKeysWaiting(): $CancellablePromise<boolean> {
+    return $Call.ByID(798803992);
+}
+
+/**
+ * KeysUnreadable: saved keys couldn't be unlocked on this computer (the
+ * folder was copied from another Mac); they need entering again.
+ */
+export function KeysUnreadable(): $CancellablePromise<boolean> {
+    return $Call.ByID(3622076806);
+}
+
+/**
  * ListProviderModels asks ChatGPT or DeepSeek which chat models the saved
  * key can use (newest first).
  */
@@ -248,6 +287,14 @@ export function LogProblem(area: string, message: string): $CancellablePromise<v
 }
 
 /**
+ * MoveKeysFromKeychain moves those keys into jamalterm's own encrypted
+ * file and deletes the Keychain item. macOS asks one last time.
+ */
+export function MoveKeysFromKeychain(): $CancellablePromise<number> {
+    return $Call.ByID(319770844);
+}
+
+/**
  * NewWindow opens another window whose first tab starts in cwd.
  */
 export function NewWindow(cwd: string): $CancellablePromise<void> {
@@ -267,6 +314,22 @@ export function Notify(title: string, body: string): $CancellablePromise<void> {
  */
 export function OpenPath(p: string): $CancellablePromise<void> {
     return $Call.ByID(1591734570, p);
+}
+
+/**
+ * OpenSettings shows the Settings window (or brings it to the front).
+ * page optionally picks a pane, find highlights a setting.
+ */
+export function OpenSettings(): $CancellablePromise<void> {
+    return $Call.ByID(2024983644);
+}
+
+/**
+ * OpenSettingsAt opens Settings on a pane ("appearance", "ai"…), with the
+ * setting whose label contains find highlighted.
+ */
+export function OpenSettingsAt(page: string, find: string): $CancellablePromise<void> {
+    return $Call.ByID(3369455401, page, find);
 }
 
 /**
@@ -374,7 +437,7 @@ export function SetAIProvider(id: string): $CancellablePromise<void> {
 }
 
 /**
- * SetAPIKey saves the Claude API key in the Keychain ("" removes it).
+ * SetAPIKey saves the Claude API key ("" removes it).
  */
 export function SetAPIKey(key: string): $CancellablePromise<void> {
     return $Call.ByID(4066338368, key);
@@ -388,7 +451,14 @@ export function SetActiveTab(id: number): $CancellablePromise<void> {
 }
 
 /**
- * SetProviderKey saves a provider's API key in the Keychain ("" removes it).
+ * SetMenuState updates the menu bar for the window in front.
+ */
+export function SetMenuState(s: $models.MenuState): $CancellablePromise<void> {
+    return $Call.ByID(3795277809, s);
+}
+
+/**
+ * SetProviderKey saves a provider's API key ("" removes it).
  */
 export function SetProviderKey(provider: string, key: string): $CancellablePromise<void> {
     return $Call.ByID(3212326881, provider, key);
@@ -422,7 +492,7 @@ export function ShowProblemLog(): $CancellablePromise<void> {
 
 /**
  * SignInOpenRouter runs OpenRouter's browser sign-in and saves the key
- * it returns in the Keychain. It returns once the user has approved.
+ * it returns (encrypted on this Mac). It returns once the user has approved.
  */
 export function SignInOpenRouter(): $CancellablePromise<void> {
     return $Call.ByID(2997726226);
@@ -471,6 +541,14 @@ export function Start(id: number, cols: number, rows: number, cwd: string): $Can
  */
 export function StartDir(): $CancellablePromise<string> {
     return $Call.ByID(416828758);
+}
+
+/**
+ * ToTerminal sends a menu command to the terminal window last used (for
+ * Settings' "Sign in", "Check now", …).
+ */
+export function ToTerminal(command: string): $CancellablePromise<void> {
+    return $Call.ByID(2182196092, command);
 }
 
 /**

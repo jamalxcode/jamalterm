@@ -124,7 +124,9 @@ export function bgAt(theme: Theme, alpha: number): string {
 
 /** Sets CSS variables so the tabs, panels and dialogs match the theme.
  *  opacity < 1 makes the window see-through (the desktop shows behind). */
-export function applyChrome(theme: Theme, opacity = 1) {
+/** Colors for the window around the terminal. frame "system" follows
+ * macOS (light/dark, accent); "theme" uses the terminal theme's colors. */
+export function applyChrome(theme: Theme, opacity = 1, frame: 'system' | 'theme' = 'theme') {
   const c = theme.colors
   const bg = c.background!, fg = c.foreground!
   const s = document.documentElement.style
@@ -150,4 +152,60 @@ export function applyChrome(theme: Theme, opacity = 1) {
   s.setProperty('--highlight', theme.light ? 'rgba(9, 105, 218, 0.10)' : 'rgba(130, 170, 255, 0.10)')
   s.setProperty('--highlight-strong', theme.light ? 'rgba(9, 105, 218, 0.20)' : 'rgba(130, 170, 255, 0.20)')
   document.documentElement.dataset.light = theme.light ? '1' : ''
+  // The AI panel: a lighter, raised surface with a violet tint, so it never
+  // reads as part of the terminal.
+  const aiBase = theme.light ? '#ffffff' : mix(mix(bg, fg, 0.05), '#ffffff', 0.13)
+  s.setProperty('--ai', mix(aiBase, c.magenta!, theme.light ? 0.04 : 0.08))
+  s.setProperty('--ai-2', mix(aiBase, c.magenta!, theme.light ? 0.08 : 0.13))
+  s.removeProperty('--field')
+  if (frame === 'system') applySystemFrame(a, barA)
+  document.documentElement.classList.toggle('frame-system', frame === 'system')
+}
+
+/** Overrides the frame colors with macOS's (the terminal keeps its theme). */
+export function applySystemFrame(a = 1, barA = 1) {
+  const dark = systemDark()
+  const p = systemPalette(dark)
+  const s = document.documentElement.style
+  s.setProperty('--fg', p.fg)
+  s.setProperty('--muted', p.muted)
+  s.setProperty('--panel', p.panel)
+  s.setProperty('--panel-2', p.panel2)
+  s.setProperty('--border', p.border)
+  s.setProperty('--panel-a', rgba(p.window, barA))
+  s.setProperty('--titlebar-bg', rgba(p.titlebar, barA))
+  s.setProperty('--red', p.red)
+  s.setProperty('--green', p.green)
+  s.setProperty('--yellow', p.yellow)
+  s.setProperty('--blue', p.blue)
+  s.setProperty('--magenta', p.purple)
+  // The accent color you picked in System Settings (Safari/WebKit name),
+  // else Apple's blue.
+  s.setProperty('--accent', CSS.supports('color', '-apple-system-control-accent') ? '-apple-system-control-accent' : p.blue)
+  s.setProperty('--accent-fg', '#ffffff')
+  s.setProperty('--field', dark ? '#1e1e1e' : '#ffffff') // text fields
+  s.setProperty('--highlight', dark ? 'rgba(10, 132, 255, 0.16)' : 'rgba(0, 122, 255, 0.10)')
+  s.setProperty('--highlight-strong', dark ? 'rgba(10, 132, 255, 0.28)' : 'rgba(0, 122, 255, 0.20)')
+  const ai = dark ? '#3a3540' : '#ffffff'
+  s.setProperty('--ai', ai)
+  s.setProperty('--ai-2', dark ? '#443e4c' : '#f7f3fc')
+  document.documentElement.dataset.light = dark ? '' : '1'
+  void a
+}
+
+export const systemDark = () => matchMedia('(prefers-color-scheme: dark)').matches
+
+/** Apple's system colors (light / dark), from the Human Interface Guidelines. */
+export function systemPalette(dark: boolean) {
+  return dark
+    ? {
+        window: '#1e1e1e', titlebar: '#2a2a2a', panel: '#262626', panel2: '#333333', border: '#3d3d3d',
+        fg: '#f5f5f7', muted: '#98989d', red: '#ff453a', green: '#30d158', yellow: '#ffd60a',
+        blue: '#0a84ff', purple: '#bf5af2', orange: '#ff9f0a',
+      }
+    : {
+        window: '#ececec', titlebar: '#e3e3e3', panel: '#f5f5f5', panel2: '#e8e8e8', border: '#d1d1d1',
+        fg: '#1d1d1f', muted: '#6e6e73', red: '#ff3b30', green: '#28a745', yellow: '#b8860b',
+        blue: '#007aff', purple: '#af52de', orange: '#ff9500',
+      }
 }

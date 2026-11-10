@@ -43,6 +43,7 @@ func main() {
 	})
 	a.app = app
 	app.Menu.Set(a.buildMenu())
+	a.registerContextMenu()
 	a.openStartWindows()
 	if err := app.Run(); err != nil {
 		log.Fatal(err)

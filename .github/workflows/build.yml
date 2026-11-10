@@ -62,8 +62,8 @@ jobs:
       - name: Test (macOS zsh, bash 3.2, tcsh)
         run: |
           go test -race ./internal/...
-          # Show whether the real-Keychain tests ran or were skipped.
-          go test -v -count=1 -run 'NativeKeychain|KeysMoveFromSecurityTool' ./internal/settings/
+          # Keys: the encrypted file, and moving old keys out of the Keychain.
+          go test -v -count=1 -run 'MoveFromKeychain|Secrets' ./internal/settings/
         env: { CGO_ENABLED: "1" }
 
       - name: Build the frontend
