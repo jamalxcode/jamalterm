@@ -47,9 +47,12 @@ ureq = { version = "3", default-features = false, features = ["json", "rustls"] 
 # On a Mac, HTTPS uses the system's TLS and trust store (Security framework).
 ureq = { version = "3", default-features = false, features = ["json", "native-tls"] }
 muda = "0.21"
+# The menu bar icon (it shares muda's menus and events).
+tray-icon = { version = "0.26", default-features = false }
+objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "block2", "UNUserNotificationCenter", "UNNotificationRequest", "UNNotificationContent", "UNNotificationSettings", "UNNotificationTrigger"] }
 # The window's view for the right-click menu, and native alerts (the same
 # versions muda uses).
 objc2 = "0.6"
 block2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSArray"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "block2", "NSAlert", "NSApplication", "NSButton", "NSControl", "NSResponder", "NSView", "NSWindow", "NSRunningApplication"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSArray", "NSBundle", "NSURL", "NSError"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "block2", "NSAlert", "NSApplication", "NSButton", "NSControl", "NSResponder", "NSView", "NSWindow", "NSRunningApplication", "NSAccessibility", "NSWorkspace", "NSScreen", "NSSound", "NSMenu", "NSMenuItem"] }

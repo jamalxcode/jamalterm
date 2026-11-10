@@ -11,6 +11,15 @@ use egui::Key;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Cmd {
     Settings,
+    /// From the menu bar icon or the Dock menu: bring this tab forward
+    /// (window id, tab place). Not in the table.
+    ShowTab(u64, usize),
+    /// Bring every window forward.
+    ShowAll,
+    /// The menu bar icon's own "Hide This Icon".
+    HideMenuBarIcon,
+    /// Help → Your Day in jamalterm.
+    YourDay,
     /// Keep Secure Keyboard Entry on all the time (a checkmark).
     SecureInput,
     /// Help → Copy Diagnostics…
@@ -130,6 +139,7 @@ const fn tab(n: u8, key: Key) -> Entry {
 pub const TABLE: &[Entry] = &[
     e(Cmd::Settings, "Settings…", Menu::App, Key::Comma, false),
     item(Cmd::SecureInput, "Secure Keyboard Entry", Menu::App),
+    item(Cmd::YourDay, "Your Day in jamalterm", Menu::Help),
     item(Cmd::Diagnostics, "Copy Diagnostics…", Menu::Help),
     Entry {
         menu: None, // the jamalterm menu has its own Quit item, at the end
@@ -299,7 +309,21 @@ pub fn id(cmd: Cmd) -> String {
 }
 
 pub fn by_id(id: &str) -> Option<Cmd> {
+    if let Some(rest) = id.strip_prefix("go:") {
+        let (w, t) = rest.split_once(':')?;
+        return Some(Cmd::ShowTab(w.parse().ok()?, t.parse().ok()?));
+    }
+    match id {
+        "ShowAll" => return Some(Cmd::ShowAll),
+        "HideMenuBarIcon" => return Some(Cmd::HideMenuBarIcon),
+        _ => {}
+    }
     TABLE.iter().map(|e| e.cmd).find(|c| self::id(*c) == id)
+}
+
+/// The id of a "bring this tab forward" item.
+pub fn go_id(win: u64, tab: usize) -> String {
+    format!("go:{win}:{tab}")
 }
 
 #[cfg(test)]
@@ -351,6 +375,13 @@ mod tests {
             for_key(Key::OpenBracket, Some(false), false),
             Some(Cmd::PreviousPane)
         );
+    }
+
+    #[test]
+    fn switcher_ids() {
+        assert_eq!(by_id(&go_id(3, 1)), Some(Cmd::ShowTab(3, 1)));
+        assert_eq!(by_id("go:x:1"), None);
+        assert_eq!(by_id("ShowAll"), Some(Cmd::ShowAll));
     }
 
     #[test]

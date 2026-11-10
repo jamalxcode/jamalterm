@@ -115,10 +115,21 @@ pub struct Look<'a> {
     pub focused: bool,
     pub blink_on: bool,
     pub browse: Option<BrowseLook>,
+    /// Cursor effect: draw the cursor here instead (Smooth: it glides
+    /// toward where it is), and a soft halo around it (Glow).
+    pub cursor_at: Option<Pos2>,
+    pub glow: bool,
 }
 
-/// Paints the terminal into rect. Returns the top-left of the cell grid.
-pub fn paint(painter: &Painter, rect: Rect, s: &Screen, look: &Look) -> Pos2 {
+/// Where things ended up: the grid's top-left, and the real cursor's cell.
+pub struct Painted {
+    pub origin: Pos2,
+    pub cursor: Option<Rect>,
+}
+
+/// Paints the terminal into rect.
+pub fn paint(painter: &Painter, rect: Rect, s: &Screen, look: &Look) -> Painted {
+    let mut real_cursor = None;
     let theme = look.theme;
     painter.rect_filled(rect, 0.0, theme.background);
     let origin = pos2(rect.left() + GUTTER, rect.top() + PAD);
@@ -303,8 +314,17 @@ pub fn paint(painter: &Painter, rect: Rect, s: &Screen, look: &Look) -> Pos2 {
     if mode.contains(TermMode::SHOW_CURSOR) && cursor.shape != CursorShape::Hidden {
         let line = cursor.point.line.0 + offset;
         if line >= 0 && (line as usize) < s.term.screen_lines() {
-            let r = Rect::from_min_size(at(line, cursor.point.column.0), cell);
+            let real = Rect::from_min_size(at(line, cursor.point.column.0), cell);
+            real_cursor = Some(real);
+            let r = match look.cursor_at {
+                Some(p) => Rect::from_min_size(p, cell),
+                None => real,
+            };
             let color = theme.cursor;
+            if look.glow && look.focused {
+                painter.rect_filled(r.expand(4.0), 5.0, color.gamma_multiply(0.12));
+                painter.rect_filled(r.expand(2.0), 3.0, color.gamma_multiply(0.18));
+            }
             if !look.focused {
                 painter.rect_stroke(
                     r.shrink(0.5),
@@ -336,7 +356,7 @@ pub fn paint(painter: &Painter, rect: Rect, s: &Screen, look: &Look) -> Pos2 {
                         // The character under a block cursor, in the background color.
                         let g = &s.term.grid()
                             [Point::new(Line(cursor.point.line.0), Column(cursor.point.column.0))];
-                        if g.c != ' ' {
+                        if g.c != ' ' && r == real {
                             painter.text(
                                 r.left_top()
                                     + vec2(0.0, ((cell.y - look.font_size * 1.2) / 2.0).max(0.0)),
@@ -377,7 +397,10 @@ pub fn paint(painter: &Painter, rect: Rect, s: &Screen, look: &Look) -> Pos2 {
             color,
         );
     }
-    origin
+    Painted {
+        origin,
+        cursor: real_cursor,
+    }
 }
 
 /// The cell under a point in the view (for selection), clamped to the grid.

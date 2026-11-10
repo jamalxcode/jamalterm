@@ -37,6 +37,12 @@ pub struct Pane {
     typed: bool,
     /// Prompts seen when `typed` was last reset.
     prompts: u64,
+    /// Finished commands already noted (for notifications, the finish line
+    /// and the stats).
+    noted: usize,
+    /// Smooth cursor: where it's drawn now, and where it really is.
+    cursor_drawn: Option<egui::Pos2>,
+    cursor_real: Option<egui::Pos2>,
 }
 
 /// A tab: one pane, or several split.
@@ -250,6 +256,8 @@ pub struct Win {
     open_at: Option<restore::Frame>,
     /// The command palette (⇧⌘P), when open.
     palette: Option<palette::Palette>,
+    /// The finish line card ("✓ build done in 3m 12s") and until when.
+    finish: Option<(String, Instant)>,
     /// The AI panel (⌘I) and its conversation.
     ai: aipanel::Chat,
     ai_open: bool,
@@ -278,6 +286,7 @@ impl Win {
             frame: None,
             open_at: None,
             palette: None,
+            finish: None,
             ai: aipanel::Chat::default(),
             ai_open: false,
             tab_drag: None,
@@ -324,6 +333,14 @@ pub struct App {
     diagnostics: Option<String>,
     /// Some window of ours is in front (this frame).
     app_active: bool,
+    /// Your Day in jamalterm: program names and timings (stats.json).
+    stats: crate::fun::Stats,
+    stats_path: PathBuf,
+    your_day: bool,
+    /// The first-start card (shown once).
+    welcome: bool,
+    #[cfg(target_os = "macos")]
+    switcher: crate::menu::Switcher,
     /// The next pane's id.
     next_id: u64,
     settings: Settings,
@@ -360,6 +377,20 @@ impl App {
             settings.shell.clone()
         };
         let keys = Keys::open(&settings_path);
+        let dir = settings_path
+            .parent()
+            .unwrap_or(Path::new("."))
+            .to_path_buf();
+        let stats_path = dir.join("stats.json");
+        // The first-start card: once, and never when windows were reopened.
+        let welcomed = dir.join(".welcomed");
+        let welcome = !welcomed.exists()
+            && restored.is_empty()
+            && std::env::var_os("JAMALTERM_SMOKE").is_none();
+        if welcome {
+            let _ = std::fs::create_dir_all(&dir);
+            let _ = std::fs::write(&welcomed, b"");
+        }
         let smoke = crate::smoke::Smoke::from_env();
         let ai_override = smoke
             .as_ref()
@@ -386,6 +417,12 @@ impl App {
             last_crash,
             diagnostics: None,
             app_active: false,
+            stats: crate::fun::Stats::load(&stats_path),
+            stats_path,
+            your_day: false,
+            welcome,
+            #[cfg(target_os = "macos")]
+            switcher: crate::menu::Switcher::new(),
             next_id: 1,
             theme,
             home: dirs::home_dir()
@@ -544,6 +581,9 @@ impl App {
                     browse: None,
                     typed: false,
                     prompts: 0,
+                    noted: 0,
+                    cursor_drawn: None,
+                    cursor_real: None,
                 })
             }
             Err(e) => {
@@ -1262,6 +1302,203 @@ impl App {
         }
     }
 
+    /// Long commands that finished: a notification when you're in another
+    /// app, the finish line when you watched; every finished command's
+    /// program name and time go in Your Day's stats.
+    fn finished_commands(&mut self) {
+        let active = self.app_active;
+        let front = self.front;
+        let notify_after = self.settings.notify_after_seconds as u64;
+        let mut stats_changed = false;
+        let mut chime = false;
+        let mut wins: Vec<&mut Win> = std::iter::once(&mut self.w)
+            .chain(self.others.iter_mut())
+            .collect();
+        for w in wins.iter_mut() {
+            let visible: Vec<u64> = w
+                .tabs
+                .get(w.active)
+                .map(|t| t.panes().iter().map(|p| p.id).collect())
+                .unwrap_or_default();
+            let mut card = None;
+            for t in &mut w.tabs {
+                for p in t.tree_mut().leaves_mut() {
+                    let s = p.session.screen.lock().unwrap();
+                    let done: Vec<(String, i32, u64)> = s
+                        .commands
+                        .blocks
+                        .iter()
+                        .filter(|b| b.exit.is_some() && !b.command.is_empty())
+                        .skip(p.noted)
+                        .map(|b| {
+                            let secs = match (b.started_at, b.finished_at) {
+                                (Some(a), Some(z)) => z.duration_since(a).as_secs(),
+                                _ => 0,
+                            };
+                            (b.command.clone(), b.exit.unwrap_or(0), secs)
+                        })
+                        .collect();
+                    let total = s
+                        .commands
+                        .blocks
+                        .iter()
+                        .filter(|b| b.exit.is_some() && !b.command.is_empty())
+                        .count();
+                    drop(s);
+                    if total < p.noted {
+                        p.noted = total; // ⌘K cleared them
+                    }
+                    p.noted += done.len();
+                    for (command, exit, secs) in done {
+                        let program = program_of(&command).unwrap_or_else(|| "a command".into());
+                        self.stats
+                            .record(&program, secs, exit == 0, crate::fun::now_secs());
+                        stats_changed = true;
+                        if self.settings.notify_long_commands && secs >= notify_after && !active {
+                            let (title, body) = crate::fun::notification(&command, exit, secs);
+                            crate::macos::notify(&title, &body);
+                        } else if self.settings.finish_moments
+                            && secs >= 60
+                            && active
+                            && front == w.id
+                            && visible.contains(&p.id)
+                        {
+                            card = Some(crate::fun::finish_line(&program, exit == 0, secs));
+                            chime |= self.settings.finish_sound;
+                        }
+                    }
+                }
+            }
+            if let Some(c) = card {
+                w.finish = Some((c, Instant::now() + Duration::from_secs(5)));
+            }
+        }
+        if chime {
+            crate::macos::chime();
+        }
+        if stats_changed && self.smoke.as_ref().is_none_or(|s| s.save_session) {
+            self.stats.save(&self.stats_path);
+        }
+    }
+
+    /// The menu bar icon's and the Dock menu's list of windows and tabs.
+    #[cfg(target_os = "macos")]
+    fn update_switcher(&mut self) {
+        let mut wins: Vec<&Win> = std::iter::once(&self.w).chain(&self.others).collect();
+        wins.sort_by_key(|w| (!w.root, w.id));
+        let list: Vec<crate::menu::Listed> = wins
+            .iter()
+            .filter(|w| !w.tabs.is_empty())
+            .map(|w| {
+                let tabs: Vec<String> = w
+                    .tabs
+                    .iter()
+                    .map(|t| tab_name(&t.folder(&self.home), &t.program(&self.shell_name)))
+                    .collect();
+                crate::menu::Listed {
+                    id: w.id,
+                    name: tabs.get(w.active).cloned().unwrap_or_default(),
+                    tabs,
+                    active: w.active,
+                }
+            })
+            .collect();
+        self.switcher.update(&list, self.settings.menu_bar_icon);
+    }
+
+    /// Help → Your Day in jamalterm.
+    fn your_day_window(&mut self, ctx: &egui::Context) {
+        if !self.your_day {
+            return;
+        }
+        let offset = local_utc_offset();
+        let day = self.stats.day(crate::fun::now_secs(), offset);
+        let vp = egui::ViewportId::from_hash_of("jamalterm-your-day");
+        let builder = egui::ViewportBuilder::default()
+            .with_title("Your Day in jamalterm")
+            .with_inner_size([380.0, 340.0]);
+        let (mut close, mut reset) = (false, false);
+        ctx.show_viewport_immediate(vp, builder, |ui, _| {
+            let ctx = ui.ctx().clone();
+            ctx.input(|i| close = i.viewport().close_requested() || i.key_pressed(Key::Escape));
+            egui::CentralPanel::default().show(ui, |ui| {
+                ui.heading("Today");
+                ui.label(format!("{} commands, {} failed", day.commands, day.failures));
+                if let Some((p, secs)) = &day.longest {
+                    ui.label(format!("Longest: {p}, {}", crate::fun::duration(*secs)));
+                }
+                ui.add_space(8.0);
+                ui.heading("Most used this week");
+                if day.week.is_empty() {
+                    ui.weak("Nothing yet.");
+                }
+                for (p, n) in &day.week {
+                    ui.label(format!("{p}: {n}"));
+                }
+                ui.add_space(8.0);
+                ui.weak("Only program names and timings are kept, on this Mac, for a week; never arguments or output.");
+                ui.horizontal(|ui| {
+                    if ui.button("Reset").clicked() {
+                        reset = true;
+                    }
+                    if ui.button("Close").clicked() {
+                        close = true;
+                    }
+                });
+            });
+        });
+        if reset {
+            self.stats = Default::default();
+            self.stats.save(&self.stats_path);
+        }
+        if close {
+            self.your_day = false;
+        }
+    }
+
+    /// The finish line card and the first-start card, bottom right.
+    fn cards(&mut self, ctx: &egui::Context) {
+        if let Some((text, until)) = &self.w.finish {
+            if Instant::now() > *until {
+                self.w.finish = None;
+            } else {
+                let text = text.clone();
+                egui::Area::new(egui::Id::unique(("finish", self.w.id)))
+                    .anchor(egui::Align2::RIGHT_BOTTOM, Vec2::new(-16.0, -16.0))
+                    .order(egui::Order::Foreground)
+                    .show(ctx, |ui| {
+                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                            ui.label(RichText::new(text).size(15.0));
+                        });
+                    });
+                ctx.request_repaint_after(Duration::from_millis(500));
+            }
+        }
+        if self.welcome && self.w.root {
+            let mut done = false;
+            egui::Area::new(egui::Id::unique("welcome"))
+                .anchor(egui::Align2::RIGHT_BOTTOM, Vec2::new(-16.0, -16.0))
+                .order(egui::Order::Foreground)
+                .show(ctx, |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.set_max_width(320.0);
+                        ui.label(RichText::new("Three things that aren't obvious").strong());
+                        ui.label(
+                            "⌘↑ (or ↑ at an empty prompt) browses past commands: ⏎ runs one again.",
+                        );
+                        ui.label("⌘I asks the AI about a command, an error or its output.");
+                        ui.label("⇧⌘P finds any command, setting, theme or tab.");
+                        if ui.button("Got It").clicked() {
+                            done = true;
+                        }
+                    });
+                });
+            if done {
+                self.welcome = false;
+            }
+        }
+    }
+
     /// The tab bar shows with two or more tabs, or always when chosen (View
     /// → Show Tab Bar); Hide Tab Bar hides it even with several tabs.
     fn tab_bar_shown(&self) -> bool {
@@ -1608,6 +1845,28 @@ impl App {
         match cmd {
             Cmd::NewTab => self.new_tab(ctx, None),
             Cmd::Settings => self.open_settings(None),
+            Cmd::ShowTab(win, tab) => {
+                if win == self.w.id {
+                    self.w.active = tab.min(self.w.tabs.len().saturating_sub(1));
+                    ctx.send_viewport_cmd_to(
+                        App::viewport_of(&self.w),
+                        egui::ViewportCommand::Focus,
+                    );
+                } else if let Some(w) = self.others.iter_mut().find(|w| w.id == win) {
+                    w.active = tab.min(w.tabs.len().saturating_sub(1));
+                    ctx.send_viewport_cmd_to(App::viewport_of(w), egui::ViewportCommand::Focus);
+                }
+            }
+            Cmd::ShowAll => {
+                for w in std::iter::once(&self.w).chain(&self.others) {
+                    ctx.send_viewport_cmd_to(App::viewport_of(w), egui::ViewportCommand::Focus);
+                }
+            }
+            Cmd::HideMenuBarIcon => {
+                self.settings.menu_bar_icon = false;
+                self.settings_changed();
+            }
+            Cmd::YourDay => self.your_day = true,
             Cmd::SecureInput => {
                 self.settings.secure_input = !self.settings.secure_input;
                 self.settings_changed();
@@ -2035,6 +2294,36 @@ impl App {
                             .sense(Sense::click_and_drag()),
                     );
                     rects.push(b.rect);
+                    // Its project's color (tabs in the same git repository
+                    // share one), or its ssh host's color from Settings.
+                    let (cwd, running) = {
+                        let s = tab.pane().session.screen.lock().unwrap();
+                        (
+                            s.cwd.clone(),
+                            s.commands.running().map(|b| b.command.clone()),
+                        )
+                    };
+                    let edge = running
+                        .as_deref()
+                        .and_then(|c| crate::fun::host_color(c, &self.settings.host_colors))
+                        .or_else(|| {
+                            self.settings
+                                .project_colors
+                                .then(|| crate::fun::repo_root(&cwd))
+                                .flatten()
+                                .map(|root| crate::fun::project_color(&root, &self.theme))
+                        });
+                    if let Some(c) = edge {
+                        let r = b.rect;
+                        ui.painter().rect_filled(
+                            egui::Rect::from_min_size(
+                                r.left_top() + Vec2::new(2.0, 4.0),
+                                Vec2::new(3.0, r.height() - 8.0),
+                            ),
+                            1.5,
+                            c,
+                        );
+                    }
                     if b.clicked() {
                         select = Some(i);
                     }
@@ -2255,6 +2544,7 @@ impl eframe::App for App {
             smoke.theme = self.settings.theme.clone();
             smoke.asking = self.asking.is_some();
             smoke.crash_noticed = self.last_crash.is_some();
+            smoke.stats_programs = self.stats.runs.iter().map(|r| r.program.clone()).collect();
             smoke.ai_open = self.w.ai_open;
             smoke.ai_card = self.w.ai.items.iter().rev().find_map(|i| match i {
                 aipanel::Item::Tool(c) => Some(format!("{:?}", c.state)),
@@ -2302,6 +2592,10 @@ impl eframe::App for App {
 
         self.settings_window(&ctx);
         self.diagnostics_window(&ctx);
+        self.your_day_window(&ctx);
+        self.finished_commands();
+        #[cfg(target_os = "macos")]
+        self.update_switcher();
         self.secure_input(was_active);
 
         // A "terminate running processes?" question: its answer.
@@ -2536,6 +2830,7 @@ impl App {
         if self.w.tabs.is_empty() {
             return;
         }
+        self.cards(&ctx);
         self.ai_panel(&ctx, ui);
 
         // Browse mode's key bar.
@@ -2586,6 +2881,8 @@ impl App {
                 let multi = placed.len() > 1;
                 let focus = self.w.tabs[a].pane().id;
                 let window_focused = ctx.input(|i| i.focused);
+                let smooth =
+                    self.settings.cursor_effect == "smooth" && !crate::macos::reduce_motion();
                 let mut focus_to = None;
                 let mut click_browse = None;
                 let mut context: Option<bool> = None; // right-clicked (with a selection?)
@@ -2671,6 +2968,21 @@ impl App {
 
                     let blink_on = !self.settings.cursor_blink
                         || (self.started.elapsed().as_millis() / 530).is_multiple_of(2);
+                    // Smooth cursor: it glides toward where it is (not with
+                    // Reduce Motion).
+                    let cursor_at = if smooth {
+                        match (pane.cursor_drawn, pane.cursor_real) {
+                            (Some(d), Some(r))
+                                if d.distance(r) > 0.5 && d.distance(r) < cell.x * 40.0 =>
+                            {
+                                ctx.request_repaint();
+                                Some(d + (r - d) * 0.35)
+                            }
+                            (_, r) => r,
+                        }
+                    } else {
+                        None
+                    };
                     let look = Look {
                         theme: &self.theme,
                         font_size,
@@ -2679,9 +2991,14 @@ impl App {
                         focused: window_focused && focused,
                         blink_on,
                         browse: browse_look,
+                        cursor_at,
+                        glow: self.settings.cursor_effect == "glow",
                     };
                     let painter = ui.painter_at(rect);
-                    let origin = view::paint(&painter, rect, &screen, &look);
+                    let painted = view::paint(&painter, rect, &screen, &look);
+                    let origin = painted.origin;
+                    pane.cursor_drawn = cursor_at;
+                    pane.cursor_real = painted.cursor.map(|r| r.min);
 
                     if let Some(pos) = response.interact_pointer_pos() {
                         let (point, side) = view::point_at(pos, origin, cell, &screen);
@@ -2828,6 +3145,14 @@ impl App {
             );
         }
     }
+}
+
+/// This computer's offset from UTC, in seconds (for "today").
+fn local_utc_offset() -> i64 {
+    let now = unsafe { libc::time(std::ptr::null_mut()) };
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    unsafe { libc::localtime_r(&now, &mut tm) };
+    tm.tm_gmtoff as i64
 }
 
 /// "macOS 15.2" (or the system's name elsewhere).

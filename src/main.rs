@@ -10,8 +10,10 @@ mod commands;
 mod diag;
 mod find;
 mod fonts;
+mod fun;
 mod input;
 mod keys;
+mod macos;
 mod marks;
 #[cfg(target_os = "macos")]
 mod menu;

@@ -63,6 +63,8 @@ pub struct Smoke {
     pub ai_decide: Option<bool>,
     /// The pane in front is at a password prompt (from the app).
     pub password_prompt: bool,
+    /// The programs in Your Day's stats (from the app).
+    pub stats_programs: Vec<String>,
     /// The crash notice is showing (from the app).
     pub crash_noticed: bool,
     /// The diagnostics report, once shown.
@@ -389,6 +391,20 @@ const STEPS: &[Step] = &[
         act: |_, _, tabs, a| tabs[a].pane().session.write(b"hunter2\r"),
         done: |s, _, _| (!s.password_prompt).then(|| (true, String::new())),
         limit: Duration::from_secs(5),
+    },
+    Step {
+        name: "Your Day keeps program names only",
+        act: |s, _, _, _| s.cmds.push(Cmd::YourDay),
+        done: |s, _, _| {
+            let p = &s.stats_programs;
+            (p.iter().any(|x| x == "echo") && p.iter().any(|x| x == "false")).then(|| {
+                (
+                    !p.iter().any(|x| x.contains(' ')),
+                    format!("{} runs: {}", p.len(), p.join(", ")),
+                )
+            })
+        },
+        limit: Duration::from_secs(3),
     },
     Step {
         name: "Copy Diagnostics shows a scrubbed report",
@@ -738,6 +754,7 @@ impl Smoke {
             quit: false,
             password_prompt: false,
             crash_noticed: false,
+            stats_programs: vec![],
             diagnostics: None,
             ai_server,
             ai_requests,

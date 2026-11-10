@@ -45,6 +45,36 @@ pub const TOGGLES: &[Toggle] = &[
         field: |s| &mut s.cursor_blink,
     },
     Toggle {
+        label: "Color tabs by project (git repository)",
+        pane: Pane::Appearance,
+        advanced: false,
+        field: |s| &mut s.project_colors,
+    },
+    Toggle {
+        label: "jamalterm in the menu bar",
+        pane: Pane::Appearance,
+        advanced: false,
+        field: |s| &mut s.menu_bar_icon,
+    },
+    Toggle {
+        label: "Notify when a long command finishes while you're in another app",
+        pane: Pane::Shell,
+        advanced: false,
+        field: |s| &mut s.notify_long_commands,
+    },
+    Toggle {
+        label: "Finish line: a card when a command over a minute ends",
+        pane: Pane::Shell,
+        advanced: false,
+        field: |s| &mut s.finish_moments,
+    },
+    Toggle {
+        label: "A soft chime with the finish line",
+        pane: Pane::Shell,
+        advanced: true,
+        field: |s| &mut s.finish_sound,
+    },
+    Toggle {
         label: "Always show the tab bar",
         pane: Pane::Appearance,
         advanced: false,
@@ -130,6 +160,17 @@ pub struct Item {
     pub action: Action,
 }
 
+/// The two themes that aren't fixed colors: Theme of the week, and Match my
+/// wallpaper (made from the desktop picture).
+pub fn special_themes() -> Vec<crate::themes::Theme> {
+    let mut week = crate::themes::by_id("weekly");
+    week.name = "Theme of the week";
+    let mut wall = crate::themes::themes()[0].clone();
+    wall.id = "wallpaper";
+    wall.name = "Match my wallpaper";
+    vec![week, wall]
+}
+
 /// "⇧⌘P" on a Mac, "Ctrl+Shift+P" elsewhere.
 pub fn key_label(e: &commands::Entry) -> String {
     let Some(k) = e.key else {
@@ -189,7 +230,7 @@ pub fn items(settings: &Settings) -> Vec<Item> {
             action: Action::Toggle(i),
         });
     }
-    for t in crate::themes::themes() {
+    for t in crate::themes::themes().into_iter().chain(special_themes()) {
         v.push(Item {
             title: format!("Theme: {}", t.name),
             group: "Theme",
@@ -322,8 +363,9 @@ mod tests {
         assert!(titles.contains(&"Split Pane Right"));
         assert_eq!(
             titles.iter().filter(|t| t.starts_with("Theme: ")).count(),
-            10
+            12
         );
+        assert!(titles.contains(&"Theme: Match my wallpaper"));
         assert!(
             !titles.iter().any(|t| t.starts_with("Command Palette")),
             "not itself"

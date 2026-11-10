@@ -78,7 +78,12 @@ fn toggles(ui: &mut Ui, s: &mut Settings, pane: Pane, advanced: bool) {
 fn appearance(ui: &mut Ui, s: &mut Settings, preview: &mut Option<&'static str>) {
     ui.label(RichText::new("Theme").strong());
     egui::Grid::new("themes").num_columns(2).show(ui, |ui| {
-        for (i, t) in crate::themes::themes().into_iter().enumerate() {
+        let specials = crate::palette::special_themes();
+        for (i, t) in crate::themes::themes()
+            .into_iter()
+            .chain(specials)
+            .enumerate()
+        {
             let current = s.theme == t.id;
             // A swatch of the theme's own colors, then its name (and a ✓ in
             // words for the current one: not color alone).
@@ -135,6 +140,14 @@ fn appearance(ui: &mut Ui, s: &mut Settings, preview: &mut Option<&'static str>)
         ] {
             if ui.radio(s.cursor_style == id, name).clicked() {
                 s.cursor_style = id.into();
+            }
+        }
+    });
+    ui.horizontal(|ui| {
+        ui.label("Cursor effect");
+        for (id, name) in [("none", "None"), ("smooth", "Smooth"), ("glow", "Glow")] {
+            if ui.radio(s.cursor_effect == id, name).clicked() {
+                s.cursor_effect = id.into();
             }
         }
     });

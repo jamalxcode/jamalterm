@@ -44,6 +44,12 @@ eframe/egui (native window, OpenGL)        one thread per shell
 - **Problem log, crashes, diagnostics** (`diag.rs`, §8): 3.x's rules: errors only, scrubbed (secrets, home folder → ~, email addresses, the computer's name), 256 KB plus one older file, never commands, output, questions or keys. A panic writes `crash.log` (0600); the next start shows a notice with Copy Diagnostics, and a clean quit folds background-thread panics into the problem log instead. Help → Copy Diagnostics opens a window with the whole report; nothing is copied until Copy. CI crashes the app on purpose (`JAMALTERM_TEST_CRASH`) and checks the next start notices.
 - **Secure Keyboard Entry** (`secure.rs`): Carbon's Enable/DisableSecureEventInput, kept balanced. On while jamalterm is in front and either chosen (jamalterm menu checkmark, Settings → Privacy) or the pane in front is at a password prompt: its terminal has echo off in line mode (`tcgetattr` on the pty, as `sudo`, `ssh` and `read -s` set it). 🔒 in the tab and the window title while on.
 
+- **Menu bar icon and Dock menu** (`menu.rs`, macOS): one list (every window by its tab in front, its tabs under it, then New Window, New Tab, Show All Windows; the icon adds Hide This Icon), rebuilt when a window or tab changes. The icon is `tray-icon` (sharing muda's menus and events) with a template image; the Dock menu adds `applicationDockMenu:` to winit's application delegate at launch and returns the same menu.
+- **When long commands end** (`fun.rs`, `macos.rs`): in another app, a notification (UserNotifications; macOS asks once, and the Dock icon bounces either way); watching the tab, the finish line card for a command over a minute, with an optional chime. Every finished command's program name and time go into Your Day's stats (`stats.json`, 0600, a week kept, Reset clears it; never arguments or output).
+- **Project and host colors:** a colored edge on each tab: its ssh host's color from Settings, else its git repository's (one of the theme's blue, green, yellow, magenta, cyan; never red).
+- **Cursor effect:** Smooth (the cursor glides toward its cell; off with Reduce Motion) or Glow (a soft halo). **Theme of the week** rotates on Mondays; **Match my wallpaper** shrinks the desktop picture with `sips` and builds a dark theme from it, every color raised until it passes WCAG contrast (tested on bright, dark and grey pictures).
+- **First start:** a card names browse mode, ⌘I and ⇧⌘P, once (a `.welcomed` marker next to the settings; settings.json stays 3.x's), never when windows were reopened.
+
 ### Status (what works / what's left)
 | Area | 4.x Rust |
 |---|---|
@@ -61,7 +67,7 @@ eframe/egui (native window, OpenGL)        one thread per shell
 | Encrypted keys (3.x file) | ✅ phase 5 |
 | Secure Keyboard Entry, problem log, diagnostics, crash reports | ✅ phase 6 |
 | Updater with Sigstore check, What's new, Beta channel, releases | ⏳ |
-| Menu bar icon, Dock menu, notifications, finish line, stats, project colors, wallpaper theme | ⏳ |
+| Menu bar icon, Dock menu, notifications, finish line, Your Day stats, project and host colors, cursor effects, wallpaper theme, Theme of the week, first-start card | ✅ phase 8 |
 | OSC 8 links, images, kitty keyboard, ligatures, input methods, VoiceOver | ⏳ |
 
 ## 1. What jamalterm is

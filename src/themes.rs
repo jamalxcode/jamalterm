@@ -310,10 +310,20 @@ pub fn themes() -> Vec<Theme> {
     ]
 }
 
-/// A theme by id; unknown ids (and the 3.x specials "wallpaper"/"weekly",
-/// not ported yet) give the first one.
+/// A theme by id; unknown ids give the first one. The specials:
+/// "weekly" (Theme of the week) rotates through the built-in themes, and
+/// "wallpaper" (Match my wallpaper) is made from the desktop picture.
 pub fn by_id(id: &str) -> Theme {
     let all = themes();
+    match id {
+        "weekly" => return crate::fun::theme_of_the_week(&all),
+        "wallpaper" => {
+            if let Some(t) = crate::fun::wallpaper_theme() {
+                return t;
+            }
+        }
+        _ => {}
+    }
     all.iter()
         .find(|t| t.id == id)
         .cloned()
@@ -321,7 +331,6 @@ pub fn by_id(id: &str) -> Theme {
 }
 
 /// WCAG contrast ratio between two colors.
-#[cfg(test)]
 pub fn contrast(a: Color32, b: Color32) -> f32 {
     fn lum(c: Color32) -> f32 {
         let f = |v: u8| {

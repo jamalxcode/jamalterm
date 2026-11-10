@@ -241,6 +241,202 @@ pub fn show_context_menu(selection: bool) {
     }
 }
 
+// ---- The menu bar icon and the Dock menu ----------------------------------
+
+/// One window for the switcher: its id, its name (the tab in front) and
+/// its tabs' names, with the one in front.
+pub struct Listed {
+    pub id: u64,
+    pub name: String,
+    pub tabs: Vec<String>,
+    pub active: usize,
+}
+
+/// The switcher list as a menu: every window and its tabs, then New
+/// Window, New Tab, Show All Windows (and, for the icon, Hide This Icon).
+fn switcher_menu(list: &[Listed], icon: bool) -> muda::Menu {
+    let menu = muda::Menu::new();
+    for (n, w) in list.iter().enumerate() {
+        let title = if list.len() > 1 {
+            format!("Window {}: {}", n + 1, w.name)
+        } else {
+            w.name.clone()
+        };
+        let _ = menu.append(&MenuItem::with_id(
+            commands::go_id(w.id, w.active),
+            title,
+            true,
+            None,
+        ));
+        if w.tabs.len() > 1 {
+            for (i, t) in w.tabs.iter().enumerate() {
+                let mark = if i == w.active { "•" } else { " " };
+                let _ = menu.append(&MenuItem::with_id(
+                    commands::go_id(w.id, i),
+                    format!("    {mark} Tab {}: {t}", i + 1),
+                    true,
+                    None,
+                ));
+            }
+        }
+    }
+    let _ = menu.append(&PredefinedMenuItem::separator());
+    let _ = menu.append(&MenuItem::with_id(
+        commands::id(Cmd::NewWindow),
+        "New Window",
+        true,
+        None,
+    ));
+    let _ = menu.append(&MenuItem::with_id(
+        commands::id(Cmd::NewTab),
+        "New Tab",
+        true,
+        None,
+    ));
+    let _ = menu.append(&MenuItem::with_id(
+        "ShowAll",
+        "Show All Windows",
+        true,
+        None,
+    ));
+    if icon {
+        let _ = menu.append(&PredefinedMenuItem::separator());
+        let _ = menu.append(&MenuItem::with_id(
+            "HideMenuBarIcon",
+            "Hide This Icon",
+            true,
+            None,
+        ));
+    }
+    menu
+}
+
+/// A ">_" in a 36×36 template image (macOS tints it for light and dark
+/// menu bars).
+fn icon_image() -> Option<tray_icon::Icon> {
+    let n = 36usize;
+    let mut px = vec![0u8; n * n * 4];
+    let mut dot = |x: usize, y: usize| {
+        if x < n && y < n {
+            let i = (y * n + x) * 4;
+            px[i + 3] = 255;
+        }
+    };
+    // The chevron.
+    for t in 0..9 {
+        for w in 0..3 {
+            dot(7 + t + w, 9 + t);
+            dot(7 + t + w, 27 - t);
+        }
+    }
+    // The underscore.
+    for x in 18..30 {
+        for y in 24..27 {
+            dot(x, y);
+        }
+    }
+    tray_icon::Icon::from_rgba(px, n as u32, n as u32).ok()
+}
+
+thread_local! {
+    /// The Dock menu macOS asks for (main thread only).
+    static DOCK: std::cell::RefCell<Option<muda::Menu>> = const { std::cell::RefCell::new(None) };
+}
+
+/// AppKit asks the app's delegate for the Dock menu: winit's delegate has
+/// no such method, so one is added that returns the switcher menu.
+fn install_dock_menu() {
+    use objc2::runtime::{AnyClass, AnyObject, Sel};
+    use objc2::{MainThreadMarker, sel};
+    use objc2_app_kit::NSApplication;
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    let Some(delegate) = app.delegate() else {
+        return;
+    };
+    extern "C-unwind" fn dock_menu(
+        _this: &AnyObject,
+        _cmd: Sel,
+        _app: *mut AnyObject,
+    ) -> *mut AnyObject {
+        use muda::ContextMenu;
+        DOCK.with(|d| match &*d.borrow() {
+            Some(m) => m.ns_menu() as *mut AnyObject,
+            None => std::ptr::null_mut(),
+        })
+    }
+    let obj: &AnyObject = objc2::runtime::ProtocolObject::as_ref(&*delegate);
+    let cls: *const AnyClass = obj.class();
+    unsafe {
+        let imp: objc2::runtime::Imp = std::mem::transmute(
+            dock_menu as extern "C-unwind" fn(&AnyObject, Sel, *mut AnyObject) -> *mut AnyObject,
+        );
+        objc2::ffi::class_addMethod(
+            cls as *mut AnyClass,
+            sel!(applicationDockMenu:),
+            imp,
+            c"@@:@".as_ptr(),
+        );
+    }
+}
+
+/// The menu bar icon and the Dock menu, rebuilt when windows or tabs change.
+pub struct Switcher {
+    tray: Option<tray_icon::TrayIcon>,
+    last: String,
+    dock_ready: bool,
+}
+
+impl Switcher {
+    pub fn new() -> Switcher {
+        Switcher {
+            tray: None,
+            last: String::new(),
+            dock_ready: false,
+        }
+    }
+
+    pub fn update(&mut self, list: &[Listed], show_icon: bool) {
+        if !self.dock_ready {
+            install_dock_menu();
+            self.dock_ready = true;
+        }
+        let sig = format!(
+            "{show_icon}|{}",
+            list.iter()
+                .map(|w| format!("{}:{}:{}:{}", w.id, w.name, w.active, w.tabs.join("\u{1}")))
+                .collect::<Vec<_>>()
+                .join("|")
+        );
+        if sig == self.last {
+            return;
+        }
+        self.last = sig;
+        DOCK.with(|d| *d.borrow_mut() = Some(switcher_menu(list, false)));
+        if !show_icon {
+            self.tray = None; // dropping it removes the icon
+            return;
+        }
+        let menu = Box::new(switcher_menu(list, true));
+        match &self.tray {
+            Some(t) => t.set_menu(Some(menu)),
+            None => {
+                self.tray = tray_icon::TrayIconBuilder::new()
+                    .with_menu(menu)
+                    .with_tooltip("jamalterm")
+                    .with_icon_templated(match icon_image() {
+                        Some(i) => i,
+                        None => return,
+                    })
+                    .build()
+                    .ok();
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
