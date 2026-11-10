@@ -454,7 +454,7 @@ export class Tab {
     }
     if (this.cwd) {
       const home = this.hooks.home()
-      if (this.cwd === home) return '~'
+      if (this.cwd === home) return 'Home' // words, not "~"
       return this.cwd.split('/').filter(Boolean).pop() ?? '/'
     }
     return this.oscTitle || this.hooks.shellName()
@@ -476,6 +476,7 @@ export class Tab {
   /** The folder for a tab label: "~/code/app", or "~/…/src/app" when long. */
   get shortCwd(): string {
     const p = this.prettyCwd
+    if (p === '~') return 'Home'
     if (p.length <= 28) return p
     const parts = p.split('/')
     const head = parts[0] === '~' ? '~' : ''

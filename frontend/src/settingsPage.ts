@@ -2,7 +2,7 @@
 // Every change is saved at once and every terminal window applies it.
 import '@fontsource/jetbrains-mono/400.css'
 import './style.css'
-import { Settings, SaveSettings, CloseSettings, ToTerminal } from './backend'
+import { Settings, SaveSettings, CloseSettings, ToTerminal, PreviewTheme } from './backend'
 import { EventsOn, WindowSetTitle } from './backend'
 import { SettingsView, type SettingsPage } from './settingsView'
 import { loadProviders } from './providers'
@@ -61,3 +61,7 @@ EventsOn('menu', (cmd: string) => {
 })
 
 void boot()
+
+// Closing Settings mid-hover must not leave a previewed theme behind.
+addEventListener('beforeunload', () => void PreviewTheme(''))
+addEventListener('blur', () => void PreviewTheme(''))

@@ -664,6 +664,13 @@ EventsOn('secure:input', (on: boolean) => {
 })
 
 EventsOn('settings:changed', (s: Prefs) => applySettings(s))
+// Hovering a theme in Settings shows it here for a moment; "" = back to yours.
+EventsOn('theme:preview', (id: string) => {
+  if (!cfg) return
+  const theme = themeById(id || cfg.theme)
+  applyChrome(theme, cfg.opacity / 100, cfg.windowFrame === 'theme' ? 'theme' : 'system')
+  for (const t of tabs) t.applySettings({ ...cfg, theme: theme.id }, theme)
+})
 
 window.addEventListener('resize', () => requestAnimationFrame(() => active?.refit()))
 document.getElementById('ai-button')!.addEventListener('click', () => runMenu('aiPanel'))

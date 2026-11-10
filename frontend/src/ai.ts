@@ -69,7 +69,7 @@ export class AIPanel {
     const closeBtn = el('button', { class: 'ghost icon', title: 'Close (esc)' }, '✕')
     const head = el('div', { class: 'ai-head' },
       el('span', { class: 'ai-badge', text: '✦' }),
-      el('div', { class: 'ai-names' }, this.titleEl, el('span', { class: 'ai-sub' }, 'AI assistant · ', this.modelLabel)),
+      el('div', { class: 'ai-names' }, el('span', { class: 'switch-wrap' }, this.titleEl, el('i', { class: 'chev', text: '⌄', 'aria-hidden': 'true' })), el('span', { class: 'ai-sub' }, this.modelLabel)),
       el('span', { class: 'grow' }), newBtn, closeBtn)
     const form = el('div', { class: 'ai-input' }, this.input, this.sendBtn)
     // Per-tab: keep this tab's output out of AI requests.
@@ -121,7 +121,7 @@ export class AIPanel {
       }
       if (this.visible && !(await HasAPIKey())) this.showSetup()
     }
-    this.modelLabel.textContent = who.model
+    this.modelLabel.textContent = prettyModel(who.model)
   }
 
   async show(focus = true) {
@@ -293,7 +293,7 @@ export class AIPanel {
         usedModel = u.model || usedModel
         meta.textContent = `${usedModel}${totalIn || totalOut ? ` · ${fmtTokens(totalIn)} in · ${fmtTokens(totalOut)} out` : ''}`
         if (!msg.contains(meta)) msg.append(meta)
-        if (this.host.assistant().model === 'auto model' && usedModel) this.modelLabel.textContent = `auto → ${usedModel}`
+        if (this.host.assistant().model === 'auto model' && usedModel) this.modelLabel.textContent = `Automatic: ${prettyModel(usedModel)}`
       },
       redacted: (n) => {
         msg.append(el('div', { class: 'redacted-note', text: `🔒 Hid ${n} secret${n === 1 ? '' : 's'} from the terminal text sent` }))
@@ -570,4 +570,16 @@ function riskWarning(risk?: Risk): HTMLElement | null {
   return el('div', { class: `risk ${risk.level}`, role: 'alert' },
     el('strong', { text: title }),
     el('ul', {}, ...risk.reasons.map((r) => el('li', { text: 'It ' + r.replace(/^it /, '') }))))
+}
+
+/** A model id people can read: "opus-5-5" or "claude-opus-5-5" → "Claude
+ * Opus 5.5"; "gpt-5-mini" → "GPT-5 mini"; anything else as it is. */
+export function prettyModel(id: string): string {
+  if (!id) return ''
+  if (id === 'auto model') return 'Automatic model'
+  const m = /^(?:claude-)?(opus|sonnet|haiku|fable)-(\d+)(?:-(\d+))?(.*)$/.exec(id)
+  if (m) return `Claude ${m[1][0].toUpperCase()}${m[1].slice(1)} ${m[2]}${m[3] ? '.' + m[3] : ''}${m[4] ? ' ' + m[4].replace(/^-/, '') : ''}`
+  const g = /^gpt-(\d[\w.]*)(?:-(.+))?$/.exec(id)
+  if (g) return `GPT-${g[1]}${g[2] ? ' ' + g[2] : ''}`
+  return id
 }

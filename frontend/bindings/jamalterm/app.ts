@@ -372,6 +372,13 @@ export function OpenURL(url: string): $CancellablePromise<void> {
 }
 
 /**
+ * PreviewTheme shows a theme in every terminal window without saving it.
+ */
+export function PreviewTheme(id: string): $CancellablePromise<void> {
+    return $Call.ByID(387885904, id);
+}
+
+/**
  * PreviousVersion is the version kept from before the last update ("" if
  * none) for "Go Back to Previous Version".
  */

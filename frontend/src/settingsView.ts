@@ -1,6 +1,6 @@
-import { SetAPIKey, HasSavedAPIKey, AnthropicAccount, BlurActive, ForgetSession, SetProviderKey, HasSavedProviderKey, ListProviderModels, SignInOpenRouter, ShowProblemLog, FindLocalServers, KeychainKeysWaiting, MoveKeysFromKeychain, KeysUnreadable, UpdateStatus, CheckForUpdate } from './backend'
+import { SetAPIKey, HasSavedAPIKey, AnthropicAccount, BlurActive, ForgetSession, SetProviderKey, HasSavedProviderKey, ListProviderModels, SignInOpenRouter, ShowProblemLog, FindLocalServers, KeychainKeysWaiting, MoveKeysFromKeychain, KeysUnreadable, UpdateStatus, CheckForUpdate, PreviewTheme } from './backend'
 import type { UpdateStatus as UpdateStatusT } from '../bindings/jamalterm/models'
-import { themes } from './themes'
+import { themes, themeById } from './themes'
 import { providers, providerInfo, modelOf, setModelOf } from './providers'
 import { el, toast, SIGN_IN_COMMAND, SIGN_OUT_COMMAND } from './util'
 import type { Settings } from './types'
@@ -142,6 +142,9 @@ export class SettingsView {
       sw.innerHTML = `<span style="color:${c.foreground}">${th.name}</span><i>${[c.red, c.green, c.yellow, c.blue, c.magenta, c.cyan]
         .map((x) => `<b style="background:${x}"></b>`)
         .join('')}</i>`
+      // Hover: see it in your terminal windows and in the preview below.
+      sw.addEventListener('mouseenter', () => { void PreviewTheme(th.id); paint(th.id) })
+      sw.addEventListener('focus', () => { void PreviewTheme(th.id); paint(th.id) })
       sw.addEventListener('click', () => {
         s.theme = th.id
         swatches.querySelectorAll('.swatch').forEach((x) => x.classList.remove('on'))
@@ -149,6 +152,32 @@ export class SettingsView {
         live()
       })
       swatches.append(sw)
+    }
+    swatches.addEventListener('mouseleave', () => { void PreviewTheme(''); paint() })
+    swatches.addEventListener('focusout', (e) => {
+      if (!swatches.contains(e.relatedTarget as Node)) { void PreviewTheme(''); paint() }
+    })
+
+    // A small live preview: your theme, font, size and cursor.
+    const preview = el('div', { class: 'term-preview', 'aria-label': 'Preview', role: 'img' })
+    const paint = (themeId = s.theme) => {
+      const c = themeById(themeId).colors
+      preview.style.background = c.background!
+      preview.style.color = c.foreground!
+      preview.style.fontFamily = s.fontFamily
+      preview.style.fontSize = `${Math.min(s.fontSize, 16)}px`
+      preview.style.lineHeight = String(s.lineHeight)
+      const span = (color: string | undefined, text: string) => `<span style="color:${color}">${text}</span>`
+      const cursor = s.cursorStyle === 'bar' ? `<span class="cur bar" style="border-color:${c.cursor}"></span>`
+        : s.cursorStyle === 'underline' ? `<span class="cur under" style="border-color:${c.cursor}">&nbsp;</span>`
+        : `<span class="cur block" style="background:${c.cursor}">&nbsp;</span>`
+      preview.innerHTML = [
+        `${span(c.green, '✓')} ${span(c.blue, '~/projects/app')} $ git status`,
+        `  On branch ${span(c.magenta, 'main')}, ${span(c.yellow, '2 files changed')}`,
+        `${span(c.red, '✕')} ${span(c.blue, '~/projects/app')} $ npm test`,
+        `  ${span(c.red, '1 failing')} · ${span(c.cyan, '41 passing')}`,
+        `  ${span(c.blue, '~/projects/app')} $ ${cursor}`,
+      ].join('<br>')
     }
 
     const keyInput = el('input', {
@@ -172,6 +201,14 @@ export class SettingsView {
     const slider = el('input', { type: 'range', min: '30', max: '100', step: '1', class: 'slider' }) as HTMLInputElement
     slider.value = String(s.opacity)
     const blurNote = el('span', { class: 'help' })
+    // Blur only does something when the window is see-through.
+    const blurBox = check(s.blur, (v) => { s.blur = v; updateBlurNote() })
+    const blurLabel = el('label', { class: 'check' }, blurBox, ' Blur what’s behind the window')
+    const syncBlur = () => {
+      blurBox.disabled = s.opacity >= 100
+      blurLabel.classList.toggle('disabled', blurBox.disabled)
+      blurLabel.title = blurBox.disabled ? 'Make the window see-through first (opacity below 100%)' : ''
+    }
     const updateBlurNote = () => {
       const want = s.blur && s.opacity < 100
       blurNote.textContent = want === blurNow ? '' : 'Blur changes after you restart jamalterm (⌘Q, then open it again).'
@@ -181,14 +218,16 @@ export class SettingsView {
       pct.textContent = `${s.opacity}%`
       live()
       updateBlurNote()
+      syncBlur()
     })
     const opacityRow = el('div', { class: 'field' },
       el('span', { class: 'label', text: 'Window opacity' }),
       el('div', { class: 'row slider-row' }, el('span', { class: 'dim', text: 'See-through' }), slider, el('span', { class: 'dim', text: 'Solid' }), pct),
-      el('label', { class: 'check' }, check(s.blur, (v) => { s.blur = v; updateBlurNote() }), ' Blur what’s behind the window'),
+      blurLabel,
       blurNote,
     )
     updateBlurNote()
+    syncBlur()
 
     // Host colors: tabs connected to matching machines get a colored edge
     // and the machine's name.
@@ -223,7 +262,9 @@ export class SettingsView {
     const appearance = el(
       'section', { 'data-page': 'appearance' },
       el('h3', { text: 'Appearance' }),
+      el('span', { class: 'label section-label', text: 'Theme' }),
       swatches,
+      preview,
       el('div', { class: 'row' },
         field('Font', select(fonts, s.fontFamily, (v) => { s.fontFamily = v; live() })),
         field('Size', number(s.fontSize, 8, 48, 1, (v) => { s.fontSize = v; live() })),
@@ -496,6 +537,9 @@ export class SettingsView {
     // Any change to a field saves (keys are saved, encrypted, when you
     // leave the field).
     const body = el('div', { class: 'settings-pages' }, appearance, shellSec, aiSec, privacy, updates)
+    paint()
+    body.addEventListener('input', () => paint())
+    body.addEventListener('change', () => paint())
     body.addEventListener('input', (e) => {
       if ((e.target as HTMLInputElement).type !== 'password') changed()
     })

@@ -187,9 +187,11 @@ export function applySystemFrame(a = 1, barA = 1) {
   s.setProperty('--field', dark ? '#1e1e1e' : '#ffffff') // text fields
   s.setProperty('--highlight', dark ? 'rgba(10, 132, 255, 0.16)' : 'rgba(0, 122, 255, 0.10)')
   s.setProperty('--highlight-strong', dark ? 'rgba(10, 132, 255, 0.28)' : 'rgba(0, 122, 255, 0.20)')
-  const ai = dark ? '#3a3540' : '#ffffff'
+  // Lighter than the terminal, but a soft lilac rather than pure white in
+  // light mode (white next to a dark terminal was a harsh jump).
+  const ai = dark ? '#3a3540' : '#f5f2f9'
   s.setProperty('--ai', ai)
-  s.setProperty('--ai-2', dark ? '#443e4c' : '#f7f3fc')
+  s.setProperty('--ai-2', dark ? '#443e4c' : '#efebf5')
   document.documentElement.dataset.light = dark ? '' : '1'
   void a
 }

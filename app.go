@@ -667,3 +667,12 @@ func (a *App) Quit() { a.app.Quit() }
 
 // OpenURL opens a link in the default browser.
 func (a *App) OpenURL(url string) { a.problem("browser", a.app.Browser.OpenURL(url)) }
+
+// eventThemePreview tells terminal windows to show a theme for a moment
+// (hovering a swatch in Settings); "" goes back to the saved one.
+const eventThemePreview = "theme:preview"
+
+// PreviewTheme shows a theme in every terminal window without saving it.
+func (a *App) PreviewTheme(id string) {
+	a.emitTo(nil, eventThemePreview, id)
+}

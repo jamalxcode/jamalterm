@@ -79,6 +79,9 @@ export function score(query: string, text: string): number {
   return s - t.length * 0.02
 }
 
+/** A small symbol per kind of item, so a long list is quick to scan. */
+const ICONS: Record<string, string> = { Action: '⌘', Tab: '▭', Theme: '◐', Setting: '⚙', AI: '✦' }
+
 const RECENT = 'palette.recent'
 function recent(): string[] {
   try { return JSON.parse(localStorage.getItem(RECENT) ?? '[]') } catch { return [] }
@@ -92,6 +95,8 @@ export class Palette {
   private input = el('input', { type: 'text', placeholder: 'Type a command, setting, theme or tab…', spellcheck: 'false', 'aria-label': 'Command palette', role: 'combobox', 'aria-expanded': 'true', 'aria-controls': 'palette-list' }) as HTMLInputElement
   private list = el('ul', { id: 'palette-list', role: 'listbox' })
   private shown: PaletteItem[] = []
+  /** Headings shown before item n when nothing is typed ("Recent", "Tabs"…). */
+  private heads = new Map<number, string>()
   private sel = 0
 
   constructor(private host: PaletteHost) {
@@ -152,9 +157,16 @@ export class Palette {
     if (!q) {
       const r = recent()
       const byTitle = new Map(all.map((i) => [i.title, i]))
-      const first = r.map((t) => byTitle.get(t)).filter((i): i is PaletteItem => !!i)
-      this.shown = [...first, ...all.filter((i) => i.group === 'Action' && !first.includes(i))]
+      const first = r.map((t) => byTitle.get(t)).filter((i): i is PaletteItem => !!i).slice(0, 5)
+      const tabsNow = all.filter((i) => i.group === 'Tab' && !first.includes(i))
+      const actions = all.filter((i) => i.group === 'Action' && !first.includes(i))
+      this.shown = [...first, ...tabsNow, ...actions]
+      this.heads = new Map()
+      if (first.length) this.heads.set(0, 'Recent')
+      if (tabsNow.length) this.heads.set(first.length, 'Tabs')
+      if (actions.length) this.heads.set(first.length + tabsNow.length, 'Actions')
     } else {
+      this.heads = new Map()
       this.shown = all
         .map((i) => ({ i, s: Math.max(score(q, i.title), score(q, `${i.group} ${i.title}`) - 4) }))
         .filter((x) => x.s >= 0)
@@ -173,7 +185,10 @@ export class Palette {
       return
     }
     this.shown.forEach((item, i) => {
+      const head = this.heads.get(i)
+      if (head) this.list.append(el('li', { class: 'head', role: 'presentation', text: head }))
       const li = el('li', { role: 'option', id: `palette-${i}`, class: i === this.sel ? 'on' : '' },
+        el('span', { class: 'icon', 'aria-hidden': 'true', text: ICONS[item.group] ?? '•' }),
         el('span', { class: 'group', text: item.group }),
         el('span', { class: 'title', text: item.title }),
         el('span', { class: 'detail', text: item.detail ?? '' }),
@@ -190,11 +205,12 @@ export class Palette {
   }
 
   private mark() {
-    this.list.querySelectorAll('li').forEach((li, i) => {
+    const opts = this.list.querySelectorAll('li[role="option"]')
+    opts.forEach((li, i) => {
       li.classList.toggle('on', i === this.sel)
       li.setAttribute('aria-selected', String(i === this.sel))
     })
-    this.list.children[this.sel]?.scrollIntoView({ block: 'nearest' })
+    opts[this.sel]?.scrollIntoView({ block: 'nearest' })
     this.input.setAttribute('aria-activedescendant', `palette-${this.sel}`)
   }
 
