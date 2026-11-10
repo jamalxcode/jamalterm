@@ -83,6 +83,9 @@ impl MacMenu {
         let ctx = ctx.clone();
         MenuEvent::set_event_handler(Some(move |e: MenuEvent| {
             if let Some(cmd) = commands::by_id(e.id.as_ref()) {
+                if commands::brings_app_forward(cmd) {
+                    crate::macos::activate();
+                }
                 let _ = tx.send(cmd);
                 ctx.request_repaint();
             }

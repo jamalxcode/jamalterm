@@ -354,6 +354,18 @@ pub fn by_id(id: &str) -> Option<Cmd> {
 }
 
 /// The id of a "bring this tab forward" item.
+/// Commands from the menu bar icon or the Dock that bring jamalterm to the
+/// front: the app is made active while the click is handled (macOS turns
+/// down an activation asked for later, from the next frame).
+pub fn brings_app_forward(cmd: Cmd) -> bool {
+    // New Tab and New Window too: from the icon they'd open behind the
+    // app you're in (from the menu bar the app is already in front).
+    matches!(
+        cmd,
+        Cmd::ShowTab(..) | Cmd::ShowAll | Cmd::NewTab | Cmd::NewWindow
+    )
+}
+
 pub fn go_id(win: u64, tab: usize) -> String {
     format!("go:{win}:{tab}")
 }
@@ -413,6 +425,11 @@ mod tests {
     fn switcher_ids() {
         assert_eq!(by_id(&go_id(3, 1)), Some(Cmd::ShowTab(3, 1)));
         assert_eq!(by_id("go:x:1"), None);
+        assert!(brings_app_forward(Cmd::ShowTab(3, 1)));
+        assert!(brings_app_forward(Cmd::ShowAll));
+        assert!(brings_app_forward(Cmd::NewTab));
+        assert!(brings_app_forward(Cmd::NewWindow));
+        assert!(!brings_app_forward(Cmd::Copy));
         assert_eq!(by_id("ShowAll"), Some(Cmd::ShowAll));
     }
 

@@ -129,14 +129,15 @@ pub fn activate() {
         use objc2_app_kit::NSApplication;
         let app = NSApplication::sharedApplication(mtm);
         app.unhide(None);
-        // `activate` (macOS 14 and later) is the one that works there; the
-        // older call before that.
+        // Both: `activate` (macOS 14 and later) is only a request the system
+        // may turn down, and the older call still works where it doesn't.
+        // Called while the menu click is being handled, so it counts as
+        // the user's own choice.
         if app.respondsToSelector(objc2::sel!(activate)) {
             app.activate();
-        } else {
-            #[allow(deprecated)]
-            app.activateIgnoringOtherApps(true);
         }
+        #[allow(deprecated)]
+        app.activateIgnoringOtherApps(true);
     }
 }
 
