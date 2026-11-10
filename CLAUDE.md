@@ -41,4 +41,4 @@ cargo run                                    # the app (Linux needs libxkbcommon
   git -c user.name="jamal xcode" -c user.email="j.mutawa@gmail.com" commit -m "..."
   ```
 - **CI** (`.github/workflows/build.yml`): fmt + clippy, tests and the self-test on Linux, the shell-setups job (Linux and macOS), and on a Mac the tests, a universal build and the self-test.
-- **Releases are off** until the Rust app matches 3.5.0 (DESIGN.md, "Rust port", lists what's left). They come back with the updater, its Sigstore check and the publish job; then follow the **release** skill. Never push a `Release X.Y.Z` commit before that.
+- **Releases** follow the **release** skill: a `Release X.Y.Z` (or `X.Y.Z-beta.N`) commit builds, proves and publishes. Only release when the user asks for it.

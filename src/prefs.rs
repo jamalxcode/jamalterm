@@ -17,8 +17,27 @@ use egui::{RichText, Ui};
 pub struct Out {
     /// Something changed (save and apply it).
     pub changed: bool,
+    /// A button in the Updates pane.
+    pub update: Option<UpdateAct>,
     /// The theme under the pointer, to show for now.
     pub preview: Option<&'static str>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum UpdateAct {
+    Check,
+    Install,
+    GoBack,
+}
+
+/// What the Updates pane shows: where you stand, and what can be done.
+#[derive(Default)]
+pub struct UpdatesInfo {
+    pub text: String,
+    pub busy: bool,
+    /// A checked version waiting to be installed.
+    pub ready: Option<String>,
+    pub can_go_back: bool,
 }
 
 /// What the AI pane is in the middle of: the key being typed, and the last
@@ -35,7 +54,9 @@ pub fn show(
     pane: &mut Pane,
     keys: &mut Keys,
     st: &mut State,
+    updates: &UpdatesInfo,
 ) -> Out {
+    let mut update = None;
     let before = s.clone();
     let mut preview = None;
 
@@ -58,10 +79,12 @@ pub fn show(
             Pane::Shell => shell(ui, s),
             Pane::Ai => ai_pane(ui, s, keys, st),
             Pane::Privacy => privacy(ui, s),
+            Pane::Updates => update = updates_pane(ui, s, updates),
         }
     });
     Out {
         changed: *s != before,
+        update,
         preview,
     }
 }
@@ -270,6 +293,46 @@ fn find_local(s: &mut Settings) -> String {
         }
     }
     "Neither Ollama nor LM Studio is running on this Mac.".into()
+}
+
+fn updates_pane(ui: &mut Ui, s: &mut Settings, u: &UpdatesInfo) -> Option<UpdateAct> {
+    let mut act = None;
+    ui.label(u.text.as_str());
+    ui.horizontal(|ui| {
+        if ui
+            .add_enabled(!u.busy, egui::Button::new("Check Now"))
+            .clicked()
+        {
+            act = Some(UpdateAct::Check);
+        }
+        if let Some(v) = &u.ready
+            && ui.button(format!("Install {v} and Relaunch")).clicked()
+        {
+            act = Some(UpdateAct::Install);
+        }
+        if u.can_go_back && ui.button("Go Back to Previous Version…").clicked() {
+            act = Some(UpdateAct::GoBack);
+        }
+    });
+    ui.add_space(8.0);
+    toggles(ui, s, Pane::Updates, false);
+    ui.horizontal(|ui| {
+        ui.label("Channel");
+        if ui.radio(s.update_channel != "beta", "Stable").clicked() {
+            s.update_channel = "stable".into();
+        }
+        if ui
+            .radio(s.update_channel == "beta", "Beta (new versions first)")
+            .clicked()
+        {
+            s.update_channel = "beta".into();
+        }
+    });
+    ui.add_space(8.0);
+    ui.weak(
+        "Before installing, jamalterm checks the download's checksum, a Sigstore build proof that GitHub built exactly that file from jamalterm's repository, and the app's signature and bundle id. A download that fails any check is never installed.",
+    );
+    act
 }
 
 fn privacy(ui: &mut Ui, s: &mut Settings) {

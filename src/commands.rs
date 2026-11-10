@@ -11,6 +11,9 @@ use egui::Key;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Cmd {
     Settings,
+    CheckUpdates,
+    /// Go back to the version before the last update.
+    GoBack,
     /// From the menu bar icon or the Dock menu: bring this tab forward
     /// (window id, tab place). Not in the table.
     ShowTab(u64, usize),
@@ -138,6 +141,8 @@ const fn tab(n: u8, key: Key) -> Entry {
 
 pub const TABLE: &[Entry] = &[
     e(Cmd::Settings, "Settings…", Menu::App, Key::Comma, false),
+    item(Cmd::CheckUpdates, "Check for Updates…", Menu::App),
+    item(Cmd::GoBack, "Go Back to Previous Version…", Menu::App),
     item(Cmd::SecureInput, "Secure Keyboard Entry", Menu::App),
     item(Cmd::YourDay, "Your Day in jamalterm", Menu::Help),
     item(Cmd::Diagnostics, "Copy Diagnostics…", Menu::Help),

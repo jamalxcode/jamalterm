@@ -23,16 +23,24 @@ pub enum Pane {
     Shell,
     Ai,
     Privacy,
+    Updates,
 }
 
 impl Pane {
-    pub const ALL: [Pane; 4] = [Pane::Appearance, Pane::Shell, Pane::Ai, Pane::Privacy];
+    pub const ALL: [Pane; 5] = [
+        Pane::Appearance,
+        Pane::Shell,
+        Pane::Ai,
+        Pane::Privacy,
+        Pane::Updates,
+    ];
     pub fn name(self) -> &'static str {
         match self {
             Pane::Appearance => "Appearance",
             Pane::Shell => "Shell",
             Pane::Ai => "AI",
             Pane::Privacy => "Privacy",
+            Pane::Updates => "Updates",
         }
     }
 }
@@ -127,6 +135,12 @@ pub const TOGGLES: &[Toggle] = &[
         pane: Pane::Privacy,
         advanced: false,
         field: |s| &mut s.secure_input,
+    },
+    Toggle {
+        label: "Check for updates and install them when I quit",
+        pane: Pane::Updates,
+        advanced: false,
+        field: |s| &mut s.auto_update,
     },
     Toggle {
         label: "Shell integration (marks, browse mode) for new tabs",

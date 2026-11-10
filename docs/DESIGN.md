@@ -50,6 +50,10 @@ eframe/egui (native window, OpenGL)        one thread per shell
 - **Cursor effect:** Smooth (the cursor glides toward its cell; off with Reduce Motion) or Glow (a soft halo). **Theme of the week** rotates on Mondays; **Match my wallpaper** shrinks the desktop picture with `sips` and builds a dark theme from it, every color raised until it passes WCAG contrast (tested on bright, dark and grey pictures).
 - **First start:** a card names browse mode, ⌘I and ⇧⌘P, once (a `.welcomed` marker next to the settings; settings.json stays 3.x's), never when windows were reopened.
 
+- **Updater** (`update/`, `updates.rs`, §8): checks GitHub's releases (Stable, or Beta with prereleases) at start and every 6 hours when automatic updates are on, or from jamalterm → Check for Updates…; downloads in the background and checks, in order: the SHA-256 from SHA256SUMS.txt, the **Sigstore build proof** (`update/provenance.rs`: the leaf certificate chains to Sigstore's Fulcio CA and names this repo's `build.yml` as the GitHub identity, an SCT from a CT log, the DSSE signature over the in-toto statement whose subject is this zip, and the Rekor entry's signed timestamp, inclusion proof and signed checkpoint), then the bundle id and `codesign --verify`. Installed when you quit ("Update when I quit"), or now with Install and Relaunch; the replaced version is kept for Go Back to Previous Version…. A What's new card after an update shows the version's CHANGELOG lines (built in).
+  - *Pure Rust:* the verifier uses RustCrypto (p256, p384, x509-cert); sigstore-rs was rejected (experimental, C crypto, tokio). Sigstore's `trusted_root.json` is **built in** (`resources/sigstore/`), not fetched over TUF; rotating Sigstore keys means updating that file in a release. Rekor v2 (Ed25519) logs aren't supported yet: such a bundle is refused with a message pointing to the release page. Tested against the real 3.5.0 bundle and many tamperings; CI checks each release's proof with the same code before publishing.
+- **Releases are back:** a commit titled `Release X.Y.Z` (or `-beta.N`) builds, proves (`attest-build-provenance`), checks and publishes in one run, as in 3.x (see the release skill). A release build gets its version from `scripts/build-mac.sh` (`JAMALTERM_VERSION`).
+
 ### Status (what works / what's left)
 | Area | 4.x Rust |
 |---|---|
@@ -66,7 +70,7 @@ eframe/egui (native window, OpenGL)        one thread per shell
 | Command bar (English → command), Fix it on failed commands, OpenRouter and Anthropic sign-in | ⏳ |
 | Encrypted keys (3.x file) | ✅ phase 5 |
 | Secure Keyboard Entry, problem log, diagnostics, crash reports | ✅ phase 6 |
-| Updater with Sigstore check, What's new, Beta channel, releases | ⏳ |
+| Updater with Sigstore check, What's new, Beta channel, releases | ✅ phase 7 |
 | Menu bar icon, Dock menu, notifications, finish line, Your Day stats, project and host colors, cursor effects, wallpaper theme, Theme of the week, first-start card | ✅ phase 8 |
 | OSC 8 links, images, kitty keyboard, ligatures, input methods, VoiceOver | ⏳ |
 

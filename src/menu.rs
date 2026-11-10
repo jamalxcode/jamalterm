@@ -112,7 +112,7 @@ impl MacMenu {
 
         let about = AboutMetadata {
             name: Some("jamalterm".into()),
-            version: Some(env!("CARGO_PKG_VERSION").into()),
+            version: Some(crate::update::current_version().into()),
             ..Default::default()
         };
         let (about, s0, s1, s2, s3) = (

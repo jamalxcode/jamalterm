@@ -5,13 +5,13 @@ description: Publish a jamalterm version (stable or Beta) and confirm people can
 
 # Releasing jamalterm
 
-**Paused during the Rust rewrite (4.x).** CI has no publish job right now and must not get a `Release X.Y.Z` commit until the Rust app matches 3.5.0 and the updater, Sigstore proof and publish job are back (docs/DESIGN.md §0). The steps below describe how it works once they are.
+4.x (Rust): the publish job, the Sigstore proof and the updater are back (docs/DESIGN.md §0). The proof is checked in CI by `cargo test verify_release`, the same code the app uses.
 
 A release isn't done until it's on GitHub's Releases page with its build proof. Never tell the user a version is out before step 5 says so.
 
 ## 1. Ready?
 - `CHANGELOG.md` has a `## X.Y.Z` section for this version (it becomes the release notes and the app's What's new).
-- The latest push to `main` is green: `mcp__github__actions_list` (`list_workflow_runs`, `build.yml`, `per_page: 1`). All jobs count: `ui`, `macos`, both `shells` jobs. If red, read the failing job's log with `mcp__github__get_job_logs` (`tail_lines` ~60), fix it, push, and wait again.
+- The latest push to `main` is green: `mcp__github__actions_list` (`list_workflow_runs`, `build.yml`, `per_page: 1`). All jobs count: `linux`, `macos`, both `shells` jobs. If red, read the failing job's log with `mcp__github__get_job_logs` (`tail_lines` ~60), fix it, push, and wait again.
 
 ## 2. Publish
 Either:

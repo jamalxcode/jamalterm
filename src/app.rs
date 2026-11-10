@@ -339,6 +339,9 @@ pub struct App {
     your_day: bool,
     /// The first-start card (shown once).
     welcome: bool,
+    /// The updater, and a card to show (What's new, or a message).
+    updates: crate::updates::Updates,
+    notice: Option<(String, Vec<String>)>,
     #[cfg(target_os = "macos")]
     switcher: crate::menu::Switcher,
     /// The next pane's id.
@@ -421,6 +424,9 @@ impl App {
             stats_path,
             your_day: false,
             welcome,
+            updates: crate::updates::Updates::new(&dir, &settings.update_channel),
+            notice: crate::updates::whats_new(&dir)
+                .map(|(v, lines)| (format!("What's new in jamalterm {v}"), lines)),
             #[cfg(target_os = "macos")]
             switcher: crate::menu::Switcher::new(),
             next_id: 1,
@@ -773,12 +779,19 @@ impl App {
                 focused = i.viewport().focused == Some(true);
             });
             egui::CentralPanel::default().show(ui, |ui| {
+                let info = crate::prefs::UpdatesInfo {
+                    text: self.updates.status.text(std::time::SystemTime::now()),
+                    busy: self.updates.busy(),
+                    ready: self.updates.ready(),
+                    can_go_back: self.updates.can_revert(),
+                };
                 out = Some(crate::prefs::show(
                     ui,
                     &mut settings,
                     &mut pane,
                     &mut self.keys,
                     &mut self.prefs,
+                    &info,
                 ));
             });
         });
@@ -787,6 +800,14 @@ impl App {
         }
         self.settings_open = Some(pane);
         if let Some(out) = out {
+            if let Some(act) = out.update {
+                let wake = self.waker();
+                match act {
+                    crate::prefs::UpdateAct::Check => self.updates.check_now(true, wake),
+                    crate::prefs::UpdateAct::Install => self.updates.install_now(wake),
+                    crate::prefs::UpdateAct::GoBack => self.updates.revert(wake),
+                }
+            }
             if out.changed {
                 self.settings = settings;
                 self.settings_changed();
@@ -1150,7 +1171,7 @@ impl App {
         line("jamalterm diagnostics".into());
         line("(made on this computer and not sent anywhere; read it before sharing)".into());
         line(String::new());
-        line(format!("Version:   {}", env!("CARGO_PKG_VERSION")));
+        line(format!("Version:   {}", crate::update::current_version()));
         line(format!(
             "System:    {} ({})",
             os_version(),
@@ -1299,6 +1320,42 @@ impl App {
         }
         if dismiss {
             self.last_crash = None;
+        }
+    }
+
+    /// Something that repaints the app (for background work).
+    fn waker(&self) -> Arc<dyn Fn() + Send + Sync> {
+        let ctx = self.ctx.clone();
+        Arc::new(move || ctx.request_repaint())
+    }
+
+    /// A message: a native alert on a Mac, a card elsewhere.
+    fn say(&mut self, title: &str, detail: &str) {
+        if self.smoke.is_some() || !alert::inform(title, detail) {
+            self.notice = Some((title.to_string(), vec![detail.to_string()]));
+        }
+    }
+
+    /// The updater's background news.
+    fn update_tick(&mut self) {
+        let channel = crate::updates::channel(&self.settings.update_channel);
+        if self.updates.status.channel != channel {
+            self.updates.status.channel = channel;
+        }
+        let auto = self.settings.auto_update && self.smoke.is_none();
+        let wake = self.waker();
+        self.updates.tick(auto, wake);
+        if let Some(m) = self.updates.say.take() {
+            let title = if m.starts_with("jamalterm ") {
+                "You're up to date"
+            } else {
+                "The update didn't work"
+            };
+            self.say(title, &m);
+        }
+        if std::mem::take(&mut self.updates.quit) {
+            let ctx = self.ctx.clone();
+            self.quit(&ctx);
         }
     }
 
@@ -1472,6 +1529,29 @@ impl App {
                         });
                     });
                 ctx.request_repaint_after(Duration::from_millis(500));
+            }
+        }
+        if self.w.root
+            && let Some((title, lines)) = self.notice.clone()
+        {
+            let mut close = false;
+            egui::Area::new(egui::Id::unique("notice"))
+                .anchor(egui::Align2::RIGHT_TOP, Vec2::new(-16.0, 48.0))
+                .order(egui::Order::Foreground)
+                .show(ctx, |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.set_max_width(360.0);
+                        ui.label(RichText::new(title).strong());
+                        for l in lines.iter().take(12) {
+                            ui.label(format!("• {l}"));
+                        }
+                        if ui.button("Close").clicked() {
+                            close = true;
+                        }
+                    });
+                });
+            if close {
+                self.notice = None;
             }
         }
         if self.welcome && self.w.root {
@@ -1845,6 +1925,21 @@ impl App {
         match cmd {
             Cmd::NewTab => self.new_tab(ctx, None),
             Cmd::Settings => self.open_settings(None),
+            Cmd::CheckUpdates => {
+                let wake = self.waker();
+                self.updates.check_now(true, wake);
+            }
+            Cmd::GoBack => {
+                if self.updates.can_revert() {
+                    let wake = self.waker();
+                    self.updates.revert(wake);
+                } else {
+                    self.say(
+                        "There's no previous version to go back to.",
+                        "One is kept after each update.",
+                    );
+                }
+            }
             Cmd::ShowTab(win, tab) => {
                 if win == self.w.id {
                     self.w.active = tab.min(self.w.tabs.len().saturating_sub(1));
@@ -2477,6 +2572,10 @@ impl eframe::App for App {
         let ctx = self.ctx.clone();
         self.save_session(&ctx);
         crate::secure::set(false);
+        // Update when I quit: a checked new version is put in place now.
+        if self.settings.auto_update {
+            self.updates.install_at_quit();
+        }
         crate::diag::quit_cleanly();
     }
 
@@ -2593,6 +2692,7 @@ impl eframe::App for App {
         self.settings_window(&ctx);
         self.diagnostics_window(&ctx);
         self.your_day_window(&ctx);
+        self.update_tick();
         self.finished_commands();
         #[cfg(target_os = "macos")]
         self.update_switcher();

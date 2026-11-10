@@ -110,6 +110,34 @@ pub fn ask_native(_: Closing, _: &str, _: &egui::Context) -> Option<mpsc::Receiv
     None
 }
 
+/// A plain message as a native alert sheet with OK (a manual update check
+/// that found nothing, an update that failed). False where there's no
+/// native alert: show it in the window instead.
+#[cfg(target_os = "macos")]
+pub fn inform(title: &str, detail: &str) -> bool {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSAlert, NSApplication};
+    use objc2_foundation::NSString;
+    let Some(mtm) = MainThreadMarker::new() else {
+        return false;
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    let Some(window) = app.keyWindow().or_else(|| app.mainWindow()) else {
+        return false;
+    };
+    let alert = NSAlert::new(mtm);
+    alert.setMessageText(&NSString::from_str(title));
+    alert.setInformativeText(&NSString::from_str(detail));
+    alert.addButtonWithTitle(&NSString::from_str("OK"));
+    alert.beginSheetModalForWindow_completionHandler(&window, None);
+    true
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn inform(_: &str, _: &str) -> bool {
+    false
+}
+
 /// The question inside the window. Returns the answer once given.
 pub fn ask_in_window(ctx: &egui::Context, p: &Pending) -> Option<bool> {
     let mut answer = None;

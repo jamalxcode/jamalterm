@@ -27,6 +27,10 @@ libc = "0.2"
 # The AI panel: requests to the providers, secret hiding and risk checks.
 ureq = { version = "3", default-features = false, features = ["json"] }
 regex = "1"
+# The updater's build-proof check (Sigstore), pure Rust.
+p256 = { version = "0.14", default-features = false, features = ["ecdsa", "pkcs8", "std"] }
+p384 = { version = "0.14", default-features = false, features = ["ecdsa", "pkcs8", "std"] }
+x509-cert = { version = "0.3", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 tempfile = "3"
@@ -42,6 +46,8 @@ identifier = "com.jamalxcode.jamalterm"
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 ureq = { version = "3", default-features = false, features = ["json", "rustls"] }
+# Unzipping updates (on a Mac, ditto does it).
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # On a Mac, HTTPS uses the system's TLS and trust store (Security framework).

@@ -28,6 +28,8 @@ mod shell;
 mod smoke;
 mod tabdrag;
 mod themes;
+mod update;
+mod updates;
 mod view;
 
 fn main() -> eframe::Result<()> {
