@@ -13,6 +13,12 @@ pub enum Mark {
     Done(i32),
     Command(String),
     Cwd(String),
+    /// An inline image (iTerm2's OSC 1337 File=…:<base64>): its arguments
+    /// ("width=40;inline=1"…) and its bytes.
+    Image {
+        args: String,
+        data: Vec<u8>,
+    },
 }
 
 /// An OSC found in a chunk: `end` is the index just past it.
@@ -38,7 +44,8 @@ pub struct Scanner {
     buf: Vec<u8>,
 }
 
-const MAX_OSC: usize = 64 * 1024; // longer ones (images, clipboard) aren't ours
+const MAX_OSC: usize = 64 * 1024; // longer ones (clipboard) aren't ours…
+const MAX_IMAGE: usize = 24 * 1024 * 1024; // …except inline images
 
 impl Scanner {
     pub fn scan(&mut self, chunk: &[u8]) -> Vec<Found> {
@@ -72,7 +79,12 @@ impl Scanner {
                     }
                     0x1b => self.state = State::OscEsc,
                     _ => {
-                        if self.buf.len() < MAX_OSC {
+                        let max = if self.buf.starts_with(b"1337;File=") {
+                            MAX_IMAGE
+                        } else {
+                            MAX_OSC
+                        };
+                        if self.buf.len() < max {
                             self.buf.push(b)
                         }
                     }
@@ -129,6 +141,21 @@ fn parse(body: &[u8]) -> Option<Mark> {
                     .to_string(),
             ))
         }
+        "1337" => {
+            let file = rest.strip_prefix("File=")?;
+            let (args, b64) = file.split_once(':')?;
+            // Only images meant for the screen (not downloads).
+            if !args.split(';').any(|a| a == "inline=1") {
+                return None;
+            }
+            let data = base64::engine::general_purpose::STANDARD
+                .decode(b64.trim())
+                .ok()?;
+            Some(Mark::Image {
+                args: args.to_string(),
+                data,
+            })
+        }
         "7" => {
             let after = rest.strip_prefix("file://")?;
             let path = &after[after.find('/')?..];
@@ -160,6 +187,31 @@ fn percent_decode(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inline_images() {
+        let png = [137u8, 80, 78, 71, 1, 2, 3];
+        let b64 = base64::engine::general_purpose::STANDARD.encode(png);
+        let osc = format!("x\x1b]1337;File=name=YS5wbmc=;width=20;inline=1:{b64}\x07y");
+        let mut sc = Scanner::default();
+        let bytes = osc.as_bytes();
+        // In two pieces, as reads come.
+        let mut found = sc.scan(&bytes[..10]);
+        found.extend(sc.scan(&bytes[10..]));
+        assert_eq!(found.len(), 1);
+        match &found[0].mark {
+            Mark::Image { args, data } => {
+                assert!(args.contains("width=20"));
+                assert_eq!(data, &png);
+            }
+            m => panic!("{m:?}"),
+        }
+        let download = format!("\x1b]1337;File=name=eA==:{b64}\x07");
+        assert!(
+            Scanner::default().scan(download.as_bytes()).is_empty(),
+            "not inline: ignored"
+        );
+    }
 
     fn marks(chunks: &[&[u8]]) -> Vec<Mark> {
         let mut s = Scanner::default();

@@ -11,6 +11,7 @@ mod diag;
 mod find;
 mod fonts;
 mod fun;
+mod images;
 mod input;
 mod keys;
 mod macos;

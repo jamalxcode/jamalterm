@@ -116,6 +116,39 @@ pub fn key_bytes(key: Key, m: &Modifiers, app_cursor: bool, option_meta: bool) -
     Some(bytes)
 }
 
+/// The kitty keyboard protocol (programs like Neovim and Helix ask for it):
+/// `all` = flag 8 (every key as an escape code), else flag 1 (keys that are
+/// ambiguous in the old encoding: Esc, and keys with Ctrl or Alt). None:
+/// use the usual encoding (plain text, arrows, function keys…).
+pub fn kitty_bytes(key: Key, m: &Modifiers, all: bool) -> Option<Vec<u8>> {
+    let mods = 1 + (m.shift as u8) + 2 * (m.alt as u8) + 4 * (m.ctrl as u8);
+    let code: u32 = match key {
+        Key::Escape => 27,
+        Key::Enter => 13,
+        Key::Tab => 9,
+        Key::Backspace => 127,
+        Key::Space => 32,
+        _ => {
+            let name = key.name();
+            let mut ch = name.chars();
+            match (ch.next(), ch.next()) {
+                (Some(c), None) => c.to_ascii_lowercase() as u32,
+                _ => return None, // arrows, function keys: the usual encoding
+            }
+        }
+    };
+    // Flag 8: every key; flag 1: Esc, and keys with Ctrl or Alt.
+    let plain = !(m.ctrl || m.alt);
+    if !(all || key == Key::Escape || !plain) {
+        return None;
+    }
+    Some(if mods > 1 {
+        format!("\x1b[{code};{mods}u").into_bytes()
+    } else {
+        format!("\x1b[{code}u").into_bytes()
+    })
+}
+
 /// Pasted text as the shell should get it: line breaks as Return, wrapped in
 /// bracketed-paste markers when the shell asked for them (so a pasted command
 /// isn't run line by line).
@@ -133,6 +166,59 @@ pub fn paste_bytes(text: &str, bracketed: bool) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kitty_keyboard() {
+        let none = Modifiers::NONE;
+        let ctrl = Modifiers {
+            ctrl: true,
+            ..Modifiers::NONE
+        };
+        let shift_alt = Modifiers {
+            shift: true,
+            alt: true,
+            ..Modifiers::NONE
+        };
+        // Flag 1: Esc and Ctrl/Alt keys are unambiguous; plain text isn't touched.
+        assert_eq!(
+            kitty_bytes(Key::Escape, &none, false),
+            Some(b"\x1b[27u".to_vec())
+        );
+        assert_eq!(
+            kitty_bytes(Key::I, &ctrl, false),
+            Some(b"\x1b[105;5u".to_vec()),
+            "Ctrl+I isn't Tab"
+        );
+        assert_eq!(
+            kitty_bytes(Key::A, &shift_alt, false),
+            Some(b"\x1b[97;4u".to_vec())
+        );
+        assert_eq!(
+            kitty_bytes(Key::A, &none, false),
+            None,
+            "plain text: as typed"
+        );
+        assert_eq!(
+            kitty_bytes(Key::Enter, &none, false),
+            None,
+            "plain Enter: as before"
+        );
+        assert_eq!(
+            kitty_bytes(Key::Enter, &ctrl, false),
+            Some(b"\x1b[13;5u".to_vec())
+        );
+        assert_eq!(
+            kitty_bytes(Key::ArrowUp, &ctrl, false),
+            None,
+            "arrows: the usual encoding"
+        );
+        // Flag 8: every key.
+        assert_eq!(kitty_bytes(Key::A, &none, true), Some(b"\x1b[97u".to_vec()));
+        assert_eq!(
+            kitty_bytes(Key::Enter, &none, true),
+            Some(b"\x1b[13u".to_vec())
+        );
+    }
 
     fn none() -> Modifiers {
         Modifiers::NONE

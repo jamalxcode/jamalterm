@@ -92,6 +92,7 @@ impl Commands {
                 }
             }
             Mark::Cwd(dir) => self.cwd = dir.clone(),
+            Mark::Image { .. } => {}
         }
     }
 
@@ -142,6 +143,10 @@ pub struct Screen {
     pub exited: Option<i32>,
     /// The most lines the history keeps (Settings → Scrollback).
     pub max_history: usize,
+    /// Inline images in the scrollback, and the cell size in points (from
+    /// the window: an image takes as many lines as its height needs).
+    pub images: Vec<crate::images::Placed>,
+    pub cell_px: (f32, f32),
 }
 
 impl Screen {
@@ -185,6 +190,30 @@ impl Screen {
         };
         if dropped > 0 {
             self.commands.shift_up(dropped as i64);
+            for im in &mut self.images {
+                im.line -= dropped as i64;
+            }
+            self.images.retain(|im| im.line + im.rows as i64 > 0);
+        }
+    }
+
+    /// An inline image arrived: it's decoded, sized (iTerm2's width and
+    /// height arguments, or its own size, never wider than the screen), and
+    /// as many lines as it needs are made below the cursor, where it's drawn.
+    pub fn place_image(&mut self, parser: &mut Processor, args: &str, data: &[u8]) {
+        let cols = self.term.columns();
+        let Some(mut im) = crate::images::decode(args, data, self.cell_px, cols) else {
+            return;
+        };
+        im.line = self.abs_cursor_line();
+        im.col = self.term.grid().cursor.point.column.0;
+        let rows = im.rows;
+        self.images.push(im);
+        let mut space = vec![b'\n'; rows];
+        space.push(b'\r');
+        self.feed(parser, &space);
+        if self.images.len() > 64 {
+            self.images.remove(0); // a terminal isn't a photo album
         }
     }
 
@@ -298,6 +327,8 @@ impl Session {
             prompt_seen: false,
             exited: None,
             max_history: scrollback,
+            images: vec![],
+            cell_px: (8.4, 17.0),
         }));
         let child = Arc::new(Mutex::new(child));
 
@@ -326,6 +357,7 @@ impl Session {
                         match &f.mark {
                             Mark::Cwd(dir) => s.cwd = dir.clone(),
                             Mark::Prompt => s.prompt_seen = true,
+                            Mark::Image { args, data } => s.place_image(&mut parser, args, data),
                             _ => {}
                         }
                         s.commands.apply(&f.mark, line, Instant::now());
@@ -582,7 +614,38 @@ pub(crate) mod tests {
             prompt_seen: false,
             exited: None,
             max_history: history,
+            images: vec![],
+            cell_px: (10.0, 20.0),
         }
+    }
+
+    #[test]
+    fn an_inline_image_makes_room_and_scrolls_with_the_text() {
+        use base64::Engine;
+        let mut s = screen(40, 10, 100);
+        let b64 =
+            base64::engine::general_purpose::STANDARD.encode(crate::images::tests::png(20, 50));
+        let mut parser = Processor::new();
+        let mut scanner = Scanner::default();
+        let chunk = format!("before\r\n\x1b]1337;File=inline=1:{b64}\x07after\r\n");
+        let bytes = chunk.as_bytes();
+        let mut at = 0;
+        for f in scanner.scan(bytes) {
+            s.feed(&mut parser, &bytes[at..f.end]);
+            at = f.end;
+            if let Mark::Image { args, data } = &f.mark {
+                s.place_image(&mut parser, args, data);
+            }
+        }
+        s.feed(&mut parser, &bytes[at..]);
+        assert_eq!(s.images.len(), 1);
+        let im = &s.images[0];
+        assert_eq!(
+            (im.line, im.rows),
+            (1, 3),
+            "on the line after 'before', 3 lines tall"
+        );
+        assert_eq!(s.line_text(4), "after", "the text goes on below it");
     }
 
     /// Feeds output the way the reader thread does: up to each mark, then the

@@ -42,6 +42,8 @@ pub struct Pane {
     noted: usize,
     /// The folder last seen (for Open Recent Folder).
     last_cwd: String,
+    /// Text an input method is composing (drawn at the cursor).
+    preedit: String,
     /// Smooth cursor: where it's drawn now, and where it really is.
     cursor_drawn: Option<egui::Pos2>,
     cursor_real: Option<egui::Pos2>,
@@ -344,6 +346,8 @@ pub struct App {
     your_day: bool,
     /// The first-start card (shown once).
     welcome: bool,
+    /// Inline images' textures, by image id.
+    textures: std::collections::HashMap<u64, egui::TextureHandle>,
     /// Open Recent Folder's list (recent-folders.json).
     recent_folders: crate::fun::Recent,
     recent_path: PathBuf,
@@ -432,6 +436,7 @@ impl App {
             stats_path,
             your_day: false,
             welcome,
+            textures: Default::default(),
             recent_folders: crate::fun::Recent::load(&dir.join("recent-folders.json")),
             recent_path: dir.join("recent-folders.json"),
             updates: crate::updates::Updates::new(&dir, &settings.update_channel),
@@ -599,6 +604,7 @@ impl App {
                     prompts: 0,
                     noted: 0,
                     last_cwd: String::new(),
+                    preedit: String::new(),
                     cursor_drawn: None,
                     cursor_real: None,
                 })
@@ -866,7 +872,13 @@ impl App {
         let mut parts = vec![];
         let mut budget = 8000usize;
         for b in s.commands.blocks.iter().rev().take(10) {
-            let mut t = format!("$ {}", b.command);
+            // A very long command (a pasted script, an image) is shortened.
+            let command: String = if b.command.chars().count() > 300 {
+                b.command.chars().take(300).collect::<String>() + "…"
+            } else {
+                b.command.clone()
+            };
+            let mut t = format!("$ {command}");
             if self.settings.ai_share_output {
                 let from = b.start.unwrap_or(b.prompt + 1);
                 let to = browse::block_end(b, bottom);
@@ -882,7 +894,7 @@ impl App {
                 t.push_str(&format!("\n(exit {code})"));
             }
             if t.len() > budget {
-                break;
+                continue; // too big: the older, smaller ones still go
             }
             budget -= t.len();
             parts.push(t);
@@ -1342,6 +1354,24 @@ impl App {
         if dismiss {
             self.last_crash = None;
         }
+    }
+
+    /// Textures of images no longer in any scrollback are let go.
+    fn prune_textures(&mut self) {
+        if self.textures.is_empty() {
+            return;
+        }
+        let mut live = std::collections::HashSet::new();
+        for w in std::iter::once(&self.w).chain(&self.others) {
+            for t in &w.tabs {
+                for p in t.panes() {
+                    for im in &p.session.screen.lock().unwrap().images {
+                        live.insert(im.id);
+                    }
+                }
+            }
+        }
+        self.textures.retain(|id, _| live.contains(id));
     }
 
     /// Something that repaints the app (for background work).
@@ -2781,6 +2811,7 @@ impl eframe::App for App {
         self.your_day_window(&ctx);
         self.update_tick();
         self.finished_commands();
+        self.prune_textures();
         #[cfg(target_os = "macos")]
         self.update_switcher();
         self.secure_input(was_active);
@@ -2973,15 +3004,21 @@ impl App {
                     let Some(tab) = self.pane_mut() else {
                         break;
                     };
-                    let app_cursor = tab
-                        .session
-                        .screen
-                        .lock()
-                        .unwrap()
-                        .term
-                        .mode()
-                        .contains(TermMode::APP_CURSOR);
-                    if let Some(bytes) = key_bytes(key, &modifiers, app_cursor, option_meta) {
+                    let mode = *tab.session.screen.lock().unwrap().term.mode();
+                    let app_cursor = mode.contains(TermMode::APP_CURSOR);
+                    // The kitty keyboard protocol, when the program asked.
+                    let all_keys = mode.contains(TermMode::REPORT_ALL_KEYS_AS_ESC);
+                    let kitty = if all_keys || mode.contains(TermMode::DISAMBIGUATE_ESC_CODES) {
+                        crate::input::kitty_bytes(key, &modifiers, all_keys)
+                    } else {
+                        None
+                    };
+                    if kitty.is_some() && all_keys {
+                        swallow_text = true; // the key was reported; no text too
+                    }
+                    if let Some(bytes) =
+                        kitty.or_else(|| key_bytes(key, &modifiers, app_cursor, option_meta))
+                    {
                         let mut s = tab.session.screen.lock().unwrap();
                         s.term.scroll_display(Scroll::Bottom); // typing jumps back to the prompt
                         s.term.selection = None;
@@ -3015,6 +3052,22 @@ impl App {
                     }
                 }
                 egui::Event::Copy if !typing_in_field => self.run(&ctx, Cmd::Copy),
+                // Input methods (Japanese, Chinese, accents): the finished
+                // text goes to the shell; the text being composed is drawn
+                // at the cursor.
+                egui::Event::Ime(egui::ImeEvent::Commit(t)) if !typing_in_field => {
+                    if let Some(p) = self.pane_mut() {
+                        p.preedit.clear();
+                        p.typed = true;
+                        p.session.write(t.as_bytes());
+                        broadcast = Some(t.as_bytes().to_vec());
+                    }
+                }
+                egui::Event::Ime(egui::ImeEvent::Preedit { text, .. }) if !typing_in_field => {
+                    if let Some(p) = self.pane_mut() {
+                        p.preedit = text;
+                    }
+                }
                 _ => {}
             }
             // Broadcast Typing: the same keys to the tab's other panes.
@@ -3216,6 +3269,79 @@ impl App {
                     let painter = ui.painter_at(rect);
                     let painted = view::paint(&painter, rect, &screen, &look);
                     let origin = painted.origin;
+                    screen.cell_px = (cell.x, cell.y);
+                    // Inline images, where their lines are.
+                    let top_line = screen.term.grid().history_size() as i64
+                        - screen.term.grid().display_offset() as i64;
+                    for im in &screen.images {
+                        let y = origin.y + (im.line - top_line) as f32 * cell.y;
+                        let r = egui::Rect::from_min_size(
+                            egui::pos2(origin.x + im.col as f32 * cell.x, y),
+                            Vec2::new(im.size.0, im.size.1),
+                        );
+                        if !r.intersects(rect) {
+                            continue;
+                        }
+                        let tex = self.textures.entry(im.id).or_insert_with(|| {
+                            ctx.load_texture(
+                                format!("image-{}", im.id),
+                                (*im.image).clone(),
+                                egui::TextureOptions::LINEAR,
+                            )
+                        });
+                        painter.image(
+                            tex.id(),
+                            r,
+                            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                            Color32::WHITE,
+                        );
+                    }
+                    // An input method's text being composed, underlined, at
+                    // the cursor; and where the input method's window goes.
+                    if focused && let Some(c) = painted.cursor {
+                        if !pane.preedit.is_empty() {
+                            let galley = painter.layout_no_wrap(
+                                pane.preedit.clone(),
+                                view::mono(font_size),
+                                self.theme.foreground,
+                            );
+                            let r = egui::Rect::from_min_size(c.min, galley.size());
+                            painter.rect_filled(r, 0.0, self.theme.background);
+                            painter.galley(c.min, galley, self.theme.foreground);
+                            painter.line_segment(
+                                [r.left_bottom(), r.right_bottom()],
+                                egui::Stroke::new(1.0, self.theme.foreground),
+                            );
+                        }
+                        if !ctx.memory(|m| m.focused().is_some()) {
+                            ctx.output_mut(|o| {
+                                o.ime = Some(egui::output::IMEOutput {
+                                    purpose: egui::IMEPurpose::Terminal,
+                                    rect,
+                                    cursor_rect: c,
+                                    should_interrupt_composition: false,
+                                })
+                            });
+                        }
+                    }
+                    // VoiceOver: the pane is a terminal whose text is what's
+                    // on screen.
+                    let screen_text = || {
+                        let top = top_line;
+                        let rows = screen.term.screen_lines() as i64;
+                        (top..top + rows)
+                            .map(|l| screen.line_text(l))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                            .trim_end()
+                            .to_string()
+                    };
+                    response.widget_info(|| {
+                        let mut info =
+                            egui::WidgetInfo::labeled(egui::Role::Terminal, true, "Terminal");
+                        info.current_text_value = Some(screen_text());
+                        info
+                    });
                     pane.cursor_drawn = cursor_at;
                     pane.cursor_real = painted.cursor.map(|r| r.min);
 

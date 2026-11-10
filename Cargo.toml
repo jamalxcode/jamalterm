@@ -8,7 +8,7 @@ publish = false
 
 [dependencies]
 alacritty_terminal = "0.26"
-eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "wayland", "x11"] }
+eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "wayland", "x11", "accesskit"] }
 egui = "0.37"
 portable-pty = "0.9"
 serde = { version = "1", features = ["derive"] }
@@ -27,6 +27,8 @@ libc = "0.2"
 # The AI panel: requests to the providers, secret hiding and risk checks.
 ureq = { version = "3", default-features = false, features = ["json"] }
 regex = "1"
+# Inline images (the iTerm2 protocol imgcat uses), pure Rust decoders.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif"] }
 # The updater's build-proof check (Sigstore), pure Rust.
 p256 = { version = "0.14", default-features = false, features = ["ecdsa", "pkcs8", "std"] }
 p384 = { version = "0.14", default-features = false, features = ["ecdsa", "pkcs8", "std"] }

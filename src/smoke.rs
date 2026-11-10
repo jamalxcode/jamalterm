@@ -534,6 +534,41 @@ const STEPS: &[Step] = &[
         limit: Duration::from_secs(5),
     },
     Step {
+        name: "an inline image (imgcat's protocol) is shown",
+        act: |_, _, tabs, a| {
+            // A 120×60 gradient as PNG, printed by the shell.
+            let (w, h) = (120u32, 60u32);
+            let mut png_bytes = vec![];
+            {
+                let mut e = png::Encoder::new(&mut png_bytes, w, h);
+                e.set_color(png::ColorType::Rgb);
+                e.set_depth(png::BitDepth::Eight);
+                let mut wr = e.write_header().unwrap();
+                let px: Vec<u8> = (0..h)
+                    .flat_map(|y| (0..w).flat_map(move |x| [(x * 2) as u8, (y * 4) as u8, 200]))
+                    .collect();
+                wr.write_image_data(&px).unwrap();
+            }
+            use base64::Engine;
+            let b64 = base64::engine::general_purpose::STANDARD.encode(png_bytes);
+            let cmd = format!("printf '\\033]1337;File=inline=1:{b64}\\a\\n'\r");
+            tabs[a].pane().session.write(cmd.as_bytes());
+        },
+        done: |_, tabs, a| {
+            let s = tabs[a].pane().session.screen.lock().unwrap();
+            s.images
+                .first()
+                .map(|im| (im.rows >= 2, format!("{} lines tall", im.rows)))
+        },
+        limit: Duration::from_secs(5),
+    },
+    Step {
+        name: "(screenshot: image)",
+        act: |s, ctx, _, _| s.shot(ctx, "image"),
+        done: |_, _, _| None,
+        limit: Duration::from_millis(800),
+    },
+    Step {
         name: "⇧⌘P opens the command palette",
         act: |s, _, _, _| s.press(egui::Key::P, cmd_shift()),
         done: |s, _, _| s.palette_open.then(|| (true, String::new())),
