@@ -32,6 +32,12 @@ eframe/egui (native window, OpenGL)        one thread per shell
 - **Moving tabs** (`tabdrag.rs`): drag along the bar to reorder; let go outside the window and the tab moves into the window under the pointer, or into a new window right there. Esc puts it back. Window → Move Tab to New Window and Merge All Windows, as in Terminal. Shells keep running: a tab is just moved between `Win`s. Reattaching (3.x, after a page reload or crash) isn't needed: there's no web page, the shells live in the app.
 - **Session restore** (`restore.rs`): 3.x's `session.json` unchanged (version 3, 0600), so a 3.x session restores in 4.x. Each pane's recent output (1000 lines, 200 if over 400 KB) is saved as terminal text with colors and fed to the new emulator before its shell starts, with a dim "[Restored from the last session]" line under it; a wrapped line is saved as one line so it re-wraps at the new width. Saved on quit and every 15 s when something changed. Closing a window forgets it; quitting keeps every window; closing the last tab of the last window starts fresh next time. The self-test's second run checks that the saved windows come back.
 
+- **Command palette** (`palette.rs`): built from the command table, the on/off settings list (`TOGGLES`, which also builds the Settings checkboxes), the themes and every tab in every window. Letters match in order with word starts counting most; recent picks come first when nothing is typed.
+- **Settings window** (`prefs.rs`): its own viewport, panes along the top, the title names the pane, changes saved and applied at once, Advanced folded away, hovering a theme previews it everywhere. Only settings that work in 4.x are shown (Appearance, Shell); AI, Privacy and Updates come back with their features, and their fields stay in settings.json untouched. The tab bar, palette and Settings follow the theme's lightness.
+- **Right-click menu:** on a Mac a native menu (muda, shown for the key window's view); elsewhere egui's. Both come from `commands::context_menu`, and clicks run commands like the menu bar's.
+- **Asking before ending programs** (`alert.rs`): a pane is busy when the pty's foreground process group isn't the shell's (`Session::busy`, tcgetpgrp). ⌘W, ⌥⌘W, the tab's ×, ⇧⌘W, a window's close button and ⌘Q ask first. On a Mac it's a native `NSAlert` sheet with Cancel as the first (default) button; the Quit item is our own so ⌘Q can ask. The self-test (and other systems) get the same question inside the window.
+- **Esc that closes the find bar or palette never reaches the shell.** egui drops a field's focus on Esc before the app sees the key, so it used to slip through, and zsh then swallowed the next key typed (as Meta). The self-test checks a command typed right after arrives whole.
+
 ### Status (what works / what's left)
 | Area | 4.x Rust |
 |---|---|
@@ -42,9 +48,8 @@ eframe/egui (native window, OpenGL)        one thread per shell
 | Browse mode (the free-floating cursor, ⌥↑↓ between commands, ⏎ re-run asking when it ran elsewhere, ⇧⏎ edit, C/O copy, key bar), marks that stay put when the scrollback is full | ✅ phase 2 |
 | Sticky header, scrollbar markers | ⏳ |
 | Split panes (⌘D, ⇧⌘D, dividers, ⌘[ ⌘], ⌥⌘ arrows), multiple windows (⌘N, ⇧⌘W), moving tabs (drag, Move Tab to New Window, Merge All Windows), session restore (3.x file) | ✅ phase 3 |
-| Asking before closing running programs (native alert) | ⏳ |
 | Native Mac menu bar (one command table), find (⌘F, ⌘G/⇧⌘G, "3 of 17") | ✅ phase 2 |
-| Command palette, right-click menu, Settings window | ⏳ |
+| Command palette (⇧⌘P), right-click menu (native on a Mac), Settings window (⌘,: Appearance, Shell), asking before closing running programs (native alert) | ✅ phase 4 |
 | AI panel, command bar, Fix it, risk checks, providers, local models | ⏳ |
 | Encrypted keys, Secure Keyboard Entry, problem log, diagnostics, crash reports | ⏳ |
 | Updater with Sigstore check, What's new, Beta channel, releases | ⏳ |

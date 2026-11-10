@@ -1,5 +1,6 @@
 //! The window: tabs, the tab bar, keyboard and mouse, and the terminal view.
 
+use crate::alert::{self, Closing};
 use crate::browse::{self, Action, Browse};
 use crate::commands::{self, Cmd};
 use crate::find::Find;
@@ -19,7 +20,7 @@ use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::TermMode;
 use egui::{Color32, Key, RichText, Sense, Vec2};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 /// One shell in a tab (a tab has one, or more when split).
@@ -291,6 +292,10 @@ pub struct App {
     tab_bar_hidden: bool,
     /// What was run from the palette lately (shown first).
     recent: Vec<palette::Action>,
+    /// A "terminate running processes?" question waiting for its answer.
+    asking: Option<alert::Pending>,
+    /// The close that was just allowed (it goes ahead without asking again).
+    allowed: Option<alert::Closing>,
     /// The next pane's id.
     next_id: u64,
     settings: Settings,
@@ -339,6 +344,8 @@ impl App {
             focus_settings: false,
             tab_bar_hidden: false,
             recent: vec![],
+            asking: None,
+            allowed: None,
             next_id: 1,
             theme,
             home: dirs::home_dir()
@@ -522,12 +529,25 @@ impl App {
 
     /// ⌘W: closes the focused pane, or the tab when it isn't split.
     fn close_pane(&mut self, ctx: &egui::Context) {
-        let Some(t) = self.w.tabs.get_mut(self.w.active) else {
+        let Some(t) = self.w.tabs.get(self.w.active) else {
             return;
         };
-        let id = t.focus;
-        if !t.close_pane(id) {
+        let id = t.pane().id;
+        if t.tree().count() == 1 {
             self.close_tab(ctx, self.w.active);
+            return;
+        }
+        if !self.may_close(
+            ctx,
+            Closing::Pane {
+                win: self.w.id,
+                pane: id,
+            },
+        ) {
+            return;
+        }
+        if let Some(t) = self.w.tabs.get_mut(self.w.active) {
+            t.close_pane(id);
         }
     }
 
@@ -565,7 +585,17 @@ impl App {
     }
 
     fn close_tab(&mut self, ctx: &egui::Context, i: usize) {
-        if i >= self.w.tabs.len() {
+        let Some(t) = self.w.tabs.get(i) else {
+            return;
+        };
+        let pane = t.panes()[0].id;
+        if !self.may_close(
+            ctx,
+            Closing::Tab {
+                win: self.w.id,
+                pane,
+            },
+        ) {
             return;
         }
         self.w.tabs.remove(i); // dropping the session ends its shell
@@ -874,10 +904,137 @@ impl App {
     fn close_window(&mut self, ctx: &egui::Context) {
         if self.w.root && self.others.is_empty() {
             // The last window: that's quitting (the session is kept).
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-        } else {
+            if self.may_close(ctx, Closing::Quit) {
+                self.quit(ctx);
+            }
+        } else if self.may_close(ctx, Closing::Window { win: self.w.id }) {
             self.w.exiting = true;
         }
+    }
+
+    /// The programs (other than shells) running in what's closing, by name.
+    /// Empty: nothing's running, close without asking.
+    fn running_in(&self, c: Closing) -> Vec<String> {
+        let wins: Vec<&Win> = std::iter::once(&self.w).chain(&self.others).collect();
+        let mut panes: Vec<&Pane> = vec![];
+        for w in wins {
+            match c {
+                Closing::Quit => panes.extend(w.tabs.iter().flat_map(|t| t.panes())),
+                Closing::Window { win } if win == w.id => {
+                    panes.extend(w.tabs.iter().flat_map(|t| t.panes()))
+                }
+                Closing::Tab { win, pane } if win == w.id => {
+                    if let Some(t) = w
+                        .tabs
+                        .iter()
+                        .find(|t| t.panes().iter().any(|p| p.id == pane))
+                    {
+                        panes.extend(t.panes());
+                    }
+                }
+                Closing::Pane { win, pane } if win == w.id => panes.extend(
+                    w.tabs
+                        .iter()
+                        .flat_map(|t| t.panes())
+                        .filter(|p| p.id == pane),
+                ),
+                _ => {}
+            }
+        }
+        let mut names: Vec<String> = panes
+            .into_iter()
+            .filter(|p| p.session.busy())
+            .map(|p| {
+                let s = p.session.screen.lock().unwrap();
+                s.commands
+                    .running()
+                    .and_then(|b| program_of(&b.command))
+                    .unwrap_or_else(|| "a program".into())
+            })
+            .collect();
+        names.dedup();
+        names
+    }
+
+    /// True when `c` may go ahead now: nothing's running in it, or it was
+    /// just allowed. Otherwise asks (the close happens on "Terminate").
+    fn may_close(&mut self, ctx: &egui::Context, c: Closing) -> bool {
+        if self.allowed == Some(c) {
+            self.allowed = None;
+            return true;
+        }
+        if self.asking.is_some() {
+            return false; // one question at a time
+        }
+        let running = self.running_in(c);
+        if running.is_empty() {
+            return true;
+        }
+        let detail = c.detail(&running);
+        // The self-test can't click a native alert: it's asked in the window.
+        let native = if self.smoke.is_some() {
+            None
+        } else {
+            alert::ask_native(c, &detail, ctx)
+        };
+        self.asking = Some(alert::Pending {
+            closing: c,
+            detail,
+            native,
+        });
+        false
+    }
+
+    /// The answer came: on "Terminate", do the close it was about.
+    fn answered(&mut self, ctx: &egui::Context, c: Closing, terminate: bool) {
+        self.asking = None;
+        if !terminate {
+            return;
+        }
+        self.allowed = Some(c);
+        let win = match c {
+            Closing::Quit => {
+                self.quit(ctx);
+                return;
+            }
+            Closing::Pane { win, .. } | Closing::Tab { win, .. } | Closing::Window { win } => win,
+        };
+        // Do it in that window.
+        let found = if self.w.id != win {
+            self.others.iter().position(|w| w.id == win)
+        } else {
+            Some(usize::MAX) // this window
+        };
+        let Some(i) = found else {
+            return; // it's gone already
+        };
+        if i != usize::MAX {
+            std::mem::swap(&mut self.w, &mut self.others[i]);
+        }
+        match c {
+            Closing::Pane { pane, .. } | Closing::Tab { pane, .. } => {
+                if let Some(t) = self
+                    .w
+                    .tabs
+                    .iter()
+                    .position(|t| t.panes().iter().any(|p| p.id == pane))
+                {
+                    if matches!(c, Closing::Pane { .. }) {
+                        self.w.active = t;
+                        self.w.tabs[t].focus = pane;
+                        self.close_pane(ctx);
+                    } else {
+                        self.close_tab(ctx, t);
+                    }
+                }
+            }
+            Closing::Window { .. } => self.close_window(ctx),
+            Closing::Quit => {}
+        }
+        if i != usize::MAX {
+            std::mem::swap(&mut self.w, &mut self.others[i]);
+        }
+        self.allowed = None;
     }
 
     fn set_font_size(&mut self, size: u32) {
@@ -904,6 +1061,22 @@ impl App {
         match cmd {
             Cmd::NewTab => self.new_tab(ctx, None),
             Cmd::Settings => self.open_settings(None),
+            Cmd::Quit => {
+                if self.may_close(ctx, Closing::Quit) {
+                    self.quit(ctx);
+                }
+            }
+            Cmd::SearchWeb => {
+                let text = self
+                    .pane()
+                    .and_then(|p| p.session.screen.lock().unwrap().term.selection_to_string());
+                if let Some(t) = text.filter(|t| !t.trim().is_empty()) {
+                    open_url(&format!(
+                        "https://www.google.com/search?q={}",
+                        url_encode(t.trim())
+                    ));
+                }
+            }
             Cmd::Palette => {
                 self.w.palette = Some(palette::Palette {
                     focus: true,
@@ -1504,6 +1677,7 @@ impl eframe::App for App {
             smoke.palette_open = self.w.palette.is_some();
             smoke.settings_open = self.settings_open.is_some();
             smoke.theme = self.settings.theme.clone();
+            smoke.asking = self.asking.is_some();
             smoke.step(&ctx, &self.w.tabs, self.w.active);
         }
 
@@ -1539,6 +1713,23 @@ impl eframe::App for App {
         }
 
         self.settings_window(&ctx);
+
+        // A "terminate running processes?" question: its answer.
+        if let Some(p) = &self.asking {
+            let c = p.closing;
+            let smoke_answer = self.smoke.as_mut().and_then(|s| s.answer.take());
+            let answer = match &p.native {
+                Some(rx) => match rx.try_recv() {
+                    Ok(a) => Some(a),
+                    Err(mpsc::TryRecvError::Disconnected) => Some(false),
+                    Err(mpsc::TryRecvError::Empty) => None,
+                },
+                None => smoke_answer.or_else(|| alert::ask_in_window(&ctx, p)),
+            };
+            if let Some(a) = answer {
+                self.answered(&ctx, c, a);
+            }
+        }
 
         // The first window closed (or lost its last tab) while others are
         // open: it takes over another window's tabs, so the app goes on.
@@ -1616,7 +1807,16 @@ impl App {
             }
         }
         if close {
-            if self.quitting || (self.w.root && self.others.is_empty()) {
+            let last = self.w.root && self.others.is_empty();
+            let c = if last {
+                Closing::Quit
+            } else {
+                Closing::Window { win: self.w.id }
+            };
+            if !self.quitting && !self.may_close(&ctx, c) {
+                // Asked first; it closes on "Terminate".
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            } else if self.quitting || last {
                 // The last window: quitting. The session is kept.
                 self.save_session(&ctx);
             } else {
@@ -1648,8 +1848,15 @@ impl App {
                         swallow_text = true;
                         continue;
                     }
-                    if typing_in_field {
-                        continue; // the find box has the keys
+                    // The find box, palette or a question has the keys. (egui
+                    // drops a field's focus on Esc before this runs, so Esc
+                    // that closes one of them must not reach the shell.)
+                    if typing_in_field
+                        || self.asking.is_some()
+                        || (key == Key::Escape
+                            && (self.w.find.is_some() || self.w.palette.is_some()))
+                    {
+                        continue;
                     }
                     // Browse mode takes the keys while it's on.
                     if self
@@ -1788,6 +1995,9 @@ impl App {
                 let window_focused = ctx.input(|i| i.focused);
                 let mut focus_to = None;
                 let mut click_browse = None;
+                let mut context: Option<bool> = None; // right-clicked (with a selection?)
+                #[cfg_attr(target_os = "macos", allow(unused_mut))]
+                let mut context_cmd: Option<Cmd> = None;
                 for &(id, rect) in &placed {
                     let response = ui.interact(
                         rect,
@@ -1805,6 +2015,28 @@ impl App {
                         pane.session.resize(grid.0, grid.1);
                     }
                     let mut screen = pane.session.screen.lock().unwrap();
+                    let selection = screen.term.selection.is_some();
+                    if response.secondary_clicked() {
+                        // Right-click: the menu (and the pane gets the focus).
+                        focus_to = Some(id);
+                        context = Some(selection);
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    response.context_menu(|ui| {
+                        for item in commands::context_menu(selection) {
+                            match item {
+                                Some((cmd, title, enabled)) => {
+                                    if ui.add_enabled(enabled, egui::Button::new(title)).clicked() {
+                                        context_cmd = Some(cmd);
+                                        ui.close();
+                                    }
+                                }
+                                None => {
+                                    ui.separator();
+                                }
+                            }
+                        }
+                    });
                     let browse_look = pane.browse.as_ref().filter(|_| focused).map(|b| {
                         let top = screen.term.grid().history_size() as i64
                             - screen.term.grid().display_offset() as i64;
@@ -1952,6 +2184,14 @@ impl App {
                 if let Some(id) = focus_to {
                     self.w.tabs[a].focus = id;
                 }
+                #[cfg(target_os = "macos")]
+                if let Some(sel) = context {
+                    crate::menu::show_context_menu(sel);
+                }
+                let _ = context;
+                if let Some(cmd) = context_cmd {
+                    self.run(&ctx, cmd);
+                }
                 if let Some((id, row, col)) = click_browse
                     && let Some(p) = self.w.tabs[a].tree_mut().find_mut(&|p: &Pane| p.id == id)
                 {
@@ -1984,6 +2224,29 @@ impl App {
             );
         }
     }
+}
+
+/// Opens a web page in the browser (a click the user made).
+fn open_url(url: &str) {
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    let _ = std::process::Command::new(opener).arg(url).spawn();
+}
+
+/// Text for a URL's query.
+fn url_encode(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            b' ' => "+".into(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
 }
 
 /// `App::front` while the Settings window is in front.
@@ -2038,6 +2301,12 @@ fn pane_marker(p: &egui::Painter, rect: egui::Rect, focused: bool, theme: &Theme
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn search_text_is_encoded() {
+        assert_eq!(url_encode("rm -rf ~/x&y"), "rm+-rf+~%2Fx%26y");
+        assert_eq!(url_encode("é"), "%C3%A9");
+    }
 
     #[test]
     fn names_in_words() {

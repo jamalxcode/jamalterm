@@ -121,7 +121,8 @@ impl MacMenu {
             PredefinedMenuItem::hide(Some("Hide jamalterm")),
             PredefinedMenuItem::hide_others(None),
             PredefinedMenuItem::show_all(None),
-            PredefinedMenuItem::quit(Some("Quit jamalterm")),
+            // Our own Quit (⌘Q), so it can ask when programs are running.
+            item(commands::TABLE.iter().find(|e| e.cmd == Cmd::Quit)?),
         );
         let mut app_items: Vec<&dyn IsMenuItem> = vec![&about, &s0];
         app_items.extend(menu(Menu::App)); // Settings…
@@ -185,6 +186,34 @@ impl MacMenu {
     /// Commands chosen since the last frame.
     pub fn chosen(&self) -> Vec<Cmd> {
         self.rx.try_iter().collect()
+    }
+}
+
+/// The right-click menu, native, at the pointer in the window in front.
+/// Its clicks come back as commands, like the menu bar's.
+pub fn show_context_menu(selection: bool) {
+    use muda::ContextMenu;
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSApplication;
+    let menu = muda::Menu::new();
+    for item in commands::context_menu(selection) {
+        let _ = match item {
+            Some((cmd, title, enabled)) => {
+                menu.append(&MenuItem::with_id(commands::id(cmd), title, enabled, None))
+            }
+            None => menu.append(&PredefinedMenuItem::separator()),
+        };
+    }
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    let Some(view) = app.keyWindow().and_then(|w| w.contentView()) else {
+        return;
+    };
+    // Safety: a live NSView of our own window, on the main thread.
+    unsafe {
+        menu.show_context_menu_for_nsview(objc2::rc::Retained::as_ptr(&view).cast(), None);
     }
 }
 

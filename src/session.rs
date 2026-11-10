@@ -232,6 +232,17 @@ pub struct Session {
 }
 
 impl Session {
+    /// A program other than the shell is in front (vim, ssh, a build…): the
+    /// pty's foreground process group isn't the shell's. This catches what
+    /// the integration marks don't see, as 3.x did.
+    pub fn busy(&self) -> bool {
+        let Some(front) = self.master.process_group_leader() else {
+            return false;
+        };
+        let shell = self.child.lock().ok().and_then(|c| c.process_id());
+        shell.is_some_and(|pid| front as u32 != pid)
+    }
+
     /// Starts the shell. `repaint` is called whenever there's new output.
     pub fn spawn(
         spec: &ShellSpec,
@@ -431,6 +442,43 @@ pub(crate) mod tests {
             assert!(Instant::now() < until, "the command never finished");
             std::thread::sleep(Duration::from_millis(30));
         }
+    }
+
+    #[test]
+    fn busy_while_a_program_runs() {
+        for sh in ["/bin/bash", "/bin/zsh", "/usr/bin/zsh"] {
+            if std::path::Path::new(sh).exists() {
+                busy_in(sh);
+            }
+        }
+    }
+
+    fn busy_in(sh: &str) {
+        let home = tempfile::tempdir().unwrap();
+        let spec = ShellSpec {
+            shell: sh.into(),
+            args: None, // a login shell, as the app starts it
+            dir: Some(home.path().to_path_buf()),
+            integration: true,
+            extra_env: vec![("HOME".into(), home.path().display().to_string())],
+        };
+        let s = Session::spawn(&spec, 80, 24, 1000, b"", Arc::new(|| {})).unwrap();
+        let wait = |want: bool| {
+            let until = Instant::now() + Duration::from_secs(10);
+            while Instant::now() < until {
+                if s.busy() == want {
+                    return true;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            false
+        };
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(wait(false), "{sh}: an idle shell isn't busy");
+        s.write(b"sleep 30\r");
+        assert!(wait(true), "{sh}: busy while sleep runs");
+        s.write(b"\x03"); // ⌃C
+        assert!(wait(false), "{sh}: idle again");
     }
 
     /// Real shells, with jamalterm's hooks, in a PTY: each command is found

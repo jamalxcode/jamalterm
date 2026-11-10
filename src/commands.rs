@@ -11,6 +11,10 @@ use egui::Key;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Cmd {
     Settings,
+    /// ⌘Q: asks first when programs are running.
+    Quit,
+    /// Right-click → Search with Google (the selected text).
+    SearchWeb,
     Palette,
     NewWindow,
     NewTab,
@@ -118,6 +122,22 @@ const fn tab(n: u8, key: Key) -> Entry {
 
 pub const TABLE: &[Entry] = &[
     e(Cmd::Settings, "Settings…", Menu::App, Key::Comma, false),
+    Entry {
+        menu: None, // the jamalterm menu has its own Quit item, at the end
+        ..e(Cmd::Quit, "Quit jamalterm", Menu::App, Key::Q, false)
+    },
+    Entry {
+        menu: None,
+        key: None,
+        keyed: false,
+        ..e(
+            Cmd::SearchWeb,
+            "Search with Google",
+            Menu::Edit,
+            Key::Escape,
+            false,
+        )
+    },
     e(Cmd::NewWindow, "New Window", Menu::Shell, Key::N, false),
     e(Cmd::NewTab, "New Tab", Menu::Shell, Key::T, false),
     e(
@@ -246,6 +266,23 @@ pub fn for_key(key: Key, shift: Option<bool>, alt: bool) -> Option<Cmd> {
         .map(|e| e.cmd)
 }
 
+/// The right-click menu: (command, title, enabled), None for a separator.
+pub fn context_menu(selection: bool) -> Vec<Option<(Cmd, &'static str, bool)>> {
+    vec![
+        Some((Cmd::Copy, "Copy", selection)),
+        Some((Cmd::Paste, "Paste", true)),
+        Some((Cmd::SelectAll, "Select All", true)),
+        None,
+        Some((Cmd::FindSelection, "Find Selection", selection)),
+        Some((Cmd::SearchWeb, "Search with Google", selection)),
+        None,
+        Some((Cmd::SplitRight, "Split Pane Right", true)),
+        Some((Cmd::SplitDown, "Split Pane Down", true)),
+        None,
+        Some((Cmd::Clear, "Clear Scrollback", true)),
+    ]
+}
+
 /// A stable id for the menu item (muda's MenuId).
 pub fn id(cmd: Cmd) -> String {
     format!("{cmd:?}")
@@ -286,7 +323,8 @@ mod tests {
             None,
             "Copy is the system's"
         );
-        assert_eq!(for_key(Key::Q, Some(false), false), None);
+        assert_eq!(for_key(Key::Q, Some(false), false), Some(Cmd::Quit));
+        assert_eq!(for_key(Key::Z, Some(false), false), None);
         assert_eq!(for_key(Key::N, Some(false), false), Some(Cmd::NewWindow));
         assert_eq!(for_key(Key::W, Some(true), false), Some(Cmd::CloseWindow));
         assert_eq!(
@@ -303,6 +341,17 @@ mod tests {
             for_key(Key::OpenBracket, Some(false), false),
             Some(Cmd::PreviousPane)
         );
+    }
+
+    #[test]
+    fn right_click_menu() {
+        let m = context_menu(false);
+        let copy = m.iter().flatten().find(|i| i.0 == Cmd::Copy).unwrap();
+        assert!(!copy.2, "Copy is off with nothing selected");
+        assert!(context_menu(true).iter().flatten().all(|i| i.2));
+        for (cmd, ..) in m.iter().flatten() {
+            assert_eq!(by_id(&id(*cmd)), Some(*cmd), "its clicks come back");
+        }
     }
 
     #[test]

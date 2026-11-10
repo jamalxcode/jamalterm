@@ -46,6 +46,9 @@ pub struct Smoke {
     pub theme: String,
     /// Asks the app to close Settings (its keys can't be typed from here).
     pub close_settings: bool,
+    /// A close question is up (from the app), and the answer to give it.
+    pub asking: bool,
+    pub answer: Option<bool>,
     /// Done: the app should quit.
     pub quit: bool,
     /// How many windows are open (from the app each frame).
@@ -211,6 +214,31 @@ const STEPS: &[Step] = &[
         limit: Duration::from_secs(2),
     },
     Step {
+        name: "the Esc that closed find didn't reach the shell",
+        act: |s, _, _, _| {
+            s.keys.push(egui::Event::Text("echo whole".into()));
+            s.press(egui::Key::Enter, egui::Modifiers::NONE);
+        },
+        done: |_, tabs, a| {
+            blocks(tabs, a)
+                .iter()
+                .any(|b| b.exit.is_some() && b.command.ends_with("cho whole"))
+                .then(|| {
+                    let b = blocks(tabs, a);
+                    let ok = b.iter().any(|b| b.command == "echo whole");
+                    (
+                        ok,
+                        if ok {
+                            "typed whole".into()
+                        } else {
+                            "its first letter was lost".into()
+                        },
+                    )
+                })
+        },
+        limit: Duration::from_secs(5),
+    },
+    Step {
         name: "⌘D splits the pane",
         act: |s, _, _, _| s.press(egui::Key::D, cmd_mods()),
         done: |_, tabs, a| {
@@ -255,6 +283,80 @@ const STEPS: &[Step] = &[
         act: |s, _, _, _| s.press(egui::Key::W, cmd_mods()),
         done: |_, tabs, a| {
             (tabs.len() == 1 && tabs[a].tree().count() == 1).then(|| (true, "1 tab, 1 pane".into()))
+        },
+        limit: Duration::from_secs(5),
+    },
+    Step {
+        name: "(a program runs)",
+        act: |_, _, tabs, a| tabs[a].pane().session.write(b"sleep 30\r"),
+        done: |_, tabs, a| tabs[a].pane().session.busy().then(|| (true, String::new())),
+        limit: Duration::from_secs(5),
+    },
+    Step {
+        name: "closing a tab while a program runs asks first",
+        act: |s, _, _, _| s.press(egui::Key::W, cmd_mods()),
+        done: |s, tabs, _| {
+            s.asking
+                .then(|| (tabs.len() == 1, "the question is up".into()))
+        },
+        limit: Duration::from_secs(3),
+    },
+    Step {
+        name: "(screenshot: the question)",
+        act: |s, ctx, _, _| s.shot(ctx, "question"),
+        done: |_, _, _| None,
+        limit: Duration::from_millis(800),
+    },
+    Step {
+        name: "Cancel keeps the tab and its program",
+        act: |s, _, _, _| s.answer = Some(false),
+        done: |s, tabs, a| {
+            (!s.asking).then(|| {
+                (
+                    tabs.len() == 1 && tabs[a].pane().session.busy(),
+                    "still running".into(),
+                )
+            })
+        },
+        limit: Duration::from_secs(3),
+    },
+    Step {
+        name: "(⌃C stops it)",
+        act: |_, _, tabs, a| tabs[a].pane().session.write(b"\x03"),
+        done: |_, tabs, a| (!tabs[a].pane().session.busy()).then(|| (true, String::new())),
+        limit: Duration::from_secs(5),
+    },
+    Step {
+        name: "(split, and run a program there)",
+        act: |s, _, _, _| s.press(egui::Key::D, cmd_mods()),
+        done: |_, tabs, a| {
+            let t = &tabs[a];
+            let ready =
+                t.tree().count() == 2 && t.pane().session.screen.lock().unwrap().prompt_seen;
+            if ready {
+                t.pane().session.write(b"sleep 30\r");
+            }
+            ready.then(|| (true, String::new()))
+        },
+        limit: Duration::from_secs(10),
+    },
+    Step {
+        name: "(it runs)",
+        act: |_, _, _, _| {},
+        done: |_, tabs, a| tabs[a].pane().session.busy().then(|| (true, String::new())),
+        limit: Duration::from_secs(5),
+    },
+    Step {
+        name: "closing that pane asks too",
+        act: |s, _, _, _| s.press(egui::Key::W, cmd_mods()),
+        done: |s, _, _| s.asking.then(|| (true, String::new())),
+        limit: Duration::from_secs(3),
+    },
+    Step {
+        name: "Terminate closes the pane",
+        act: |s, _, _, _| s.answer = Some(true),
+        done: |s, tabs, a| {
+            (!s.asking && tabs[a].tree().count() == 1).then(|| (true, "1 pane".into()))
         },
         limit: Duration::from_secs(5),
     },
@@ -498,6 +600,8 @@ impl Smoke {
             windows: 1,
             cmds: vec![],
             quit: false,
+            asking: false,
+            answer: None,
             palette_open: false,
             settings_open: false,
             theme: String::new(),
@@ -599,6 +703,16 @@ impl Smoke {
         if result.is_none() && !timed_out {
             return;
         }
+        eprintln!(
+            "smoke: {} {}",
+            step.name,
+            match &result {
+                Some((true, _)) => "ok",
+                Some((false, _)) => "FAILED",
+                None if step.name.starts_with('(') => "done",
+                None => "timed out",
+            }
+        );
         if !step.name.starts_with('(') {
             let ms = self.at.elapsed().as_millis();
             let (ok, detail) = result.unwrap_or((false, "timed out".into()));
