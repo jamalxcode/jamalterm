@@ -168,6 +168,13 @@ export function Diagnostics(): $CancellablePromise<string> {
 }
 
 /**
+ * DismissCrash forgets the crash from last time.
+ */
+export function DismissCrash(): $CancellablePromise<void> {
+    return $Call.ByID(64376486);
+}
+
+/**
  * FindLocalServers looks for Ollama and LM Studio running on this Mac.
  */
 export function FindLocalServers(): $CancellablePromise<$models.LocalServer[] | null> {
@@ -262,6 +269,14 @@ export function KeychainKeysWaiting(): $CancellablePromise<boolean> {
  */
 export function KeysUnreadable(): $CancellablePromise<boolean> {
     return $Call.ByID(3622076806);
+}
+
+/**
+ * LastCrash is a scrubbed summary of how jamalterm quit last time ("" if
+ * it didn't crash). The window offers to copy it with the diagnostics.
+ */
+export function LastCrash(): $CancellablePromise<string> {
+    return $Call.ByID(743400588);
 }
 
 /**

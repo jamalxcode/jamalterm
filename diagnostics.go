@@ -78,6 +78,13 @@ func (a *App) Diagnostics() string {
 	} {
 		line("  %-22s %v", kv[0], kv[1])
 	}
+	if a.lastCrash != "" {
+		line("")
+		line("Last crash (scrubbed):")
+		for _, l := range strings.Split(a.lastCrash, "\n") {
+			line("  %s", l)
+		}
+	}
 	line("")
 	if !a.log.Enabled() {
 		line("Problem log: off (Settings → Privacy)")

@@ -158,6 +158,7 @@ export function applyChrome(theme: Theme, opacity = 1, frame: 'system' | 'theme'
   s.setProperty('--ai', mix(aiBase, c.magenta!, theme.light ? 0.04 : 0.08))
   s.setProperty('--ai-2', mix(aiBase, c.magenta!, theme.light ? 0.08 : 0.13))
   s.removeProperty('--field')
+  s.removeProperty('--accent-fg')
   if (frame === 'system') applySystemFrame(a, barA)
   document.documentElement.classList.toggle('frame-system', frame === 'system')
 }

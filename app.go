@@ -99,6 +99,8 @@ type App struct {
 	// lastTermName: the terminal window used most recently (menu commands
 	// go there while Settings is in front).
 	lastTermName string
+	// lastCrash: how jamalterm quit last time, if it crashed (crash.go).
+	lastCrash string
 }
 
 type toolReply struct {

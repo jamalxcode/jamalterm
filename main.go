@@ -18,6 +18,8 @@ func (a *App) Version() string { return version }
 
 func main() {
 	a := NewApp()
+	a.watchCrashes()
+	testCrash()
 	cfg := a.Settings()
 	// Blur ("vibrancy") behind a see-through window can only be chosen
 	// when a window is created; it applies to windows opened afterwards.
@@ -39,7 +41,8 @@ func main() {
 			a.setQuitting()
 			return true
 		},
-		OnShutdown: a.shutdown,
+		OnShutdown:   a.shutdown,
+		PanicHandler: a.onPanic,
 	})
 	a.app = app
 	app.Menu.Set(a.buildMenu())
