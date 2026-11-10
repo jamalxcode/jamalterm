@@ -1,5 +1,34 @@
 # Changelog
 
+## 3.4.0
+
+**Clearer at a glance**
+- A failed tab shows a red **!** (the ✕ is only for closing), tab numbers are readable, and idle tabs have no dot
+- Commands that worked get a ✓ in the margin (✕ for failures, a spinner while running)
+- Tabs say "Home" and "2 panes" in words, and no longer stretch across the whole window
+- Browse mode's key bar shows the everyday keys; press **?** for all of them
+- Tips no longer cover the AI panel or the palette
+
+**Working with output**
+- A **sticky header** names the command whose output you're reading, with its result, **Fix it**, **Copy output** and **Skip to end**
+- **Markers beside the scrollbar** for every command, failures in red
+- **Fix it**: the AI suggests a corrected command for a failed one (also F in browse mode)
+- **Drop files** on the window to type their paths
+- **Space** in browse mode opens **Quick Look** for the file under the cursor
+- **Open Recent Folder** (⇧⌘O)
+- Tabs in the same git project share a color
+
+**Nicer to look at**
+- Settings → Appearance: hover a theme to see it in your terminal; a live preview of your font and cursor
+- New themes: **Match my wallpaper** and **Theme of the week**
+- Cursor effects: **Smooth** or **Glow**
+- The AI panel names the model ("Claude Opus 5.5") and has a clear assistant switcher
+- The command palette shows Recent, Tabs and Actions with a symbol for each
+
+**Just for fun**
+- When a command that took over a minute finishes, a small "✓ done in 3m 12s" moment (sound optional)
+- Help → **Your Day in jamalterm**: your commands today and this week (kept only on your Mac, program names only)
+
 ## 3.3.1
 
 - The Window menu lists only the tabs that are open, each with its name ("Tab 2: jamalterm — vim"), instead of always showing Select Tab 1–9

@@ -64,6 +64,11 @@ To connect Claude, click **Sign in with Anthropic** in Settings (⌘,) or the AI
 ### Everything else
 
 - **⇧⌘P command palette**: type a few letters of any action, setting, theme, assistant or tab and press ⏎.
+- **Reading long output**: a sticky header names the command you're scrolled into (with Fix it, Copy output and Skip to end), and markers beside the scrollbar show every command, failures in red.
+- **Fix it**: one click on a failed command and the AI suggests a corrected one.
+- **Files and folders**: drop files on the window to type their paths; press Space in browse mode for Quick Look; ⇧⌘O opens a recent folder; tabs in the same git project share a color.
+- **Themes**: hover one in Settings to try it in your terminal, or pick *Match my wallpaper* or *Theme of the week*. Cursor effects: Smooth or Glow.
+- **Small moments**: long commands get a "✓ done in 3m" when they finish, and Help → Your Day in jamalterm shows your stats (kept only on your Mac).
 - **Split panes**: ⌘D splits right, ⇧⌘D splits down. Drag the line between panes to resize (double-click it to even them out). ⌘] / ⌘[ or ⌥⌘ arrows move between panes, or click one. ⌘W closes a pane, ⇧⌘W the whole tab.
 - **Windows**: ⌘N opens a new window in the current folder, ⌘` switches windows. Every window, with its tabs, splits and recent output, comes back after a restart or update. Turn this off in Settings → Shell; forget saved tabs in Settings → Privacy.
 - **Nothing gets lost by accident**: quitting, closing a window, or closing a tab or pane while a program runs (vim, a build, ssh) asks first and names what's running. If a window's page reloads (View → Reload Window, ⇧⌘R) its shells keep running and reconnect.

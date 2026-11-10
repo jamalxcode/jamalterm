@@ -107,12 +107,12 @@ The menus are built from one table, `commands.go`, which also feeds the command 
 | Menu | Contents (shortcuts) |
 |---|---|
 | **jamalterm** | About (the native panel), Check for Updates…, Go Back to Previous Version…, Settings… ⌘,, Secure Keyboard Entry, Services, Hide ⌘H, Hide Others ⌥⌘H, Show All, Quit ⌘Q |
-| **Shell** | New Window ⌘N, New Tab ⌘T, Split Pane Right ⌘D, Split Pane Down ⇧⌘D, Close Tab/Pane ⌘W, Close Tab and Its Panes ⌥⌘W, Close Window ⇧⌘W, Enable Browse Mode on This Server, Clear Scrollback ⌘K |
+| **Shell** | New Window ⌘N, New Tab ⌘T, Open Recent Folder… ⇧⌘O, Split Pane Right ⌘D, Split Pane Down ⇧⌘D, Close Tab/Pane ⌘W, Close Tab and Its Panes ⌥⌘W, Close Window ⇧⌘W, Enable Browse Mode on This Server, Clear Scrollback ⌘K |
 | **Edit** | Undo, Redo, Cut, Copy, Paste (system items), Select All ⌘A, Find… ⌘F, Find Next ⌘G, Find Previous ⇧⌘G, Use Selection for Find ⌘E |
 | **View** | Show/Hide Tab Bar ⇧⌘T, Command Palette… ⇧⌘P, Browse Commands ⌘↑, Previous/Next Command ⇧⌘↑/↓, Bigger ⌘=, Smaller ⌘-, Default Font Size ⌘0, Enter Full Screen ⌃⌘F (system item), Reload Window ⇧⌘R |
 | **AI** | Ask AI… ⌘I, Command from English… ⌘J, Explain Last Error ⇧⌘E, Use Claude / ChatGPT / DeepSeek / Grok / OpenRouter / Local (⌥⌘1–6) |
 | **Window** | Minimize ⌘M, Zoom (system items), Show Previous/Next Tab ⇧⌘[ / ⇧⌘], Select Previous/Next Pane ⌘[ / ⌘], panes by direction ⌥⌘arrows, Broadcast Typing ⌥⌘I, one item per open tab ("Tab 2: jamalterm — vim", ⌘1–9; only as many as the window has), Bring All to Front, then the list of windows (added by macOS) |
-| **Help** | The search field (added by macOS), jamalterm Help, Keyboard Shortcuts, Copy Diagnostics…, Show Problem Log |
+| **Help** | The search field (added by macOS), jamalterm Help, Keyboard Shortcuts, Your Day in jamalterm…, Copy Diagnostics…, Show Problem Log |
 
 **Names are words, not symbols.** A window is titled after its tab with the focus, as "folder — program" ("Home — zsh", "jamalterm — vim"), so the Window menu's list of windows reads clearly; "~ — ~" was rejected.
 
@@ -123,6 +123,33 @@ The menus are built from one table, `commands.go`, which also feeds the command 
 - **Every change applies at once**: there's no Save or Cancel. Keys are saved when you leave the field. ⌘W or Esc closes it.
 - *Rejected:* the earlier modal dialog with Save and Cancel. On the Mac, Settings windows apply changes immediately.
 - **Advanced, folded away.** Options most people never change (shell path, scrollback, shell integration, prompt keys, line height, window frame, ligatures, host colors, the problem log, the update channel) sit under a closed **Advanced** disclosure at the bottom of each pane. Searching for one (palette or Help) unfolds it.
+
+### Tabs, marks and the key bar
+- **Status is shape, then color** (the owner is color-blind): the margin shows ✓ (worked), ✕ (failed), a spinner (running). A hollow ring for "worked" was rejected; it read as "still waiting".
+- **A failed tab shows a filled red "!"**, never a ✕: the ✕ on a tab is its close button. Idle tabs show no mark at all.
+- **Tab numbers are outlined, in the tab's own text color**, so they're readable on every frame and theme (a filled badge vanished on the system frame).
+- **Words, not symbols:** "2 panes", not "⊞2"; the home folder is "Home", not "~".
+- **Tabs are at most 280px wide**, left-aligned; stretching two tabs across the whole window only made big empty pills.
+- **One signal for the active tab** (fill, outline, bold); the extra underline was dropped.
+- **Browse mode's key bar** shows the everyday keys as "Run ⏎ · Edit ⇧⏎ · Copy C · Ask AI A · Back esc"; **?** shows the rest.
+- **Tips** stay up long enough to read (longer for longer messages), sit over the terminal rather than the AI panel, and go away when a panel or the palette opens.
+
+### Working with output
+- **Sticky command header:** when a command's prompt has scrolled off the top, a slim bar names the command, its ✓/✕, exit code and time, with **Fix it** (failures), **Copy output** and **Skip to end**. Click the command to go to it.
+- **Markers beside the scrollbar:** one per command, failures in red, to find errors in a long scrollback.
+- **Folding long output was not done:** xterm.js can't hide lines without rewriting the scrollback, which would break selection, search and browse mode. "Skip to end" and the markers cover the need.
+- **Fix it** (header, or F in browse mode) asks the AI for a corrected command as a code block; running it goes through the same risk check as any AI command.
+- **Drop files** on the window: their paths are typed at the prompt, quoted when needed (as Terminal does).
+- **Space in browse mode** opens Quick Look for the path under the cursor (`main.go:12` works too).
+- **Open Recent Folder (⇧⌘O):** the folders you've worked in, newest first, opened in a new tab.
+- **Project colors:** tabs in the same git repository share a colored edge (blue, green, yellow, magenta or cyan; red is kept for failures). The folder name is always shown too. Host colors (ssh) take priority. Settings → Appearance can turn it off.
+
+### Fun, quietly
+- **Finish line:** when a command that took over a minute ends while you're watching that tab, a small "✓ build done in 3m 12s" card appears for a few seconds. A soft chime is optional and off by default. (When you're in another app, the existing notification is used instead.)
+- **Your Day in jamalterm** (Help menu): commands today, failures, the longest one, and the programs used most this week. **Only program names and timings are kept, in this Mac's browser storage**, never the arguments or output; Reset clears it. The "never log commands" rule is about the problem log and anything sent; this keeps less than the shell's own history does.
+- **Cursor effect:** Smooth (glides between positions) or Glow. jamalterm draws its own cursor over the terminal and hides xterm's; Reduce Motion turns the gliding off.
+- **Match my wallpaper:** a dark theme made from the desktop picture (darkest shade for the background, its most colorful ones for blue, magenta, cyan and the cursor). Every color is raised until it passes WCAG contrast; tests cover bright, dark and grey pictures. **Theme of the week** rotates through the built-in themes.
+- **Hover a theme in Settings** to see it in every terminal window; moving away (or closing Settings) puts yours back. Settings → Appearance also has a live preview with your font, size and cursor.
 
 ### First start and other notices
 - **First start:** a small card in the corner names the three things that aren't obvious: browse mode (⌘↑), Ask AI (⌘I) and the command palette (⇧⌘P). It shows once, never when tabs were reopened, and never as a modal: the terminal is usable straight away (`frontend/src/cards.ts`).
