@@ -27,6 +27,9 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q zsh tcsh fish xvfb libxkbcommon-x11-0 libgl1 libegl1
+          # The runner's shared zsh folders are group-writable, so compinit
+          # stops to ask about them; a real Mac doesn't.
+          zsh -c 'autoload -Uz compaudit; compaudit' 2>/dev/null | xargs -r sudo chmod go-w || true
       - name: Format and lint
         run: |
           cargo fmt --check

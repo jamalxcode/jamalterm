@@ -218,7 +218,8 @@ impl Session {
                     };
                     let chunk = &buf[..n];
                     let found = scanner.scan(chunk);
-                    let mut s = scr.lock().unwrap();
+                    // A panic elsewhere while holding the lock must not stop the output.
+                    let mut s = scr.lock().unwrap_or_else(|e| e.into_inner());
                     let mut at = 0;
                     // Feed up to each mark, then note where the cursor is.
                     for f in found {

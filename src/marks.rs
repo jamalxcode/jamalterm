@@ -104,9 +104,14 @@ fn parse(body: &[u8]) -> Option<Mark> {
     let (code, rest) = s.split_once(';').unwrap_or((s, ""));
     match code {
         "133" => {
-            // fish 4 adds parameters: "A;click_events=1", "C;cmdline_url=…"
+            // fish 4 writes its own A and C, with parameters ("A;click_events=1",
+            // "C;cmdline_url=…") and before our hooks run: ignored, or each
+            // command would also count once with no text. Ours are bare.
             let mut parts = rest.split(';');
-            match parts.next()? {
+            let kind = parts.next()?;
+            let params = rest.len() > kind.len();
+            match kind {
+                "A" | "C" if params => None,
                 "A" => Some(Mark::Prompt),
                 "C" => Some(Mark::Start),
                 "D" => Some(Mark::Done(
@@ -186,13 +191,15 @@ mod tests {
     fn split_across_reads_and_st_endings() {
         // fish 4.9 ends marks with ST (ESC \) and adds parameters.
         assert_eq!(
-            marks(&[
-                b"\x1b]13",
-                b"3;D;0\x1b",
-                b"\\",
-                b"\x1b]133;A;click_events=1\x1b\\"
-            ]),
+            marks(&[b"\x1b]13", b"3;D;0\x1b", b"\\", b"\x1b]133;A\x1b\\"]),
             vec![Mark::Done(0), Mark::Prompt]
+        );
+        // fish 4's own marks (with parameters) are not ours: ignored.
+        assert_eq!(
+            marks(&[
+                b"\x1b]133;A;click_events=1\x1b\\\x1b]133;C;cmdline_url=ls\x07\x1b]133;D;1\x07"
+            ]),
+            vec![Mark::Done(1)]
         );
     }
 
