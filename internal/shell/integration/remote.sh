@@ -36,13 +36,13 @@ elif [ -n "${BASH_VERSION-}" ]; then
     fi
     builtin printf '\033]7;file://%s%s\007' "${HOSTNAME-}" "$PWD"
     builtin printf '\033]133;A\007'
-    _jt_at_prompt=1
     return $ec
   }
+  _jt_ready() { local ec=$?; _jt_at_prompt=1; return $ec; }
   _jt_preexec() {
     [[ $_jt_at_prompt == 1 ]] || return 0
     [[ -n "${COMP_LINE-}" ]] && return 0
-    case "$BASH_COMMAND" in _jt_precmd*) return 0 ;; esac
+    case "$BASH_COMMAND" in _jt_precmd*|_jt_ready*) return 0 ;; esac
     _jt_at_prompt=0
     _jt_running=1
     local cmd
@@ -51,11 +51,21 @@ elif [ -n "${BASH_VERSION-}" ]; then
     builtin printf '\033]133;C\007'
   }
   if [[ -n "${bash_preexec_imported-}" ]]; then
-    precmd_functions=(_jt_precmd "${precmd_functions[@]}")
+    precmd_functions=(_jt_precmd "${precmd_functions[@]}" _jt_ready)
     preexec_functions+=(_jt_preexec)
   else
-    PROMPT_COMMAND="_jt_precmd${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
-    trap '_jt_preexec' DEBUG
+    # Our hook first, _jt_ready last: other PROMPT_COMMAND entries aren't
+    # commands. A DEBUG trap already set keeps running, before ours.
+    if [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
+      PROMPT_COMMAND=(_jt_precmd "${PROMPT_COMMAND[@]}" _jt_ready)
+    else
+      PROMPT_COMMAND="_jt_precmd${PROMPT_COMMAND:+; $PROMPT_COMMAND}; _jt_ready"
+    fi
+    _jt_cap() { _jt_prev_trap=$2; }
+    _jt_prev_trap=; _jt_t=$(trap -p DEBUG)
+    [[ -n "$_jt_t" ]] && eval "_jt_cap ${_jt_t#trap }"
+    if [[ -n "$_jt_prev_trap" ]]; then trap "$_jt_prev_trap"$'\n''_jt_preexec' DEBUG; else trap '_jt_preexec' DEBUG; fi
+    unset -f _jt_cap; unset _jt_t
   fi
   builtin printf 'jamalterm: browse mode is on for this server session.\n'
 else

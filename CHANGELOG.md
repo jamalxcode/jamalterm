@@ -26,6 +26,7 @@
 
 **Works with your shell setup**
 - Browse mode is now tested with oh-my-zsh, Powerlevel10k (instant prompt), prezto and starship (zsh, bash and fish)
+- Fixed: in bash with starship (or anything else in `PROMPT_COMMAND`), browse mode recorded each command one step late, and starship's command timer stopped working
 
 ## 3.2.0
 

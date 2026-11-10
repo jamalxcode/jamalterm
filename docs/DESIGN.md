@@ -56,6 +56,7 @@ Go (main package, internal/…)          WebView (frontend/, TypeScript)
   - tcsh: a temporary `HOME`, and your own `precmd`/`postcmd` aliases are chained so they still run;
   - fish: `-C source`.
 - **Over ssh**, Shell → *Enable Browse Mode on This Server* types one line into the remote bash or zsh. It's a base64 `eval` of `integration/remote.sh`, for that session only: nothing is written to the server, and the line starts with a space so most shells keep it out of history. Remote command marks nest inside the local `ssh` command, so "done" always closes the innermost open command.
+- **bash:** our hook runs first in `PROMPT_COMMAND` (to report the exit code) and a second one, `_jt_ready`, runs last; only commands after that count as typed. A DEBUG trap you or a prompt tool (starship) already set is kept and runs before ours. Both found by the shell-setups test.
 
 ### Browse mode (the free-floating cursor)
 - **How to enter:** ↑ at an *empty* prompt, ⌘↑, or a click on earlier output. ↑ at an empty prompt normally means shell history; that's still available through Ctrl+R, or by turning the setting off.
