@@ -9,6 +9,7 @@ use crate::restore;
 use crate::session::Session;
 use crate::settings::{self, Settings};
 use crate::shell::ShellSpec;
+use crate::tabdrag;
 use crate::themes::{self, Theme};
 use crate::view::{self, Look};
 use alacritty_terminal::grid::{Dimensions, Scroll};
@@ -182,8 +183,9 @@ pub struct Startup {
     settings_path: PathBuf,
     settings: Settings,
     session_path: PathBuf,
-    /// The window to bring back (when Settings → Restore windows is on).
-    pub restored: Option<restore::SavedWindow>,
+    /// The windows to bring back, the first window first (when restoring
+    /// is on in Settings).
+    pub restored: Vec<restore::SavedWindow>,
 }
 
 impl Startup {
@@ -195,9 +197,11 @@ impl Startup {
         let session_path = settings_path.with_file_name("session.json");
         // The self-test starts fresh, except in its restore run.
         let smoke = std::env::var_os("JAMALTERM_SMOKE").is_some();
-        let restored = (settings.restore_session && (!smoke || crate::smoke::restore_run()))
-            .then(|| restore::load(&session_path).into_iter().next())
-            .flatten();
+        let restored = if settings.restore_session && (!smoke || crate::smoke::restore_run()) {
+            restore::load(&session_path)
+        } else {
+            vec![]
+        };
         Startup {
             settings_path,
             settings,
@@ -207,11 +211,75 @@ impl Startup {
     }
 }
 
+/// One window's state. The window being drawn is `App::w`; the others wait
+/// in `App::others` and are swapped in to be drawn (and to run commands), so
+/// everything that acts on "the window" acts on `self.w`.
+pub struct Win {
+    /// Its number (its viewport's id; 1 is the first window).
+    pub id: u64,
+    pub tabs: Vec<Tab>,
+    pub active: usize,
+    grid: (u16, u16),
+    selecting: bool,
+    /// The find bar (⌘F), when open.
+    find: Option<Find>,
+    focus_find: bool,
+    /// Where each pane of the tab in front was last drawn (for ⌥⌘ arrows).
+    pane_rects: Vec<(u64, egui::Rect)>,
+    /// The divider being dragged.
+    dragging: Option<panes::Divider>,
+    /// Its close button was clicked (or ⇧⌘W).
+    exiting: bool,
+    /// Where it is on screen (saved with the session).
+    frame: Option<restore::Frame>,
+    /// Where it should open (a restored window's frame).
+    open_at: Option<restore::Frame>,
+    /// The tab being dragged (its place in the bar), and the pointer's last
+    /// position in this window.
+    tab_drag: Option<usize>,
+    drag_pos: Option<egui::Pos2>,
+    /// It's the app's first window (eframe's root viewport): closing it
+    /// while others are open hands it another window's tabs instead.
+    root: bool,
+}
+
+impl Win {
+    fn new(id: u64) -> Win {
+        Win {
+            id,
+            tabs: vec![],
+            active: 0,
+            grid: (80, 24),
+            selecting: false,
+            find: None,
+            focus_find: false,
+            pane_rects: vec![],
+            dragging: None,
+            exiting: false,
+            frame: None,
+            open_at: None,
+            tab_drag: None,
+            drag_pos: None,
+            root: false,
+        }
+    }
+}
+
 pub struct App {
-    tabs: Vec<Tab>,
+    /// The window being drawn (or in front, between frames: the first).
+    w: Win,
+    /// The other windows.
+    others: Vec<Win>,
+    /// The next window's id.
+    next_win: u64,
+    /// The window in front (its id), where menu commands go.
+    front: u64,
+    /// Menu commands waiting for the window in front to be drawn.
+    pending: Vec<Cmd>,
+    /// Quitting: every window closes, and the session keeps them all.
+    quitting: bool,
     /// The next pane's id.
     next_id: u64,
-    active: usize,
     settings: Settings,
     settings_path: PathBuf,
     /// session.json, next to settings.json.
@@ -220,22 +288,11 @@ pub struct App {
     last_saved: String,
     saved_at: Instant,
     theme: Theme,
-    grid: (u16, u16),
     home: String,
     shell_name: String,
-    selecting: bool,
     started: Instant,
     smoke: Option<crate::smoke::Smoke>,
-    /// The find bar (⌘F), when open.
-    find: Option<Find>,
-    focus_find: bool,
-    /// Where each pane of the tab in front was last drawn (for ⌥⌘ arrows).
-    pane_rects: Vec<(u64, egui::Rect)>,
-    /// The window is closing (quitting): save one last time.
-    exiting: bool,
     ctx: egui::Context,
-    /// The divider being dragged.
-    dragging: Option<panes::Divider>,
     #[cfg(target_os = "macos")]
     menu: Option<crate::menu::MacMenu>,
 }
@@ -256,11 +313,17 @@ impl App {
             settings.shell.clone()
         };
         let mut app = App {
-            tabs: vec![],
+            w: Win {
+                root: true,
+                ..Win::new(1)
+            },
+            others: vec![],
+            next_win: 2,
+            front: 1,
+            pending: vec![],
+            quitting: false,
             next_id: 1,
-            active: 0,
             theme,
-            grid: (80, 24),
             home: dirs::home_dir()
                 .map(|h| h.display().to_string())
                 .unwrap_or_default(),
@@ -270,15 +333,9 @@ impl App {
             session_path,
             last_saved: String::new(),
             saved_at: Instant::now(),
-            selecting: false,
             started: Instant::now(),
             smoke: crate::smoke::Smoke::from_env(),
-            find: None,
-            focus_find: false,
-            pane_rects: vec![],
-            exiting: false,
             ctx: cc.egui_ctx.clone(),
-            dragging: None,
             #[cfg(target_os = "macos")]
             menu: crate::menu::MacMenu::install(&cc.egui_ctx),
         };
@@ -286,10 +343,22 @@ impl App {
         if let Some(s) = app.smoke.as_mut() {
             s.menu_bar = Some(app.menu.is_some());
         }
-        if let Some(w) = restored {
+        let mut saved = restored.into_iter();
+        if let Some(w) = saved.next() {
             app.restore(&cc.egui_ctx, &w);
         }
-        if app.tabs.is_empty() {
+        for sw in saved {
+            let mut w = Win::new(app.next_win);
+            app.next_win += 1;
+            w.open_at = sw.frame;
+            std::mem::swap(&mut app.w, &mut w);
+            app.restore(&cc.egui_ctx, &sw);
+            std::mem::swap(&mut app.w, &mut w);
+            if !w.tabs.is_empty() {
+                app.others.push(w);
+            }
+        }
+        if app.w.tabs.is_empty() {
             app.new_tab(&cc.egui_ctx, None);
         }
         app
@@ -317,52 +386,45 @@ impl App {
             });
             if let Some(root) = node {
                 let first = root.leaves()[0].id;
-                self.tabs.push(Tab {
+                self.w.tabs.push(Tab {
                     root: Some(root),
                     focus: focus.unwrap_or(first),
                 });
             }
         }
-        self.active = w.active.min(self.tabs.len().saturating_sub(1));
+        self.w.active = w.active.min(self.w.tabs.len().saturating_sub(1));
     }
 
-    /// This window as it's saved: tabs, splits, folders, recent output, frame.
-    fn snapshot(&self, ctx: &egui::Context) -> restore::SavedWindow {
-        let groups = self
-            .tabs
-            .iter()
-            .map(|t| save_node(t.tree(), t.focus))
-            .collect();
-        let frame = ctx.input(|i| {
-            let v = i.viewport();
-            let (outer, inner) = (v.outer_rect?, v.inner_rect?);
-            Some(restore::Frame {
-                x: outer.min.x.round() as i32,
-                y: outer.min.y.round() as i32,
-                w: inner.width().round() as i32,
-                h: inner.height().round() as i32,
-            })
-        });
+    /// A window as it's saved: tabs, splits, folders, recent output, frame.
+    fn snapshot(w: &Win) -> restore::SavedWindow {
         restore::SavedWindow {
-            active: self.active,
-            groups,
+            active: w.active,
+            groups: w
+                .tabs
+                .iter()
+                .map(|t| save_node(t.tree(), t.focus))
+                .collect(),
             tabs: vec![],
-            frame,
+            frame: w.frame,
         }
     }
 
-    /// Writes session.json if anything changed. With no tabs left the file
-    /// is emptied: closing the last tab starts fresh next time.
+    /// Writes session.json if anything changed. A window that was closed
+    /// isn't in it; with none left the file is emptied (a fresh start).
     fn save_session(&mut self, ctx: &egui::Context) {
         self.saved_at = Instant::now();
         if self.smoke.is_some() && !self.smoke.as_ref().is_some_and(|s| s.save_session) {
             return;
         }
-        let windows = if self.tabs.is_empty() {
-            vec![]
-        } else {
-            vec![self.snapshot(ctx)]
-        };
+        let _ = ctx;
+        // Every window with tabs, the first window first.
+        let mut all: Vec<&Win> = std::iter::once(&self.w).chain(&self.others).collect();
+        all.sort_by_key(|w| (!w.root, w.id));
+        let windows: Vec<restore::SavedWindow> = all
+            .into_iter()
+            .filter(|w| !w.tabs.is_empty() && !w.exiting)
+            .map(App::snapshot)
+            .collect();
         let data = restore::encode(&windows);
         if data != self.last_saved {
             match restore::save(&self.session_path, &data) {
@@ -388,7 +450,7 @@ impl App {
                     p.grid,
                 )
             }
-            None => (dir, self.grid),
+            None => (dir, self.w.grid),
         };
         let spec = ShellSpec {
             shell: self.settings.shell.clone(),
@@ -427,15 +489,15 @@ impl App {
 
     fn new_tab(&mut self, ctx: &egui::Context, dir: Option<PathBuf>) {
         if let Some(p) = self.spawn_pane(ctx, dir, b"") {
-            self.tabs.push(Tab::new(p));
-            self.active = self.tabs.len() - 1;
+            self.w.tabs.push(Tab::new(p));
+            self.w.active = self.w.tabs.len() - 1;
         }
     }
 
     /// Splits the focused pane (⌘D right, ⇧⌘D down).
     fn split(&mut self, ctx: &egui::Context, dir: Dir) {
         if let Some(p) = self.spawn_pane(ctx, None, b"")
-            && let Some(t) = self.tabs.get_mut(self.active)
+            && let Some(t) = self.w.tabs.get_mut(self.w.active)
         {
             t.split(dir, p);
         }
@@ -443,28 +505,28 @@ impl App {
 
     /// ⌘W: closes the focused pane, or the tab when it isn't split.
     fn close_pane(&mut self, ctx: &egui::Context) {
-        let Some(t) = self.tabs.get_mut(self.active) else {
+        let Some(t) = self.w.tabs.get_mut(self.w.active) else {
             return;
         };
         let id = t.focus;
         if !t.close_pane(id) {
-            self.close_tab(ctx, self.active);
+            self.close_tab(ctx, self.w.active);
         }
     }
 
     /// The focused pane of the tab in front.
     fn pane(&self) -> Option<&Pane> {
-        self.tabs.get(self.active).map(|t| t.pane())
+        self.w.tabs.get(self.w.active).map(|t| t.pane())
     }
 
     fn pane_mut(&mut self) -> Option<&mut Pane> {
-        self.tabs.get_mut(self.active).map(|t| t.pane_mut())
+        self.w.tabs.get_mut(self.w.active).map(|t| t.pane_mut())
     }
 
     /// Moves the focus to the next/previous pane (⌘] ⌘[) or the one in a
     /// direction (⌥⌘ arrows), using where the panes were last drawn.
     fn focus_pane(&mut self, step: i32, toward: Option<Vec2>) {
-        let Some(t) = self.tabs.get_mut(self.active) else {
+        let Some(t) = self.w.tabs.get_mut(self.w.active) else {
             return;
         };
         let ids: Vec<u64> = t.panes().iter().map(|p| p.id).collect();
@@ -473,10 +535,10 @@ impl App {
         };
         let next = match toward {
             Some(v) => {
-                let rects: Vec<egui::Rect> = self.pane_rects.iter().map(|(_, r)| *r).collect();
-                let at = self.pane_rects.iter().position(|(id, _)| *id == t.focus);
+                let rects: Vec<egui::Rect> = self.w.pane_rects.iter().map(|(_, r)| *r).collect();
+                let at = self.w.pane_rects.iter().position(|(id, _)| *id == t.focus);
                 at.and_then(|at| panes::neighbour(&rects, at, v))
-                    .map(|j| self.pane_rects[j].0)
+                    .map(|j| self.w.pane_rects[j].0)
             }
             None => Some(ids[(i as i64 + step as i64).rem_euclid(ids.len() as i64) as usize]),
         };
@@ -486,16 +548,77 @@ impl App {
     }
 
     fn close_tab(&mut self, ctx: &egui::Context, i: usize) {
-        if i >= self.tabs.len() {
+        if i >= self.w.tabs.len() {
             return;
         }
-        self.tabs.remove(i); // dropping the session ends its shell
-        if self.tabs.is_empty() {
-            self.save_session(ctx);
+        self.w.tabs.remove(i); // dropping the session ends its shell
+        if self.w.tabs.is_empty() {
+            // The window goes with its last tab (and is forgotten). The last
+            // window going quits, and the next start is fresh.
+            if self.w.root && self.others.is_empty() {
+                self.save_session(ctx);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            return;
+        }
+        self.w.active = self.w.active.min(self.w.tabs.len() - 1);
+    }
+
+    /// ⌘N: a new window with one tab, in the home folder (as Terminal).
+    fn new_window(&mut self, ctx: &egui::Context) {
+        let mut w = Win::new(self.next_win);
+        self.next_win += 1;
+        std::mem::swap(&mut self.w, &mut w);
+        self.new_tab(ctx, None);
+        std::mem::swap(&mut self.w, &mut w);
+        if !w.tabs.is_empty() {
+            self.front = w.id;
+            self.others.push(w);
+        }
+    }
+
+    /// A new window holding these tabs.
+    fn window_with(&mut self, tabs: Vec<Tab>) {
+        let mut w = Win::new(self.next_win);
+        self.next_win += 1;
+        w.tabs = tabs;
+        self.front = w.id;
+        self.others.push(w);
+    }
+
+    /// Window → Move Tab to New Window (off with only one tab).
+    fn move_tab_to_new_window(&mut self) {
+        if self.w.tabs.len() < 2 {
+            return;
+        }
+        let t = self.w.tabs.remove(self.w.active);
+        self.w.active = self.w.active.min(self.w.tabs.len() - 1);
+        self.window_with(vec![t]);
+    }
+
+    /// Window → Merge All Windows: every tab into this window.
+    fn merge_all_windows(&mut self) {
+        for w in &mut self.others {
+            self.w.tabs.append(&mut w.tabs);
+        }
+        // The emptied windows close at the end of the frame.
+    }
+
+    /// Quits: saves every window as it is, then closes the app.
+    fn quit(&mut self, ctx: &egui::Context) {
+        self.quitting = true;
+        self.save_session(ctx);
+        ctx.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Close);
+    }
+
+    /// ⇧⌘W, or the window's close button.
+    fn close_window(&mut self, ctx: &egui::Context) {
+        if self.w.root && self.others.is_empty() {
+            // The last window: that's quitting (the session is kept).
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            return;
+        } else {
+            self.w.exiting = true;
         }
-        self.active = self.active.min(self.tabs.len() - 1);
     }
 
     fn set_font_size(&mut self, size: u32) {
@@ -521,10 +644,14 @@ impl App {
     fn run(&mut self, ctx: &egui::Context, cmd: Cmd) {
         match cmd {
             Cmd::NewTab => self.new_tab(ctx, None),
+            Cmd::NewWindow => self.new_window(ctx),
+            Cmd::CloseWindow => self.close_window(ctx),
+            Cmd::MoveTabToNewWindow => self.move_tab_to_new_window(),
+            Cmd::MergeAllWindows => self.merge_all_windows(),
             Cmd::SplitRight => self.split(ctx, Dir::Right),
             Cmd::SplitDown => self.split(ctx, Dir::Down),
             Cmd::ClosePane => self.close_pane(ctx),
-            Cmd::CloseTab => self.close_tab(ctx, self.active),
+            Cmd::CloseTab => self.close_tab(ctx, self.w.active),
             Cmd::PreviousPane => self.focus_pane(-1, None),
             Cmd::NextPane => self.focus_pane(1, None),
             Cmd::PaneLeft => self.focus_pane(0, Some(Vec2::new(-1.0, 0.0))),
@@ -548,7 +675,7 @@ impl App {
                 let text = arboard::Clipboard::new().and_then(|mut c| c.get_text());
                 if let Ok(t) = text {
                     if ctx.memory(|m| m.focused().is_some()) {
-                        if let Some(f) = self.find.as_mut() {
+                        if let Some(f) = self.w.find.as_mut() {
                             f.query.push_str(t.lines().next().unwrap_or(""));
                         }
                     } else {
@@ -562,11 +689,11 @@ impl App {
             }
             Cmd::Find => {
                 // Find, keeping the last text (like Safari).
-                self.find.get_or_insert_with(Find::default);
-                self.focus_find = true;
+                self.w.find.get_or_insert_with(Find::default);
+                self.w.focus_find = true;
             }
             Cmd::FindNext | Cmd::FindPrevious => {
-                if let Some(f) = self.find.as_mut() {
+                if let Some(f) = self.w.find.as_mut() {
                     f.step(if cmd == Cmd::FindPrevious { -1 } else { 1 });
                     self.show_match();
                 }
@@ -583,11 +710,13 @@ impl App {
             Cmd::Bigger => self.set_font_size(self.settings.font_size + 1),
             Cmd::Smaller => self.set_font_size(self.settings.font_size.saturating_sub(1)),
             Cmd::ActualSize => self.set_font_size(Settings::default().font_size),
-            Cmd::PreviousTab => self.active = (self.active + self.tabs.len() - 1) % self.tabs.len(),
-            Cmd::NextTab => self.active = (self.active + 1) % self.tabs.len(),
+            Cmd::PreviousTab => {
+                self.w.active = (self.w.active + self.w.tabs.len() - 1) % self.w.tabs.len()
+            }
+            Cmd::NextTab => self.w.active = (self.w.active + 1) % self.w.tabs.len(),
             Cmd::Tab(n) => {
-                if (n as usize) <= self.tabs.len() {
-                    self.active = n as usize - 1;
+                if (n as usize) <= self.w.tabs.len() {
+                    self.w.active = n as usize - 1;
                 }
             }
         }
@@ -610,7 +739,12 @@ impl App {
 
     /// Selects the current match and scrolls to it.
     fn show_match(&mut self) {
-        let Some(m) = self.find.as_ref().and_then(|f| f.current_match().cloned()) else {
+        let Some(m) = self
+            .w
+            .find
+            .as_ref()
+            .and_then(|f| f.current_match().cloned())
+        else {
             return;
         };
         let Some(tab) = self.pane() else {
@@ -640,7 +774,9 @@ impl App {
     fn find_bar(&mut self, ui: &mut egui::Ui) {
         let mut close = false;
         let mut step = 0;
-        let Some(f) = self.find.as_mut() else { return };
+        let Some(f) = self.w.find.as_mut() else {
+            return;
+        };
         ui.horizontal(|ui| {
             ui.label("Find");
             let edit = ui.add(
@@ -648,9 +784,9 @@ impl App {
                     .desired_width(260.0)
                     .hint_text("text in the output"),
             );
-            if self.focus_find {
+            if self.w.focus_find {
                 edit.request_focus();
-                self.focus_find = false;
+                self.w.focus_find = false;
             }
             if edit.has_focus() || edit.lost_focus() {
                 ui.input(|i| {
@@ -685,14 +821,15 @@ impl App {
             }
         });
         let changed = self
+            .w
             .tabs
-            .get(self.active)
+            .get(self.w.active)
             .is_some_and(|t| f.update(&t.pane().session.screen.lock().unwrap().term));
         if step != 0 {
             f.step(step);
         }
         if close {
-            self.find = None;
+            self.w.find = None;
             if let Some(t) = self.pane() {
                 t.session.screen.lock().unwrap().term.selection = None;
             }
@@ -823,61 +960,187 @@ impl App {
     fn tab_bar(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         let mut select = None;
         let mut close = None;
-        ui.horizontal(|ui| {
-            for (i, tab) in self.tabs.iter().enumerate() {
-                let screen = tab.pane().session.screen.lock().unwrap();
-                let failed = screen.commands.running().is_none()
-                    && screen
-                        .commands
-                        .last_finished()
-                        .is_some_and(|b| b.exit != Some(0));
-                let running = screen.commands.running().is_some();
-                drop(screen);
-                let mut name = tab_name(&tab.folder(&self.home), &tab.program(&self.shell_name));
-                let n = tab.tree().count();
-                if n > 1 {
-                    name = format!("{name} · {n} panes"); // in words, not a symbol
+        let mut rects = vec![];
+        let mut drag_started = None;
+        let bar = ui
+            .horizontal(|ui| {
+                for (i, tab) in self.w.tabs.iter().enumerate() {
+                    let screen = tab.pane().session.screen.lock().unwrap();
+                    let failed = screen.commands.running().is_none()
+                        && screen
+                            .commands
+                            .last_finished()
+                            .is_some_and(|b| b.exit != Some(0));
+                    let running = screen.commands.running().is_some();
+                    drop(screen);
+                    let mut name =
+                        tab_name(&tab.folder(&self.home), &tab.program(&self.shell_name));
+                    let n = tab.tree().count();
+                    if n > 1 {
+                        name = format!("{name} · {n} panes"); // in words, not a symbol
+                    }
+                    // Status in shape and words: "!" failed, "…" running.
+                    let mark = if failed {
+                        "! "
+                    } else if running {
+                        "… "
+                    } else {
+                        ""
+                    };
+                    let mut text = RichText::new(format!("{}  {mark}{name}", i + 1));
+                    if i == self.w.active {
+                        text = text.strong();
+                    }
+                    let b = ui.add(
+                        egui::Button::new(text)
+                            .selected(i == self.w.active)
+                            .min_size(Vec2::new(140.0, 24.0))
+                            .sense(Sense::click_and_drag()),
+                    );
+                    rects.push(b.rect);
+                    if b.clicked() {
+                        select = Some(i);
+                    }
+                    if b.middle_clicked() {
+                        close = Some(i);
+                    }
+                    if b.drag_started() {
+                        drag_started = Some(i);
+                    }
+                    if ui
+                        .small_button("×")
+                        .on_hover_text("Close tab (⌘W)")
+                        .clicked()
+                    {
+                        close = Some(i);
+                    }
                 }
-                // Status in shape and words: "!" failed, "…" running.
-                let mark = if failed {
-                    "! "
-                } else if running {
-                    "… "
-                } else {
-                    ""
-                };
-                let mut text = RichText::new(format!("{}  {mark}{name}", i + 1));
-                if i == self.active {
-                    text = text.strong();
+                if ui.button("+").on_hover_text("New tab (⌘T)").clicked() {
+                    self.new_tab(ctx, None);
                 }
-                let b = ui.add(
-                    egui::Button::new(text)
-                        .selected(i == self.active)
-                        .min_size(Vec2::new(140.0, 24.0)),
-                );
-                if b.clicked() {
-                    select = Some(i);
-                }
-                if b.middle_clicked() {
-                    close = Some(i);
-                }
-                if ui
-                    .small_button("×")
-                    .on_hover_text("Close tab (⌘W)")
-                    .clicked()
-                {
-                    close = Some(i);
-                }
-            }
-            if ui.button("+").on_hover_text("New tab (⌘T)").clicked() {
-                self.new_tab(ctx, None);
-            }
-        });
+            })
+            .response
+            .rect;
+        if let Some(i) = drag_started {
+            self.w.tab_drag = Some(i);
+        }
+        if self.w.root
+            && let Some(s) = self.smoke.as_mut()
+        {
+            s.tab_rects = rects.clone();
+        }
+        if let Some(from) = self.w.tab_drag {
+            self.drag_tab(ctx, ui, from, bar, &rects);
+        }
         if let Some(i) = select {
-            self.active = i;
+            self.w.active = i;
         }
         if let Some(i) = close {
             self.close_tab(ctx, i);
+        }
+    }
+
+    /// A tab being dragged: shows where it would go; on letting go, moves it
+    /// (see tabdrag.rs). Esc puts it back.
+    fn drag_tab(
+        &mut self,
+        ctx: &egui::Context,
+        ui: &egui::Ui,
+        from: usize,
+        bar: egui::Rect,
+        rects: &[egui::Rect],
+    ) {
+        let (pos, gone, released, esc) = ctx.input(|i| {
+            (
+                i.pointer.latest_pos(),
+                i.pointer.hover_pos().is_none(),
+                i.pointer.any_released(),
+                i.key_pressed(Key::Escape),
+            )
+        });
+        if esc || from >= self.w.tabs.len() {
+            self.w.tab_drag = None;
+            return;
+        }
+        let window = ctx.content_rect();
+        if let Some(p) = pos {
+            self.w.drag_pos = Some(p);
+        }
+        let Some(mut p) = self.w.drag_pos else {
+            return;
+        };
+        if gone && window.contains(p) {
+            // The pointer left the window: it's past the nearest edge.
+            let to_edge = [
+                p.x - window.left(),
+                window.right() - p.x,
+                p.y - window.top(),
+                window.bottom() - p.y,
+            ];
+            let i = (0..4)
+                .min_by(|a, b| to_edge[*a].total_cmp(&to_edge[*b]))
+                .unwrap();
+            let out = 40.0;
+            match i {
+                0 => p.x = window.left() - out,
+                1 => p.x = window.right() + out,
+                2 => p.y = window.top() - out,
+                _ => p.y = window.bottom() + out,
+            }
+        }
+        ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+        let others: Vec<(u64, restore::Frame)> = self
+            .others
+            .iter()
+            .filter_map(|w| Some((w.id, w.frame?)))
+            .collect();
+        let target = tabdrag::drop_at(p, window, self.w.frame, bar, rects, &others);
+        if let tabdrag::Drop::Reorder(to) = target {
+            // A bar where it would land.
+            let x = rects
+                .get(to)
+                .map(|r| r.left() - 3.0)
+                .or_else(|| rects.last().map(|r| r.right() + 3.0))
+                .unwrap_or(bar.left());
+            ui.painter().line_segment(
+                [egui::pos2(x, bar.top()), egui::pos2(x, bar.bottom())],
+                egui::Stroke::new(3.0, self.theme.cursor),
+            );
+        }
+        if !released {
+            return;
+        }
+        self.w.tab_drag = None;
+        self.w.drag_pos = None;
+        match target {
+            tabdrag::Drop::Reorder(to) => {
+                self.w.active = tabdrag::reorder(&mut self.w.tabs, from, to);
+            }
+            tabdrag::Drop::ToWindow(id) => {
+                let tab = self.w.tabs.remove(from);
+                self.w.active = self.w.active.min(self.w.tabs.len().saturating_sub(1));
+                if let Some(w) = self.others.iter_mut().find(|w| w.id == id) {
+                    w.tabs.push(tab);
+                    w.active = w.tabs.len() - 1;
+                    self.front = id;
+                }
+                // An emptied window closes at the end of the frame.
+            }
+            tabdrag::Drop::NewWindow(at) if self.w.tabs.len() > 1 => {
+                let tab = self.w.tabs.remove(from);
+                self.w.active = self.w.active.min(self.w.tabs.len() - 1);
+                let size = self.w.frame.map(|f| (f.w, f.h)).unwrap_or((900, 600));
+                self.window_with(vec![tab]);
+                if let Some(w) = self.others.last_mut() {
+                    w.open_at = Some(restore::Frame {
+                        x: at.x as i32 - 80,
+                        y: at.y as i32 - 12,
+                        w: size.0,
+                        h: size.1,
+                    });
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -893,19 +1156,105 @@ impl eframe::App for App {
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
         if let Some(s) = self.smoke.as_mut() {
             raw.events.append(&mut s.keys);
+            if let Some(mut batch) = s.script.pop_front() {
+                raw.events.append(&mut batch);
+            }
         }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        if self.tabs.is_empty() {
+        // Menu bar choices (and their key equivalents) on a Mac go to the
+        // window in front.
+        #[cfg(target_os = "macos")]
+        if let Some(m) = &self.menu {
+            self.pending.extend(m.chosen());
+        }
+        let ids: Vec<u64> = std::iter::once(self.w.id)
+            .chain(self.others.iter().map(|w| w.id))
+            .collect();
+        if !ids.contains(&self.front) {
+            self.front = self.w.id;
+        }
+
+        // The first window (eframe's root viewport).
+        self.window_ui(ui);
+        if self.w.root
+            && let Some(smoke) = self.smoke.as_mut()
+        {
+            smoke.find_status = self.w.find.as_ref().map(|f| f.status());
+            smoke.windows = 1 + self.others.len();
+            smoke.step(&ctx, &self.w.tabs, self.w.active);
+        }
+
+        if self.smoke.as_ref().is_some_and(|s| s.quit) && !self.quitting {
+            self.quit(&ctx);
+        }
+
+        // The others, each in its own native window: swapped in, drawn,
+        // swapped back.
+        let mut i = 0;
+        while i < self.others.len() {
+            std::mem::swap(&mut self.w, &mut self.others[i]);
+            let id = egui::ViewportId::from_hash_of(("jamalterm-window", self.w.id));
+            let mut builder = egui::ViewportBuilder::default()
+                .with_title("jamalterm")
+                .with_inner_size([900.0, 600.0])
+                .with_min_inner_size([480.0, 300.0]);
+            if let Some(f) = self.w.open_at {
+                builder = builder
+                    .with_position([f.x as f32, f.y as f32])
+                    .with_inner_size([f.w.max(480) as f32, f.h.max(300) as f32]);
+            }
+            ctx.show_viewport_immediate(id, builder, |ui, _| self.window_ui(ui));
+            std::mem::swap(&mut self.w, &mut self.others[i]);
+            let w = &self.others[i];
+            if w.tabs.is_empty() || w.exiting {
+                // Closed: forgotten, and its shells end. Its native window
+                // closes because it isn't drawn any more.
+                self.others.remove(i);
+            } else {
+                i += 1;
+            }
+        }
+
+        // The first window closed (or lost its last tab) while others are
+        // open: it takes over another window's tabs, so the app goes on.
+        if (self.w.exiting || self.w.tabs.is_empty()) && !self.others.is_empty() {
+            let mut next = self.others.remove(0);
+            next.root = true;
+            next.open_at = None;
+            self.front = next.id;
+            self.w = next; // the old first window's tabs end here
+        }
+
+        // Saved every 15 s when something changed (and on quit), so a crash
+        // loses little.
+        let smoke_wants = self
+            .smoke
+            .as_ref()
+            .is_some_and(|s| s.save_session && self.last_saved.is_empty());
+        if smoke_wants || self.saved_at.elapsed() > Duration::from_secs(15) {
+            self.save_session(&ctx);
+        }
+        if self.settings.cursor_blink {
+            ctx.request_repaint_after(Duration::from_millis(530));
+        }
+    }
+}
+
+impl App {
+    /// Draws the window in `self.w` and handles its keys and mouse.
+    fn window_ui(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        if self.w.tabs.is_empty() {
             return;
         }
         let font_size = self.settings.font_size as f32;
         let cell = view::cell_size(&ctx, font_size, self.settings.line_height);
 
         // A new prompt: nothing typed on it yet.
-        for t in &mut self.tabs {
+        for t in &mut self.w.tabs {
             for pane in t.tree_mut().leaves_mut() {
                 let p = pane.session.screen.lock().unwrap().commands.prompts;
                 if p != pane.prompts {
@@ -915,12 +1264,49 @@ impl eframe::App for App {
             }
         }
 
-        // Menu bar choices (and their key equivalents) on a Mac.
-        #[cfg(target_os = "macos")]
-        for cmd in self.menu.as_ref().map(|m| m.chosen()).unwrap_or_default() {
-            self.run(&ctx, cmd);
+        // Where it is, and whether it's in front (menu commands go there).
+        let (focused, close, frame) = ctx.input(|i| {
+            let v = i.viewport();
+            let frame = v.outer_rect.zip(v.inner_rect).map(|(o, r)| restore::Frame {
+                x: o.min.x.round() as i32,
+                y: o.min.y.round() as i32,
+                w: r.width().round() as i32,
+                h: r.height().round() as i32,
+            });
+            (v.focused == Some(true), v.close_requested(), frame)
+        });
+        if frame.is_some() {
+            self.w.frame = frame;
         }
-        if self.tabs.is_empty() {
+        if focused {
+            self.front = self.w.id;
+        }
+        if self.front == self.w.id {
+            for cmd in std::mem::take(&mut self.pending) {
+                self.run(&ctx, cmd);
+            }
+        }
+        if self.w.root
+            && let Some(cmds) = self.smoke.as_mut().map(|s| std::mem::take(&mut s.cmds))
+        {
+            for cmd in cmds {
+                self.run(&ctx, cmd);
+            }
+        }
+        if close {
+            if self.quitting || (self.w.root && self.others.is_empty()) {
+                // The last window: quitting. The session is kept.
+                self.save_session(&ctx);
+            } else {
+                // One of several: it's forgotten (the first window takes
+                // over another's tabs rather than close).
+                if self.w.root {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                }
+                self.w.exiting = true;
+            }
+        }
+        if self.w.tabs.is_empty() || self.w.exiting {
             return;
         }
 
@@ -945,8 +1331,9 @@ impl eframe::App for App {
                     }
                     // Browse mode takes the keys while it's on.
                     if self
+                        .w
                         .tabs
-                        .get(self.active)
+                        .get(self.w.active)
                         .is_some_and(|t| t.pane().browse.is_some())
                     {
                         if self.browse_key(&ctx, key, &modifiers) {
@@ -1010,18 +1397,18 @@ impl eframe::App for App {
                 _ => {}
             }
         }
-        if self.tabs.is_empty() {
+        if self.w.tabs.is_empty() {
             return;
         }
 
-        if self.tabs.len() > 1 || self.settings.show_tab_bar {
+        if self.w.tabs.len() > 1 || self.settings.show_tab_bar {
             egui::Panel::top("tabs").show(ui, |ui| self.tab_bar(&ctx, ui));
         }
-        if self.tabs.is_empty() {
+        if self.w.tabs.is_empty() {
             return;
         }
 
-        if self.find.is_some() {
+        if self.w.find.is_some() {
             egui::Panel::top("find").show(ui, |ui| self.find_bar(ui));
         }
 
@@ -1063,15 +1450,15 @@ impl eframe::App for App {
             .show(ui, |ui| {
                 let area = ui.max_rect();
                 ui.painter().rect_filled(area, 0.0, self.theme.background);
-                self.grid = view::grid_size(area, cell);
-                let a = self.active;
+                self.w.grid = view::grid_size(area, cell);
+                let a = self.w.active;
                 // Where the panes and dividers go.
                 let (mut placed, mut divs) = (vec![], vec![]);
-                self.tabs[a].tree().layout(area, &mut placed, &mut divs);
+                self.w.tabs[a].tree().layout(area, &mut placed, &mut divs);
                 let placed: Vec<(u64, egui::Rect)> =
                     placed.into_iter().map(|(p, r)| (p.id, r)).collect();
                 let multi = placed.len() > 1;
-                let focus = self.tabs[a].pane().id;
+                let focus = self.w.tabs[a].pane().id;
                 let window_focused = ctx.input(|i| i.focused);
                 let mut focus_to = None;
                 let mut click_browse = None;
@@ -1082,7 +1469,7 @@ impl eframe::App for App {
                         Sense::click_and_drag(),
                     );
                     let focused = id == focus;
-                    let Some(pane) = self.tabs[a].tree_mut().find_mut(&|p: &Pane| p.id == id)
+                    let Some(pane) = self.w.tabs[a].tree_mut().find_mut(&|p: &Pane| p.id == id)
                     else {
                         continue;
                     };
@@ -1154,8 +1541,8 @@ impl eframe::App for App {
                         if response.drag_started() {
                             screen.term.selection =
                                 Some(Selection::new(SelectionType::Simple, point, side));
-                            self.selecting = true;
-                        } else if response.dragged() && self.selecting {
+                            self.w.selecting = true;
+                        } else if response.dragged() && self.w.selecting {
                             if let Some(sel) = screen.term.selection.as_mut() {
                                 sel.update(point, side);
                             }
@@ -1176,7 +1563,7 @@ impl eframe::App for App {
                         }
                     }
                     if response.drag_stopped() {
-                        self.selecting = false;
+                        self.w.selecting = false;
                     }
                     if let Some(code) = screen.exited {
                         painter.text(
@@ -1221,65 +1608,41 @@ impl eframe::App for App {
                     ui.painter()
                         .line_segment([a1, a2], egui::Stroke::new(stroke, line));
                     if r.double_clicked() {
-                        self.tabs[a].tree_mut().equalize(d);
+                        self.w.tabs[a].tree_mut().equalize(d);
                     } else if r.drag_started() {
-                        self.dragging = Some(d.clone());
+                        self.w.dragging = Some(d.clone());
                     }
                     if r.dragged()
-                        && let (Some(pos), Some(dd)) = (r.interact_pointer_pos(), &self.dragging)
+                        && let (Some(pos), Some(dd)) = (r.interact_pointer_pos(), &self.w.dragging)
                     {
                         let dd = dd.clone();
-                        self.tabs[a].tree_mut().drag(&dd, pos);
+                        self.w.tabs[a].tree_mut().drag(&dd, pos);
                     }
                     if r.drag_stopped() {
-                        self.dragging = None;
+                        self.w.dragging = None;
                     }
                 }
 
                 if let Some(id) = focus_to {
-                    self.tabs[a].focus = id;
+                    self.w.tabs[a].focus = id;
                 }
                 if let Some((id, row, col)) = click_browse
-                    && let Some(p) = self.tabs[a].tree_mut().find_mut(&|p: &Pane| p.id == id)
+                    && let Some(p) = self.w.tabs[a].tree_mut().find_mut(&|p: &Pane| p.id == id)
                 {
                     p.browse = Some(Browse::new(row, col));
                 }
-                self.pane_rects = placed;
+                self.w.pane_rects = placed;
             });
 
-        #[cfg(target_os = "macos")]
-        if let Some(m) = &self.menu {
-            m.set_split(self.tabs[self.active].tree().count() > 1);
-        }
-
-        // Saved every 15 s when something changed (and on quit), so a crash
-        // loses little.
-        let smoke_wants = self
-            .smoke
-            .as_ref()
-            .is_some_and(|s| s.save_session && self.last_saved.is_empty());
-        if smoke_wants || self.saved_at.elapsed() > Duration::from_secs(15) {
-            self.save_session(&ctx);
-        }
-        ctx.input(|i| {
-            if i.viewport().close_requested() {
-                self.exiting = true;
-            }
-        });
-        if self.exiting {
-            self.save_session(&ctx);
-        }
-
         // The window title: "Home — zsh".
-        let tab = &self.tabs[self.active];
+        let tab = &self.w.tabs[self.w.active];
         let title = tab_name(&tab.folder(&self.home), &tab.program(&self.shell_name));
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
-        if self.settings.cursor_blink {
-            ctx.request_repaint_after(Duration::from_millis(530));
-        }
-        if let Some(smoke) = self.smoke.as_mut() {
-            smoke.find_status = self.find.as_ref().map(|f| f.status());
-            smoke.step(&ctx, &self.tabs, self.active);
+        #[cfg(target_os = "macos")]
+        if self.front == self.w.id
+            && let Some(m) = &self.menu
+        {
+            m.set_split(self.w.tabs[self.w.active].tree().count() > 1);
         }
     }
 }

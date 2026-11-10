@@ -20,6 +20,7 @@ fn code(key: egui::Key) -> Option<Code> {
     use egui::Key as K;
     Some(match key {
         K::T => Code::KeyT,
+        K::N => Code::KeyN,
         K::W => Code::KeyW,
         K::C => Code::KeyC,
         K::V => Code::KeyV,
@@ -52,7 +53,7 @@ fn items(menu: Menu) -> Vec<MenuItem> {
             if e.alt {
                 mods |= Modifiers::ALT;
             }
-            let accel = code(e.key).map(|c| Accelerator::new(mods, c));
+            let accel = e.key.and_then(code).map(|c| Accelerator::new(mods, c));
             MenuItem::with_id(commands::id(e.cmd), e.title, true, accel)
         })
         .collect()
@@ -171,7 +172,9 @@ mod tests {
     #[test]
     fn every_menu_item_has_a_key_equivalent() {
         for e in crate::commands::TABLE.iter().filter(|e| e.menu.is_some()) {
-            assert!(super::code(e.key).is_some(), "{:?}", e.cmd);
+            if let Some(k) = e.key {
+                assert!(super::code(k).is_some(), "{:?}", e.cmd);
+            }
         }
     }
 }

@@ -3,6 +3,7 @@
 //! writes report.json, then quits. CI runs it on a Mac and on Linux (xvfb).
 
 use crate::app::Tab;
+use crate::commands::Cmd;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -31,6 +32,18 @@ pub struct Smoke {
     pub keys: Vec<egui::Event>,
     /// The find bar's "3 of 17" (None when closed), from the app each frame.
     pub find_status: Option<String>,
+    /// Menu commands to run in the first window (items with no shortcut).
+    pub cmds: Vec<crate::commands::Cmd>,
+    /// Pointer events, one batch per frame (a drag takes several frames).
+    pub script: std::collections::VecDeque<Vec<egui::Event>>,
+    /// Where the tabs are in the bar (from the app each frame).
+    pub tab_rects: Vec<egui::Rect>,
+    /// A pane id a step remembers to check later.
+    marker: u64,
+    /// Done: the app should quit.
+    pub quit: bool,
+    /// How many windows are open (from the app each frame).
+    pub windows: usize,
     /// Lets the app write session.json (the self-test checks it at the end).
     pub save_session: bool,
     /// Whether the Mac menu bar was installed (None where there is none).
@@ -238,18 +251,87 @@ const STEPS: &[Step] = &[
         limit: Duration::from_secs(5),
     },
     Step {
+        name: "dragging a tab reorders the bar",
+        act: |s, _, tabs, _| s.drag_second_tab_first(tabs),
+        done: |s, tabs, a| {
+            (s.script.is_empty() && tabs.len() == 2).then(|| {
+                (
+                    tabs[0].pane().id == s.marker && a == 0,
+                    "the second tab is first, and in front".into(),
+                )
+            })
+        },
+        limit: Duration::from_secs(5),
+    },
+    Step {
+        name: "and back",
+        act: |s, _, tabs, _| s.drag_second_tab_first(tabs),
+        done: |s, tabs, _| {
+            (s.script.is_empty() && tabs.len() == 2).then(|| {
+                let first = tabs[0].pane().session.screen.lock().unwrap();
+                let back =
+                    (0..first.abs_cursor_line()).any(|l| first.line_text(l).contains("smoke-ok"));
+                (back, "the first tab is first again".into())
+            })
+        },
+        limit: Duration::from_secs(5),
+    },
+    Step {
+        name: "⌘2 shows the second tab",
+        act: |s, _, _, _| s.press(egui::Key::Num2, cmd_mods()),
+        done: |_, _, a| (a == 1).then(|| (true, String::new())),
+        limit: Duration::from_secs(3),
+    },
+    Step {
+        name: "Move Tab to New Window",
+        act: |s, _, _, _| s.cmds.push(Cmd::MoveTabToNewWindow),
+        done: |s, tabs, _| {
+            (s.windows == 2 && tabs.len() == 1).then(|| (true, "2 windows, 1 tab here".into()))
+        },
+        limit: Duration::from_secs(5),
+    },
+    Step {
+        name: "⌘N opens a window",
+        act: |s, _, _, _| s.press(egui::Key::N, cmd_mods()),
+        done: |s, _, _| (s.windows == 3).then(|| (true, "3 windows".into())),
+        limit: Duration::from_secs(5),
+    },
+    Step {
+        name: "Merge All Windows",
+        act: |s, _, _, _| s.cmds.push(Cmd::MergeAllWindows),
+        done: |s, tabs, _| {
+            (s.windows == 1 && tabs.len() == 3).then(|| (true, "1 window, 3 tabs".into()))
+        },
+        limit: Duration::from_secs(5),
+    },
+    Step {
+        name: "⌘3 and ⌘W close the third tab",
+        act: |s, _, _, _| {
+            s.press(egui::Key::Num3, cmd_mods());
+            s.press(egui::Key::W, cmd_mods());
+        },
+        done: |s, tabs, _| (s.windows == 1 && tabs.len() == 2).then(|| (true, "2 tabs".into())),
+        limit: Duration::from_secs(5),
+    },
+    Step {
+        name: "a second window for the session",
+        act: |s, _, _, _| s.press(egui::Key::N, cmd_mods()),
+        done: |s, _, _| (s.windows == 2).then(|| (true, "2 windows".into())),
+        limit: Duration::from_secs(5),
+    },
+    Step {
         name: "the session is saved (tabs, folders, output)",
         act: |s, _, _, _| s.save_session = true,
         done: |s, _, _| {
             let w = crate::restore::load(&s.dir.join("session.json"));
             let groups = w.first()?.groups();
-            (groups.len() == 2).then(|| {
+            (groups.len() == 2 && w.len() == 2).then(|| {
                 let crate::restore::SavedNode::Leaf { tab } = &groups[0] else {
                     return (false, "the first tab was saved split".into());
                 };
                 (
                     tab.output.contains("smoke-ok") && !tab.cwd.is_empty(),
-                    format!("2 tabs, {} bytes of output", tab.output.len()),
+                    format!("2 windows, 2 tabs, {} bytes of output", tab.output.len()),
                 )
             })
         },
@@ -269,7 +351,7 @@ const RESTORE_STEPS: &[Step] = &[
     Step {
         name: "the saved tabs come back with their output",
         act: |_, _, _, _| {},
-        done: |_, tabs, _| {
+        done: |sm, tabs, _| {
             let first = tabs.first()?;
             let s = first.pane().session.screen.lock().unwrap();
             let text: Vec<String> = (0..s.abs_cursor_line()).map(|l| s.line_text(l)).collect();
@@ -279,8 +361,12 @@ const RESTORE_STEPS: &[Step] = &[
                 .any(|l| l.contains("Restored from the last session"));
             (back && marked && s.prompt_seen).then(|| {
                 (
-                    tabs.len() == 2,
-                    format!("{} tabs, the output and a new prompt", tabs.len()),
+                    tabs.len() == 2 && sm.windows == 2,
+                    format!(
+                        "{} windows, {} tabs, the output and a new prompt",
+                        sm.windows,
+                        tabs.len()
+                    ),
                 )
             })
         },
@@ -308,6 +394,12 @@ impl Smoke {
             find_status: None,
             menu_bar: None,
             save_session: false,
+            windows: 1,
+            cmds: vec![],
+            quit: false,
+            script: Default::default(),
+            tab_rects: vec![],
+            marker: 0,
             dir,
             started: Instant::now(),
             step: 0,
@@ -340,6 +432,33 @@ impl Smoke {
         }
     }
 
+    /// Drags with the mouse from one point to another, over a few frames.
+    fn drag(&mut self, from: egui::Pos2, to: egui::Pos2) {
+        let button = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        self.script.push_back(vec![egui::Event::PointerMoved(from)]);
+        self.script.push_back(vec![button(from, true)]);
+        for k in 1..=6 {
+            let p = from + (to - from) * (k as f32 / 6.0);
+            self.script.push_back(vec![egui::Event::PointerMoved(p)]);
+        }
+        self.script.push_back(vec![button(to, false)]);
+        self.script.push_back(vec![]);
+    }
+
+    /// Drags the second tab in front of the first.
+    fn drag_second_tab_first(&mut self, tabs: &[Tab]) {
+        if let (Some(a), Some(b)) = (self.tab_rects.first(), self.tab_rects.get(1)) {
+            self.marker = tabs[1].pane().id;
+            let (from, to) = (b.center(), egui::pos2(a.left() + 4.0, a.center().y));
+            self.drag(from, to);
+        }
+    }
+
     /// Called every frame.
     pub fn step(&mut self, ctx: &egui::Context, tabs: &[Tab], active: usize) {
         ctx.request_repaint_after(Duration::from_millis(50));
@@ -360,7 +479,7 @@ impl Smoke {
                 self.dir.join(name),
                 serde_json::to_vec_pretty(&report).unwrap(),
             );
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            self.quit = true; // the app quits (every window), saving
             return;
         };
         if !self.acted {

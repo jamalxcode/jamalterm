@@ -16,6 +16,7 @@ mod session;
 mod settings;
 mod shell;
 mod smoke;
+mod tabdrag;
 mod themes;
 mod view;
 
@@ -26,7 +27,7 @@ fn main() -> eframe::Result<()> {
         .with_inner_size([1100.0, 700.0])
         .with_min_inner_size([480.0, 300.0]);
     // The window comes back where it was, at its size.
-    if let Some(f) = start.restored.as_ref().and_then(|w| w.frame) {
+    if let Some(f) = start.restored.first().and_then(|w| w.frame) {
         viewport = viewport
             .with_position([f.x as f32, f.y as f32])
             .with_inner_size([f.w.max(480) as f32, f.h.max(300) as f32]);

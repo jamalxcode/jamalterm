@@ -27,6 +27,11 @@ eframe/egui (native window, OpenGL)        one thread per shell
 - **Stable marks:** command lines are counted as "history + screen line". Once the scrollback is full, lines drop off the top without alacritty_terminal saying how many, so before each chunk of output the session remembers the lines just above the screen and afterwards finds how far they moved; every mark shifts up by that much (`Screen::feed`, tested by `marks_stay_put_when_the_history_is_full`).
 - **One command table** (`commands.rs`): each command's menu title, menu and shortcut. The keyboard and the Mac menu bar (`menu.rs`, muda) both read it, so a shortcut and its menu item can't drift apart. On a Mac the shortcuts are real key equivalents (the menu title flashes); the menus are jamalterm, Shell, Edit, View and Window, and the Window menu doesn't list numbered tabs that aren't open.
 
+- **Split panes** (`panes.rs`): a tab is a tree of panes, generic over the pane so the layout, closing and moving the focus by direction are tested without shells. Each pane has its own size in cells; the focused pane gets a frame and a corner notch and the others are dimmed (shape, not only color). ⌘W closes the pane (the tab when it isn't split, and the Shell menu says "Close Pane" or "Close Tab"); ⌥⌘W closes the tab.
+- **Windows:** every window is an egui viewport. A window's state (tabs, focus, find bar, layout) is one `Win`; the window being drawn is `App::w` and the others wait in `App::others`, swapped in to be drawn, so all code that acts on "the window" acts on `self.w`. Menu commands go to the window in front. eframe quits when its first (root) window closes, so closing that window while others are open hands it another window's tabs instead, and the app goes on. *Rejected:* NSWindow tabbing (see §11) and one process per window (3.x's Wails v2 problem).
+- **Moving tabs** (`tabdrag.rs`): drag along the bar to reorder; let go outside the window and the tab moves into the window under the pointer, or into a new window right there. Esc puts it back. Window → Move Tab to New Window and Merge All Windows, as in Terminal. Shells keep running: a tab is just moved between `Win`s. Reattaching (3.x, after a page reload or crash) isn't needed: there's no web page, the shells live in the app.
+- **Session restore** (`restore.rs`): 3.x's `session.json` unchanged (version 3, 0600), so a 3.x session restores in 4.x. Each pane's recent output (1000 lines, 200 if over 400 KB) is saved as terminal text with colors and fed to the new emulator before its shell starts, with a dim "[Restored from the last session]" line under it; a wrapped line is saved as one line so it re-wraps at the new width. Saved on quit and every 15 s when something changed. Closing a window forgets it; quitting keeps every window; closing the last tab of the last window starts fresh next time. The self-test's second run checks that the saved windows come back.
+
 ### Status (what works / what's left)
 | Area | 4.x Rust |
 |---|---|
@@ -36,7 +41,8 @@ eframe/egui (native window, OpenGL)        one thread per shell
 | settings.json compatibility, self-test, CI on Mac and Linux | ✅ phase 1 |
 | Browse mode (the free-floating cursor, ⌥↑↓ between commands, ⏎ re-run asking when it ran elsewhere, ⇧⏎ edit, C/O copy, key bar), marks that stay put when the scrollback is full | ✅ phase 2 |
 | Sticky header, scrollbar markers | ⏳ |
-| Split panes, multiple windows, moving tabs, session restore, reattach | ⏳ |
+| Split panes (⌘D, ⇧⌘D, dividers, ⌘[ ⌘], ⌥⌘ arrows), multiple windows (⌘N, ⇧⌘W), moving tabs (drag, Move Tab to New Window, Merge All Windows), session restore (3.x file) | ✅ phase 3 |
+| Asking before closing running programs (native alert) | ⏳ |
 | Native Mac menu bar (one command table), find (⌘F, ⌘G/⇧⌘G, "3 of 17") | ✅ phase 2 |
 | Command palette, right-click menu, Settings window | ⏳ |
 | AI panel, command bar, Fix it, risk checks, providers, local models | ⏳ |

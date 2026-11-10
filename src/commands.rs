@@ -10,6 +10,7 @@ use egui::Key;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Cmd {
+    NewWindow,
     NewTab,
     SplitRight,
     SplitDown,
@@ -17,6 +18,7 @@ pub enum Cmd {
     ClosePane,
     /// ⌥⌘W: the tab with all its panes.
     CloseTab,
+    CloseWindow,
     Copy,
     Paste,
     Find,
@@ -35,6 +37,8 @@ pub enum Cmd {
     PaneRight,
     PaneUp,
     PaneDown,
+    MoveTabToNewWindow,
+    MergeAllWindows,
     /// ⌘1–⌘9 (a key only: the menu lists no tabs that aren't open).
     Tab(u8),
 }
@@ -52,7 +56,8 @@ pub struct Entry {
     /// The menu item's text: what it will do.
     pub title: &'static str,
     pub menu: Option<Menu>,
-    pub key: Key,
+    /// None: a menu item with no shortcut.
+    pub key: Option<Key>,
     /// ⇧ as well as ⌘ (on a Mac; elsewhere ⇧ is always part of the shortcut).
     pub shift: bool,
     /// ⌥ as well.
@@ -67,10 +72,19 @@ const fn e(cmd: Cmd, title: &'static str, menu: Menu, key: Key, shift: bool) -> 
         cmd,
         title,
         menu: Some(menu),
-        key,
+        key: Some(key),
         shift,
         alt: false,
         keyed: true,
+    }
+}
+
+/// A menu item with no shortcut.
+const fn item(cmd: Cmd, title: &'static str, menu: Menu) -> Entry {
+    Entry {
+        key: None,
+        keyed: false,
+        ..e(cmd, title, menu, Key::Escape, false)
     }
 }
 
@@ -87,7 +101,7 @@ const fn tab(n: u8, key: Key) -> Entry {
         cmd: Cmd::Tab(n),
         title: "",
         menu: None,
-        key,
+        key: Some(key),
         shift: false,
         alt: false,
         keyed: true,
@@ -95,6 +109,7 @@ const fn tab(n: u8, key: Key) -> Entry {
 }
 
 pub const TABLE: &[Entry] = &[
+    e(Cmd::NewWindow, "New Window", Menu::Shell, Key::N, false),
     e(Cmd::NewTab, "New Tab", Menu::Shell, Key::T, false),
     e(
         Cmd::SplitRight,
@@ -112,6 +127,7 @@ pub const TABLE: &[Entry] = &[
         Menu::Shell,
         Key::W,
     ),
+    e(Cmd::CloseWindow, "Close Window", Menu::Shell, Key::W, true),
     Entry {
         keyed: false,
         ..e(Cmd::Copy, "Copy", Menu::Edit, Key::C, false)
@@ -181,6 +197,12 @@ pub const TABLE: &[Entry] = &[
         Menu::Window,
         Key::ArrowDown,
     ),
+    item(
+        Cmd::MoveTabToNewWindow,
+        "Move Tab to New Window",
+        Menu::Window,
+    ),
+    item(Cmd::MergeAllWindows, "Merge All Windows", Menu::Window),
     tab(1, Key::Num1),
     tab(2, Key::Num2),
     tab(3, Key::Num3),
@@ -199,8 +221,8 @@ pub fn for_key(key: Key, shift: Option<bool>, alt: bool) -> Option<Cmd> {
     let key = if key == Key::Plus { Key::Equals } else { key };
     TABLE
         .iter()
-        .filter(|e| e.keyed && e.key == key && e.alt == alt)
-        .find(|e| shift.is_none_or(|s| e.shift == s || e.key == Key::Equals))
+        .filter(|e| e.keyed && e.key == Some(key) && e.alt == alt)
+        .find(|e| shift.is_none_or(|s| e.shift == s || key == Key::Equals))
         .map(|e| e.cmd)
 }
 
@@ -245,6 +267,13 @@ mod tests {
             "Copy is the system's"
         );
         assert_eq!(for_key(Key::Q, Some(false), false), None);
+        assert_eq!(for_key(Key::N, Some(false), false), Some(Cmd::NewWindow));
+        assert_eq!(for_key(Key::W, Some(true), false), Some(Cmd::CloseWindow));
+        assert_eq!(
+            for_key(Key::Escape, Some(false), false),
+            None,
+            "no shortcut"
+        );
         assert_eq!(for_key(Key::W, Some(false), false), Some(Cmd::ClosePane));
         assert_eq!(for_key(Key::W, Some(false), true), Some(Cmd::CloseTab));
         assert_eq!(for_key(Key::ArrowUp, Some(false), false), Some(Cmd::Browse));
@@ -262,7 +291,7 @@ mod tests {
             assert_eq!(by_id(&id(a.cmd)), Some(a.cmd));
             for b in &TABLE[i + 1..] {
                 assert!(
-                    !(a.key == b.key && a.shift == b.shift && a.alt == b.alt),
+                    a.key.is_none() || !(a.key == b.key && a.shift == b.shift && a.alt == b.alt),
                     "{:?} and {:?} share a shortcut",
                     a.cmd,
                     b.cmd
