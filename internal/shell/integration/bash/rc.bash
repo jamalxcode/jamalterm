@@ -56,7 +56,15 @@ if [[ -z "${_JT_LOADED-}" ]]; then
     preexec_functions+=(_jt_preexec)
   else
     if [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
-      PROMPT_COMMAND=(_jt_precmd "${PROMPT_COMMAND[@]}" _jt_ready) # bash 5.1+ list
+      if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1) )); then
+        PROMPT_COMMAND=(_jt_precmd "${PROMPT_COMMAND[@]}" _jt_ready) # bash 5.1+ runs every entry
+      else
+        # Older bash (the Mac's 3.2) runs only the first entry: join them.
+        _jt_pc=$(IFS=';'; builtin echo "${PROMPT_COMMAND[*]}")
+        unset PROMPT_COMMAND
+        PROMPT_COMMAND="_jt_precmd; ${_jt_pc}; _jt_ready"
+        unset _jt_pc
+      fi
     else
       PROMPT_COMMAND="_jt_precmd${PROMPT_COMMAND:+; $PROMPT_COMMAND}; _jt_ready"
     fi

@@ -16,8 +16,8 @@ var (
 	reCmd = regexp.MustCompile(`\x1b\]6973;cmd;([A-Za-z0-9+/=]*)\x07`)
 	reCwd = regexp.MustCompile(`\x1b\]7;file://[^/]*(/[^\x07]*)\x07`)
 	// Command start and done marks, with or without parameters (fish 4
-	// writes its own as well as ours).
-	reMark = regexp.MustCompile(`\x1b\]133;([CD])(?:;([^\x07]*))?\x07`)
+	// writes its own as well as ours, ended with ST instead of BEL).
+	reMark = regexp.MustCompile(`\x1b\]133;([CD])(?:;([^\x07\x1b]*))?(?:\x07|\x1b\\)`)
 )
 
 func TestIntegration(t *testing.T) {

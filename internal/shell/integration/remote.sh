@@ -57,7 +57,12 @@ elif [ -n "${BASH_VERSION-}" ]; then
     # Our hook first, _jt_ready last: other PROMPT_COMMAND entries aren't
     # commands. A DEBUG trap already set keeps running, before ours.
     if [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
-      PROMPT_COMMAND=(_jt_precmd "${PROMPT_COMMAND[@]}" _jt_ready)
+      if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1) )); then
+        PROMPT_COMMAND=(_jt_precmd "${PROMPT_COMMAND[@]}" _jt_ready)
+      else
+        _jt_pc=$(IFS=';'; builtin echo "${PROMPT_COMMAND[*]}"); unset PROMPT_COMMAND
+        PROMPT_COMMAND="_jt_precmd; ${_jt_pc}; _jt_ready"; unset _jt_pc
+      fi
     else
       PROMPT_COMMAND="_jt_precmd${PROMPT_COMMAND:+; $PROMPT_COMMAND}; _jt_ready"
     fi
