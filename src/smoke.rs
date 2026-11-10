@@ -150,7 +150,7 @@ const STEPS: &[Step] = &[
             // "echo smoke-ok" and its output "smoke-ok": at least 2.
             st.ends_with(" of 2")
                 .then(|| (true, st.clone()))
-                .or_else(|| (st.contains(" of ")).then(|| (false, st)))
+                .or_else(|| (st.contains(" of ")).then_some((false, st)))
         },
         limit: Duration::from_secs(3),
     },
