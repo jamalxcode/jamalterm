@@ -2955,6 +2955,14 @@ impl eframe::App for App {
             smoke.asking = self.asking.is_some();
             smoke.crash_noticed = self.last_crash.is_some();
             smoke.broadcast = self.w.broadcast;
+            smoke.bar = self.w.command_bar.as_ref().map(|b| {
+                let state = match (&b.running, &b.result) {
+                    (Some(_), _) => "asking".to_string(),
+                    (None, Some(r)) => format!("result {r:?}"),
+                    (None, None) => "empty".to_string(),
+                };
+                (b.text.clone(), state)
+            });
             smoke.stats_programs = self.stats.runs.iter().map(|r| r.program.clone()).collect();
             smoke.ai_open = self.w.ai_open;
             smoke.ai_card = self.w.ai.items.iter().rev().find_map(|i| match i {

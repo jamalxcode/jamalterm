@@ -65,6 +65,8 @@ pub struct Smoke {
     pub password_prompt: bool,
     /// The programs in Your Day's stats (from the app).
     pub stats_programs: Vec<String>,
+    /// The command bar's text and state, while it's open (from the app).
+    pub bar: Option<(String, String)>,
     /// The sticky header's command, when it shows (from the app).
     pub sticky: Option<String>,
     /// Broadcast Typing is on (from the app).
@@ -729,12 +731,30 @@ const STEPS: &[Step] = &[
         limit: Duration::from_secs(15),
     },
     Step {
-        name: "⌘J: plain English becomes a command at the prompt (not run)",
+        name: "⌘J opens the command bar",
+        act: |s, _, _, _| s.press(egui::Key::J, cmd_mods()),
+        done: |s, _, _| s.bar.as_ref().map(|_| (true, String::new())),
+        limit: Duration::from_secs(5),
+    },
+    Step {
+        name: "(type in the command bar)",
         act: |s, _, _, _| {
-            s.press(egui::Key::J, cmd_mods());
+            s.script.push_back(vec![]);
             s.script.push_back(vec![]);
             s.script
                 .push_back(vec![egui::Event::Text("say hello".into())]);
+        },
+        done: |s, _, _| {
+            s.bar
+                .as_ref()
+                .filter(|(text, _)| text == "say hello")
+                .map(|_| (true, String::new()))
+        },
+        limit: Duration::from_secs(5),
+    },
+    Step {
+        name: "⌘J: plain English becomes a command at the prompt (not run)",
+        act: |s, _, _, _| {
             s.script.push_back(vec![egui::Event::Key {
                 key: egui::Key::Enter,
                 physical_key: None,
@@ -743,16 +763,22 @@ const STEPS: &[Step] = &[
                 modifiers: egui::Modifiers::NONE,
             }]);
         },
-        done: |_, tabs, a| {
-            let s = tabs[a].pane().session.screen.lock().unwrap();
-            let line = s.line_text(s.abs_cursor_line());
-            let ran = s
+        done: |s, tabs, a| {
+            let sc = tabs[a].pane().session.screen.lock().unwrap();
+            let line = sc.line_text(sc.abs_cursor_line());
+            let ran = sc
                 .commands
                 .blocks
                 .iter()
                 .any(|b| b.command.contains("from-the-bar"));
-            line.contains("echo from-the-bar")
-                .then(|| (!ran, format!("prompt: {line:?}")))
+            if line.contains("echo from-the-bar") {
+                return Some((!ran, format!("prompt: {line:?}")));
+            }
+            // Still open with an answer or an error: say what it shows.
+            s.bar
+                .as_ref()
+                .filter(|(_, status)| status.starts_with("result"))
+                .map(|(t, st)| (false, format!("bar: {t:?} {st}")))
         },
         limit: Duration::from_secs(10),
     },
@@ -942,6 +968,7 @@ impl Smoke {
             password_prompt: false,
             crash_noticed: false,
             sticky: None,
+            bar: None,
             broadcast: false,
             stats_programs: vec![],
             diagnostics: None,
