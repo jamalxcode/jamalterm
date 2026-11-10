@@ -477,6 +477,13 @@ export function Settings(): $CancellablePromise<settings$0.Settings> {
 }
 
 /**
+ * SettingsOpen reports whether the Settings window is open (smoke test).
+ */
+export function SettingsOpen(): $CancellablePromise<boolean> {
+    return $Call.ByID(4110055096);
+}
+
+/**
  * ShellName is the shell's name, e.g. "zsh".
  */
 export function ShellName(): $CancellablePromise<string> {

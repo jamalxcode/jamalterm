@@ -2,7 +2,7 @@
 // itself through the main features and reports what worked, with
 // screenshots. See smoke.go and .github/workflows/build.yml.
 import type { Tab } from './tab'
-import { SmokeShot, SmokeWaitKeys, SmokeReport, WindowCount, SetWindowOpacity } from './backend'
+import { SmokeShot, SmokeWaitKeys, SmokeReport, WindowCount, SetWindowOpacity, SettingsOpen, CloseSettings } from './backend'
 
 export interface SmokeHost {
   bootTimes: Record<string, number>
@@ -99,14 +99,13 @@ export async function runSmoke(h: SmokeHost) {
     return ok
   })
 
-  await step('settings pages', async () => {
-    h.run('settings')
-    const ok = await until(() => !!document.querySelector('#settings:not([hidden]) .settings-nav'), 3000)
-    ;(document.querySelector('.settings-nav button[data-page="privacy"]') as HTMLElement | null)?.click()
-    await sleep(200)
+  await step('Settings window', async () => {
+    h.run('settings') // opens its own window (settings.html)
+    const ok = await until(() => SettingsOpen(), 5000)
+    await sleep(1500)
     await shot('3-settings')
-    ;(document.querySelector('#settings button.ghost') as HTMLElement | null)?.click() // Cancel
-    return ok
+    await CloseSettings()
+    return ok && (await until(async () => !(await SettingsOpen()), 3000))
   })
 
   await step('see-through window', async () => {

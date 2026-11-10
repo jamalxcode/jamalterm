@@ -37,7 +37,7 @@ export const {
   PreviousVersion, ProblemLogPath, Quit, QuitNow, RemoteSetupLine, Resize,
   ResolvePath, RevertUpdate, RunCommand, SaveSession, SaveSettings, SecureInputActive,
   SetAIProvider, SetAPIKey, SetActiveTab, SetMenuState, SetProviderKey, SetWindowOpacity,
-  Settings, ShellName, ShowProblemLog, SignInOpenRouter, SmokeMode, SmokeReport,
-  SmokeShot, SmokeWaitKeys, Start, StartDir, ToTerminal, Version,
-  WindowCount, WindowID, Write,
+  Settings, SettingsOpen, ShellName, ShowProblemLog, SignInOpenRouter, SmokeMode,
+  SmokeReport, SmokeShot, SmokeWaitKeys, Start, StartDir, ToTerminal,
+  Version, WindowCount, WindowID, Write,
 } = App

@@ -96,3 +96,9 @@ func (a *App) trackFocus(w *application.WebviewWindow, name string) {
 		a.mu.Unlock()
 	})
 }
+
+// SettingsOpen reports whether the Settings window is open (smoke test).
+func (a *App) SettingsOpen() bool {
+	_, ok := a.app.Window.GetByName(settingsWindowName)
+	return ok
+}
