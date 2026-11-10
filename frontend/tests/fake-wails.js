@@ -81,6 +81,8 @@
     MoveKeysFromKeychain: () => { state.keychainWaiting = false; return 2 },
     KeysUnreadable: () => false,
     CommandRisk: (cmd) => /rm -rf|\|\s*sh\b/.test(cmd) ? { level: 'danger', reasons: ['deletes files recursively from a broad location (/, ~, * or ..)'] } : { level: '', reasons: null },
+    UpdateStatus: () => state.updateStatus || { current: 'test', checkedAt: 0, latest: '', available: false, error: '', channel: 'stable' },
+    CheckForUpdate: () => { state.updateStatus = { current: 'test', checkedAt: Date.now(), latest: '9.9.9', available: true, error: '', channel: 'stable' }; return { available: true, current: 'test', latest: '9.9.9', notes: '', url: '', canInstall: false, reason: 'dev build' } },
     Diagnostics: () => 'jamalterm diagnostics\nVersion:   test\nRecent problems: none\n',
     GitBranch: () => '', ResolvePath: () => '', PreviousVersion: () => '',
     Start: (id, cols, rows, cwd) => { state.shells[id] = { cwd: cwd || '/home/u', line: '' }; setTimeout(() => prompt(id), 10) },

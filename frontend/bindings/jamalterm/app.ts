@@ -326,6 +326,14 @@ export function NewWindow(cwd: string): $CancellablePromise<void> {
 }
 
 /**
+ * Notice shows a native information alert on the calling window (for
+ * "You're up to date").
+ */
+export function Notice(title: string, message: string): $CancellablePromise<void> {
+    return $Call.ByID(2873064681, title, message);
+}
+
+/**
  * Notify shows a system notification (e.g. a long command finished while
  * jamalterm was in the background).
  */
@@ -583,10 +591,25 @@ export function ToTerminal(command: string): $CancellablePromise<void> {
 }
 
 /**
+ * UpdateStatus returns what the last check found.
+ */
+export function UpdateStatus(): $CancellablePromise<$models.UpdateStatus> {
+    return $Call.ByID(1098431686);
+}
+
+/**
  * Version is shown in About.
  */
 export function Version(): $CancellablePromise<string> {
     return $Call.ByID(2431199839);
+}
+
+/**
+ * WhatsNew is the CHANGELOG for the versions after since, up to this one
+ * (shown once after an update). "" if there's nothing to show.
+ */
+export function WhatsNew(since: string): $CancellablePromise<string> {
+    return $Call.ByID(2380454714, since);
 }
 
 /**

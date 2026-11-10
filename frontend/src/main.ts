@@ -9,7 +9,7 @@ import { Tab, setGpuOff, hostMatches, type SavedTab } from './tab'
 import { themeById, applyChrome } from './themes'
 import { applySystemLook } from './system'
 import { AIPanel, CommandBar } from './ai'
-import { Updater } from './updater'
+import { Updater, showWhatsNew } from './updater'
 import { showDiagnostics, logWindowErrors } from './diagnostics'
 import { Palette } from './palette'
 import { FindBar } from './find'
@@ -687,6 +687,7 @@ async function boot() {
   if (!(await reattach()) && !(await restoreSession())) newTab(await StartDir())
   mark('tabs')
   void showLastCrash()
+  void showWhatsNew()
   if (await SmokeMode()) {
     void runSmoke({
       bootTimes,

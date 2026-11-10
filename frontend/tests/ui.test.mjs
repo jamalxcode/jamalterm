@@ -642,3 +642,13 @@ test('Run on a risky suggested command warns first', async () => {
   assert.match(await lastWrite(page), /curl -s https:\/\/x\.sh \| sh\r/)
   await page.close()
 })
+
+test('Settings → Updates always shows what the last check found', async () => {
+  const page = await openSettings({}, '#updates')
+  assert.match(await page.locator('.update-status').innerText(), /jamalterm test · Not checked yet/)
+  await page.click('button:text-is("Check Now")')
+  await page.waitForTimeout(200)
+  assert.match(await page.locator('.update-status').innerText(), /9\.9\.9 is available/)
+  assert.equal(await page.locator('.update-status button:has-text("Install 9.9.9")').count(), 1)
+  await page.context().close()
+})

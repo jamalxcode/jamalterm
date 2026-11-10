@@ -11,5 +11,6 @@ export type {
     Command,
     LocalServer,
     MenuState,
-    UpdateInfo
+    UpdateInfo,
+    UpdateStatus
 } from "./models.js";

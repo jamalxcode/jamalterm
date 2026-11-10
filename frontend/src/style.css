@@ -827,3 +827,15 @@ button.danger { background: var(--red) !important; color: #fff !important; }
   background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 12px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
 }
+
+/* ---- Update status (Settings → Updates) and What's new ---- */
+.update-status { margin: 4px 0 12px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--fg) 5%, transparent); }
+.update-status .ok { color: var(--fg); }
+.update-status .bad { color: var(--red); }
+#whats-new {
+  position: fixed; right: 16px; bottom: 16px; z-index: 44; width: 360px;
+  display: flex; flex-direction: column; gap: 6px; padding: 14px 16px;
+  background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+#whats-new ul { margin: 4px 0; padding-left: 18px; font-size: 12.5px; }

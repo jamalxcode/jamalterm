@@ -577,6 +577,7 @@ func (a *App) CheckForUpdate() (UpdateInfo, error) {
 	defer cancel()
 	rel, err := update.LatestIn(ctx, a.Settings().UpdateChannel == "beta")
 	if err != nil {
+		a.saveUpdateStatus(info, err)
 		return info, a.problem("update check", err)
 	}
 	info.Latest, info.Notes, info.URL = rel.Version, rel.Notes, rel.URL
@@ -589,6 +590,7 @@ func (a *App) CheckForUpdate() (UpdateInfo, error) {
 	a.mu.Lock()
 	a.release = &rel
 	a.mu.Unlock()
+	a.saveUpdateStatus(info, nil)
 	return info, nil
 }
 

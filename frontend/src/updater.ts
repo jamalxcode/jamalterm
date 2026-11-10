@@ -1,4 +1,4 @@
-import { CheckForUpdate, InstallUpdate, OpenURL, Version, PreviousVersion, RevertUpdate } from './backend'
+import { CheckForUpdate, InstallUpdate, OpenURL, Version, PreviousVersion, RevertUpdate, Notice, WhatsNew } from './backend'
 import { EventsOn } from './backend'
 import { el, toast } from './util'
 import type { UpdateInfo } from './types'
@@ -39,13 +39,14 @@ export class Updater {
       const info = await CheckForUpdate()
       this.info = info
       if (!info.available) {
-        if (manual) toast(`You're up to date (jamalterm ${info.current}).`)
+        // Asked by hand: always answer, with a native alert (like other Mac apps).
+        if (manual) void Notice('You’re up to date', `jamalterm ${info.current} is the newest version.`)
         return
       }
       if (!manual && localStorageGet('jt-skip') === info.latest) return
       this.show()
     } catch (err) {
-      if (manual) toast(`Couldn't check for updates: ${err}`, 'error')
+      if (manual) void Notice('Couldn’t check for updates', `${err}\n\nCheck your internet connection and try again.`)
     }
   }
 
@@ -164,4 +165,24 @@ function localStorageSet(k: string, v: string) {
   } catch {
     /* private mode */
   }
+}
+
+/** Once after an update: what changed since the version you had. */
+export async function showWhatsNew() {
+  const version = await Version()
+  if (/dev|test/.test(version)) return
+  const last = localStorageGet('jt-last-version')
+  localStorageSet('jt-last-version', version)
+  if (!last || last === version) return
+  const notes = await WhatsNew(last)
+  if (!notes) return
+  const items = notes.split('\n').filter((l) => /^\s*[-*] /.test(l)).slice(0, 6)
+    .map((l) => el('li', { text: l.replace(/^\s*[-*]\s+/, '').replace(/\*\*/g, '') }))
+  const all = el('button', { class: 'ghost small' }, 'Full Release Notes')
+  const ok = el('button', { class: 'primary small' }, 'OK')
+  const card = el('div', { id: 'whats-new', role: 'dialog', 'aria-label': 'What’s new' },
+    el('strong', { text: `What’s new in jamalterm ${version}` }), el('ul', {}, ...items), el('div', { class: 'keyrow' }, all, ok))
+  document.body.append(card)
+  all.onclick = () => OpenURL(`https://github.com/jamalxcode/jamalterm/releases/tag/v${version}`)
+  ok.onclick = () => card.remove()
 }

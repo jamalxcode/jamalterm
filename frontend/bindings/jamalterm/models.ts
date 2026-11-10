@@ -83,3 +83,19 @@ export interface UpdateInfo {
     "canInstall": boolean;
     "reason": string;
 }
+
+/**
+ * UpdateStatus is the result of the latest check.
+ */
+export interface UpdateStatus {
+    "current": string;
+
+    /**
+     * Unix ms, 0 = never
+     */
+    "checkedAt": number;
+    "latest": string;
+    "available": boolean;
+    "error": string;
+    "channel": string;
+}

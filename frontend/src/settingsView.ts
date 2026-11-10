@@ -1,4 +1,5 @@
-import { SetAPIKey, HasSavedAPIKey, AnthropicAccount, BlurActive, ForgetSession, SetProviderKey, HasSavedProviderKey, ListProviderModels, SignInOpenRouter, ShowProblemLog, FindLocalServers, KeychainKeysWaiting, MoveKeysFromKeychain, KeysUnreadable } from './backend'
+import { SetAPIKey, HasSavedAPIKey, AnthropicAccount, BlurActive, ForgetSession, SetProviderKey, HasSavedProviderKey, ListProviderModels, SignInOpenRouter, ShowProblemLog, FindLocalServers, KeychainKeysWaiting, MoveKeysFromKeychain, KeysUnreadable, UpdateStatus, CheckForUpdate } from './backend'
+import type { UpdateStatus as UpdateStatusT } from '../bindings/jamalterm/models'
 import { themes } from './themes'
 import { providers, providerInfo, modelOf, setModelOf } from './providers'
 import { el, toast, SIGN_IN_COMMAND, SIGN_OUT_COMMAND } from './util'
@@ -419,11 +420,32 @@ export class SettingsView {
       el('p', { class: 'help', text: 'What gets sent with questions is under Privacy.' }),
     )
 
-    const checkNow = el('button', { type: 'button', class: 'ghost small' }, 'Check now')
-    checkNow.addEventListener('click', () => this.host.checkUpdates())
+    // What the last check found, always visible, and a check right here.
+    const checkNow = el('button', { type: 'button', class: 'ghost small' }, 'Check Now')
+    const status = el('div', { class: 'update-status', role: 'status' })
+    const showStatus = (st: UpdateStatusT, checking = false) => {
+      const when = st.checkedAt ? new Date(st.checkedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''
+      status.textContent = ''
+      status.append(el('strong', { text: `jamalterm ${st.current}` }), ' · ')
+      if (checking) status.append('Checking…')
+      else if (!st.checkedAt) status.append('Not checked yet')
+      else if (st.error) status.append(el('span', { class: 'bad', text: `Couldn’t check (${when}): ${st.error}` }))
+      else if (st.available) {
+        const show = el('button', { type: 'button', class: 'primary small' }, `Install ${st.latest}…`)
+        show.addEventListener('click', () => this.host.checkUpdates())
+        status.append(el('span', { class: 'ok', text: `${st.latest} is available (checked ${when}). ` }), show)
+      } else status.append(el('span', { class: 'ok', text: `You’re up to date (checked ${when}).` }))
+    }
+    void UpdateStatus().then((st) => showStatus(st))
+    checkNow.addEventListener('click', async () => {
+      showStatus(await UpdateStatus(), true)
+      try { await CheckForUpdate() } catch { /* shown below */ }
+      showStatus(await UpdateStatus())
+    })
     const updates = el(
       'section', { 'data-page': 'updates' },
       el('h3', { text: 'Updates' }),
+      status,
       el('div', { class: 'row' },
         el('label', { class: 'check' }, check(s.autoUpdate, (v) => (s.autoUpdate = v)), ' Check for new versions automatically'),
         checkNow,
