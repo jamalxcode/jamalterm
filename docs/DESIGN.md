@@ -4,6 +4,44 @@ This file records how jamalterm is built and why. Each section says what was dec
 
 <p align="center"><img src="icon-256.png" width="128" alt="jamalterm icon"></p>
 
+## 0. Rust port (4.x, in progress)
+
+**Decision (2026-11-10, the owner's choice):** rewrite jamalterm entirely in Rust with a native UI, on main. 3.5.0 (Go + Wails + TypeScript/xterm.js) is the last release of the old app and stays what users run until the Rust app matches it. Releases are off until then.
+
+**Why native:** no web view (the 3.x app needed up to ~1.3 GB with its web content processes; the Rust app's budget is 250 MB), one language, faster start. **Cost:** every part of the interface is rebuilt, so features come back phase by phase. Sections 1–9 below describe 3.x and are the spec to port; each says Go/TypeScript where that's where it lived.
+
+### Architecture
+```
+eframe/egui (native window, OpenGL)        one thread per shell
+ ├ app.rs: tabs, tab bar, keys, mouse  ◄─►  session.rs: portable-pty + alacritty_terminal
+ ├ view.rs: draws the grid (runs of        marks.rs: OSC 133 / 7 / 6973 scanner
+ │  cells, cursor, selection, ✓/✕)          shell.rs: shell, environment, hooks
+ └ settings.rs, themes.rs, fonts.rs        resources/integration/: the 3.x hook scripts
+```
+- **Terminal emulation: `alacritty_terminal`** (Alacritty's, mature and fast). *Rejected:* writing our own (years of edge cases) and `vt100`/`wezterm-term` (less used outside their apps).
+- **UI: egui/eframe.** Immediate mode makes the tab bar, panels, palette and Settings quick to build; native windows; draws on the GPU. *Rejected:* gpui (Zed's: not stable on crates.io), iced (heavier for custom drawing), raw winit+wgpu (everything by hand). Native menus, the menu bar icon and the Dock menu will use `muda`/`tray-icon` plus a little AppKit.
+- **PTY: `portable-pty`** (WezTerm's).
+- **Marks:** the hook scripts are unchanged. A small scanner finds the marks in the byte stream (across reads); the session feeds the emulator up to each mark and notes the cursor line, so each command knows its prompt, start and end lines. The bytes still go to the emulator, which ignores marks it doesn't know.
+- **Drawing:** cells are grouped into runs of the same style per line and drawn as one text shape per run (not per character). Wide characters get their own run so the grid stays aligned. Bold plain colors use their bright version, like other terminals.
+- **Settings:** the same `settings.json` and field names as 3.x, so nothing is lost. Fields not used yet are read and written back unchanged.
+- **Known limit:** command lines are counted as "history + screen line". That stays right until the scrollback is full; after that, lines drop off the top without alacritty_terminal saying how many, and older marks drift. To fix when browse mode is ported (count dropped lines through the grid's scroll events).
+
+### Status (what works / what's left)
+| Area | 4.x Rust |
+|---|---|
+| Shell with hooks (zsh, bash, tcsh, fish; oh-my-zsh, p10k, prezto, starship), ✓/✕ marks | ✅ phase 1 |
+| Tabs (⌘T, ⌘W, ⌘1–9, ⇧⌘[ ]), tab bar, window title "Home — zsh" | ✅ phase 1 |
+| Themes (10), JetBrains Mono + Nerd symbols, cursor styles, scrollback, selection, copy/paste, ⌘K, font size | ✅ phase 1 |
+| settings.json compatibility, self-test, CI on Mac and Linux | ✅ phase 1 |
+| Browse mode (the free-floating cursor), re-run, sticky header, scrollbar markers | ⏳ |
+| Split panes, multiple windows, moving tabs, session restore, reattach | ⏳ |
+| Native menu bar, command palette, find, right-click menu, Settings window | ⏳ |
+| AI panel, command bar, Fix it, risk checks, providers, local models | ⏳ |
+| Encrypted keys, Secure Keyboard Entry, problem log, diagnostics, crash reports | ⏳ |
+| Updater with Sigstore check, What's new, Beta channel, releases | ⏳ |
+| Menu bar icon, Dock menu, notifications, finish line, stats, project colors, wallpaper theme | ⏳ |
+| OSC 8 links, images, kitty keyboard, ligatures, input methods, VoiceOver | ⏳ |
+
 ## 1. What jamalterm is
 
 A macOS terminal that behaves exactly like a normal terminal, plus:

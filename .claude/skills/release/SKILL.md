@@ -5,6 +5,8 @@ description: Publish a jamalterm version (stable or Beta) and confirm people can
 
 # Releasing jamalterm
 
+**Paused during the Rust rewrite (4.x).** CI has no publish job right now and must not get a `Release X.Y.Z` commit until the Rust app matches 3.5.0 and the updater, Sigstore proof and publish job are back (docs/DESIGN.md §0). The steps below describe how it works once they are.
+
 A release isn't done until it's on GitHub's Releases page with its build proof. Never tell the user a version is out before step 5 says so.
 
 ## 1. Ready?

@@ -1,169 +1,50 @@
 name: Build macOS app
+# jamalterm 4.x: the Rust app. Releases are switched off until it matches
+# 3.5.0 (the last Go release): see docs/DESIGN.md, "Rust port". Publishing,
+# the Sigstore build proof and its check come back with the updater.
 on:
   push:
     branches: [main]
-    tags: ['v*']
-    # Documentation alone doesn't need a Mac build.
     paths-ignore: ['docs/**', 'README.md', 'CLAUDE.md']
   pull_request: {}
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Publish a release with this version (e.g. 1.0.0). Leave empty for a test build."
-        required: false
-        default: ""
-      prerelease:
-        description: "A test version: only people on the Beta update channel get it (use a version like 3.1.0-beta.1)."
-        type: boolean
-        required: false
-        default: false
+  workflow_dispatch: {}
 
 permissions:
-  contents: write     # to publish releases
-  id-token: write     # to prove each build came from this workflow (Sigstore)
-  attestations: write
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  ui:
-    # The real interface in Chromium with a fake Go side (frontend/tests).
+  linux:
+    # Tests, real shells (zsh, bash, tcsh, fish) and the app's self-test
+    # under a virtual display.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - name: Install
-        working-directory: frontend
+      - uses: Swatinem/rust-cache@v2
+      - name: System libraries and shells
         run: |
-          npm ci
-          npx playwright install --with-deps chromium
-      - name: UI tests
-        working-directory: frontend
+          sudo apt-get update -q
+          sudo apt-get install -y -q zsh tcsh fish xvfb libxkbcommon-x11-0 libgl1 libegl1
+      - name: Format and lint
         run: |
-          npm run build
-          npm run test:ui
-
-  # Runs alongside the UI tests; "publish" waits for both.
-  macos:
-    runs-on: macos-latest
-    outputs:
-      version: ${{ steps.v.outputs.version }}
-      release: ${{ steps.v.outputs.release }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with: { go-version-file: go.mod }
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-
-      - name: Version
-        id: v
-        env:
-          INPUT_VERSION: "${{ inputs.version }}"
-          # A pushed commit titled "Release 3.3.0" (or "Release 3.3.0-beta.1")
-          # is built as that version and published if everything passes:
-          # one pipeline, no second build.
-          COMMIT_MSG: "${{ github.event.head_commit.message }}"
+          cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --locked
+      - name: Self-test (the real app)
         run: |
-          TITLE="${COMMIT_MSG%%$'\n'*}"
-          RELEASE=false
-          if [[ -n "$INPUT_VERSION" ]]; then V="${INPUT_VERSION#v}"; RELEASE=true
-          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then V="${GITHUB_REF_NAME#v}"; RELEASE=true
-          elif [[ "$GITHUB_EVENT_NAME" == push && "$TITLE" =~ ^Release\ v?([0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?)$ ]]; then V="${BASH_REMATCH[1]}"; RELEASE=true
-          else V="0.0.0-dev.${GITHUB_SHA::7}"; fi
-          echo "version=$V" >> "$GITHUB_OUTPUT"
-          echo "release=$RELEASE" >> "$GITHUB_OUTPUT"
-          echo "Version $V (release: $RELEASE)"
+          cargo build --locked
+          mkdir -p smoke/home
+          HOME="$PWD/smoke/home" SHELL=/usr/bin/zsh JAMALTERM_SMOKE="$PWD/smoke" JAMALTERM_SETTINGS="$PWD/smoke/settings.json" \
+            timeout 120 xvfb-run -a -s "-screen 0 1400x900x24" target/debug/jamalterm
+          cat smoke/report.json
+          python3 -c "import json,sys; sys.exit(0 if json.load(open('smoke/report.json'))['ok'] else 1)"
 
-      - name: Test (macOS zsh, bash 3.2, tcsh)
-        run: |
-          go test -race -timeout 4m ./internal/...
-          # Keys: the encrypted file, and moving old keys out of the Keychain.
-          go test -v -count=1 -timeout 2m -run 'MoveFromKeychain|Secrets' ./internal/settings/
-        env: { CGO_ENABLED: "1" }
-
-      - name: Build the frontend
-        working-directory: frontend
-        run: |
-          npm ci
-          # npm sometimes skips Rollup's native package for this platform (npm/cli#4828).
-          node -e "require('rollup')" 2>/dev/null || npm install --no-save "@rollup/rollup-darwin-$(uname -m | sed 's/x86_64/x64/')"
-          npm run build
-
-      - name: Test the app package (needs the built frontend)
-        run: go test .
-
-      - name: Bindings are up to date
-        # frontend/bindings must match App's methods (make bindings).
-        run: |
-          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
-          wails3 generate bindings -clean -ts -i -d frontend/bindings
-          python3 scripts/gen-backend.py
-          git diff --exit-code -- frontend/bindings frontend/src/backend.ts
-
-      - name: Build jamalterm.app (Apple silicon + Intel)
-        run: scripts/build-mac.sh "${{ steps.v.outputs.version }}"
-
-      - name: Sign
-        # Ad hoc unless signing secrets exist (scripts/sign-mac.sh explains).
-        env:
-          MAC_SIGNING_P12: ${{ secrets.MAC_SIGNING_P12 }}
-          MAC_SIGNING_PASSWORD: ${{ secrets.MAC_SIGNING_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          scripts/sign-mac.sh build/bin/jamalterm.app
-          lipo -archs build/bin/jamalterm.app/Contents/MacOS/jamalterm
-          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" build/bin/jamalterm.app/Contents/Info.plist
-
-      - name: Smoke test (the real app on this Mac)
-        run: scripts/smoke-mac.sh
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: smoke-test-${{ steps.v.outputs.version }}
-          path: smoke/
-
-      - name: Make the disk image
-        run: |
-          mkdir dmg
-          cp -R build/bin/jamalterm.app dmg/
-          ln -s /Applications dmg/Applications
-          # Size the image explicitly: hdiutil's own estimate can come out too small.
-          SIZE_MB=$(( $(du -sm dmg | cut -f1) * 3 / 2 + 20 ))
-          hdiutil create -volname "jamalterm" -srcfolder dmg -fs HFS+ -size "${SIZE_MB}m" -ov -format UDZO "jamalterm-${{ steps.v.outputs.version }}.dmg"
-          ditto -c -k --keepParent build/bin/jamalterm.app "jamalterm-${{ steps.v.outputs.version }}-macos.zip"
-          shasum -a 256 jamalterm-*.dmg jamalterm-*.zip | tee SHA256SUMS.txt
-
-      - name: Prove GitHub built it (Sigstore)
-        if: github.event_name != 'pull_request'
-        id: attest
-        uses: actions/attest-build-provenance@v2
-        with:
-          subject-path: jamalterm-${{ steps.v.outputs.version }}-macos.zip
-
-      - name: Check the proof the way the updater will
-        if: github.event_name != 'pull_request'
-        run: |
-          V="${{ steps.v.outputs.version }}"
-          cp "${{ steps.attest.outputs.bundle-path }}" "jamalterm-$V-macos.zip.sigstore.json"
-          go run ./cmd/verify-release "jamalterm-$V-macos.zip" "jamalterm-$V-macos.zip.sigstore.json" "jamalterm-$V.dmg"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: jamalterm-${{ steps.v.outputs.version }}
-          path: |
-            jamalterm-*.dmg
-            jamalterm-*.zip
-            jamalterm-*.sigstore.json
-            SHA256SUMS.txt
-
-  # Publishes the files the Mac job built and checked (no rebuild), once the
-  # UI tests have passed too.
-  # Browse mode under the shell setups people actually use (oh-my-zsh,
-  # Powerlevel10k with instant prompt, prezto, starship in zsh, bash and fish).
   shells:
+    # Browse mode under oh-my-zsh, Powerlevel10k (instant prompt), prezto and
+    # starship (zsh, bash, fish), on Linux and macOS.
     strategy:
       fail-fast: false
       matrix:
@@ -171,8 +52,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with: { go-version-file: go.mod }
+      - uses: Swatinem/rust-cache@v2
       - name: Install shells and setups
         run: |
           if [[ "$RUNNER_OS" == Linux ]]; then
@@ -190,31 +70,28 @@ jobs:
           git clone -q --depth 1 --recurse-submodules --shallow-submodules https://github.com/sorin-ionescu/prezto.git
       - name: Test
         env: { JT_SHELL_SETUPS: "${{ runner.temp }}/setups" }
-        run: go test -timeout 5m -run 'TestRealShellSetups|TestIntegration' -v ./internal/shell
+        run: cargo test --locked -- --nocapture real_shell
 
-  publish:
-    needs: [ui, macos, shells]
-    if: needs.macos.outputs.release == 'true'
-    runs-on: ubuntu-latest
+  macos:
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: jamalterm-${{ needs.macos.outputs.version }}
-      - name: Publish release
-        env:
-          GH_TOKEN: "${{ github.token }}"
-          V: "${{ needs.macos.outputs.version }}"
-          PRERELEASE: "${{ inputs.prerelease }}"
+      - uses: Swatinem/rust-cache@v2
+      - name: Test (macOS zsh, bash 3.2, tcsh)
+        run: cargo test --locked
+      - name: Build jamalterm.app (Apple silicon + Intel)
+        run: scripts/build-mac.sh "0.0.0-dev.${GITHUB_SHA::7}"
+      - name: Sign (ad hoc)
         run: |
-          # Creates the v-tag on this commit if it doesn't exist yet.
-          TAG="v$V"
-          # Notes = this version's CHANGELOG section, then the install steps.
-          section() { awk -v v="## $1" '$0==v{on=1;next} /^## /{on=0} on' CHANGELOG.md; }
-          # A test version (3.1.0-beta.1) uses its own section, or else 3.1.0's.
-          NOTES=$(section "$V"); [[ -n "${NOTES//[[:space:]]/}" ]] || NOTES=$(section "${V%%-*}")
-          # A version with a "-" (3.3.0-beta.1) goes to the Beta channel only.
-          PRE=""; [[ "$PRERELEASE" == "true" || "$V" == *-* ]] && PRE="--prerelease"
-          { echo "## What's new"; echo; echo "$NOTES"; echo; cat .github/release-notes.md; } > notes.md
-          gh release create "$TAG" jamalterm-*.dmg jamalterm-*.zip jamalterm-*.sigstore.json SHA256SUMS.txt \
-            --target "$GITHUB_SHA" --title "jamalterm $TAG" --notes-file notes.md $PRE
+          codesign --force --deep --sign - build/bin/jamalterm.app
+          lipo -archs build/bin/jamalterm.app/Contents/MacOS/jamalterm
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" build/bin/jamalterm.app/Contents/Info.plist
+      - name: Self-test (the real app on this Mac)
+        run: scripts/smoke-mac.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jamalterm-dev-${{ github.sha }}
+          path: |
+            build/bin/jamalterm.app
+            smoke/

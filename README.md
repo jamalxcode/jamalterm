@@ -6,6 +6,8 @@ A terminal for macOS with a **free-floating cursor** and **AI built in**. Move u
 
 It runs your normal shell (zsh, bash, tcsh, fish…), so everything you already use keeps working, and it looks and behaves like a Mac app: the standard menus and shortcuts, a Settings window that applies changes immediately, native alerts and right-click menus, and light or dark to match your Mac. How and why it's built this way: **[docs/DESIGN.md](docs/DESIGN.md)**.
 
+> **jamalterm is being rewritten in Rust with a native interface (4.x).** The app to download and use is still **3.5.0** (below); it keeps updating itself as before. The Rust version on `main` already runs your shell with tabs, themes and the ✓/✕ command marks; [docs/DESIGN.md](docs/DESIGN.md#0-rust-port-4x-in-progress) lists what's ported and what's next. There are no releases until it does everything 3.5.0 does.
+
 ## Download
 
 **[Latest release →](https://github.com/jamalxcode/jamalterm/releases/latest)**: download the `.dmg`, open it, and drag jamalterm into Applications.
@@ -98,48 +100,37 @@ To connect Claude, click **Sign in with Anthropic** in Settings (⌘,) or the AI
 - Nerd Font icons (Powerlevel10k, eza, starship…) show up with any font. The icon set is built in.
 - If you'd rather ↑ go to shell history at an empty prompt, turn that off in Settings. ⌘↑ always starts browse mode.
 
-## How it works
+## How it works (4.x, Rust)
 
 ```
-┌────────────────── jamalterm.app (Wails) ──────────────────┐
-│ frontend/src/   xterm.js terminal, tabs, browse mode,     │
-│                 AI panel, command bar, settings           │
-├────────────────── events / bound methods ─────────────────┤
-│ app.go, windows.go  windows, sessions, AI bridge          │
-│ commands.go         menu bar, palette and ⌘ keys (1 list)│
-│ internal/shell      PTY + your shell + shell integration  │
-│ internal/ai         Claude + OpenAI-compatible providers  │
-│ internal/settings   settings.json + encrypted API keys    │
-└───────────────────────────────────────────────────────────┘
+┌──────────── jamalterm.app (Rust, native) ────────────┐
+│ app.rs, view.rs   window, tabs, drawing (egui)       │
+│ session.rs        one shell per tab: PTY + emulator  │
+│                   (portable-pty, alacritty_terminal) │
+│ marks.rs, shell.rs  shell integration                │
+│ settings.rs, themes.rs  settings.json, themes        │
+└──────────────────────────────────────────────────────┘
 ```
 
-**Shell integration.** To know where each command starts and ends, jamalterm loads a small hook script into zsh, bash and tcsh. It never edits your dotfiles: zsh gets a temporary `ZDOTDIR`, bash an `--rcfile`, and tcsh a temporary `HOME`. Each one hands straight back to your own startup files. The hooks print invisible marks (OSC 133, the same convention iTerm2, VS Code and Ghostty use), plus the command text and current folder. The scripts are in `internal/shell/integration/`. Other shells (fish, nu…) work normally. Browse mode can still move around and copy lines there, but can't re-run commands. You can turn integration off in Settings.
-
-**Claude.** Requests go from Go straight to the Claude API, using streaming, adaptive thinking and server-side fallbacks. The key never reaches the web view.
+**Shell integration.** To know where each command starts and ends, jamalterm loads a small hook script into zsh, bash, tcsh and fish. It never edits your dotfiles: zsh gets a temporary `ZDOTDIR`, bash an `--rcfile`, tcsh a temporary `HOME`, fish a `-C` command. Each one hands straight back to your own startup files. The hooks print invisible marks (OSC 133, the same convention iTerm2, VS Code and Ghostty use), plus the command text and current folder. The scripts are in `resources/integration/`.
 
 ## Develop
 
-Built with [Wails v3](https://v3.wails.io). Requires Go 1.26+, Node 20+, and the Xcode command-line tools.
+Requires Rust (stable) and, for the Mac app, the Xcode command-line tools.
 
 ```bash
-make mac && open build/bin/jamalterm.app
+cargo run
 ```
 
 ```bash
-make test
+cargo test
 ```
-
-On Linux (for development), install GTK 3 and WebKitGTK 4.1 (`libgtk-3-dev libwebkit2gtk-4.1-dev`) and run `make linux`; shortcuts use Ctrl+Shift instead of ⌘. After changing the Go methods the window calls, regenerate `frontend/bindings` with `make bindings` (needs `go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0`).
-
-The Go tests start real zsh, bash, tcsh, fish and sh sessions and check the integration marks, exit codes and folders. The AI tests use fake streaming servers, and the key tests check the encrypted file (including that a copy can't be read on another computer). The UI tests run the real interface in Chromium with a fake Go side:
 
 ```bash
-cd frontend && npm run build && npm run test:ui
+scripts/build-mac.sh && open build/bin/jamalterm.app
 ```
 
-Every push builds the app on GitHub Actions, runs a smoke test of the real app on a Mac (screenshots, real ⌘ shortcuts, launch time, output speed and memory are in the run's summary and artifacts), and proves the build with Sigstore. To publish a test version, tick *prerelease* (only the Beta channel gets it). To publish a release with the `.dmg`, run the *Build macOS app* workflow with a version number (Actions → Run workflow), or push a tag like `v1.2.0`.
-
-Debug switches: `JAMALTERM_NO_GPU=1` draws without WebGL; `JAMALTERM_ANTHROPIC_BASE_URL` points AI requests at another server.
+The tests start real zsh, bash, tcsh and fish sessions and check the marks, exit codes and folders; CI also runs them under oh-my-zsh, Powerlevel10k, prezto and starship. `JAMALTERM_SMOKE=<dir>` makes the real app test itself and write `<dir>/report.json`; CI runs it on a Mac and on Linux. On Linux (development only), install `libxkbcommon-x11-0`; shortcuts use Ctrl+Shift instead of ⌘.
 
 ## License
 

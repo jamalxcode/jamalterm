@@ -1,38 +1,35 @@
 # jamalterm
 
-A macOS terminal in Go (Wails v3) with xterm.js: browse mode (re-run past commands), split panes, and an AI panel. Read **docs/DESIGN.md** before changing behaviour; it records every design decision and why. Update it in the same commit when you make or change one.
+A macOS terminal with browse mode (re-run past commands), split panes and an AI panel. **Being rewritten in Rust with a native UI** (4.x). The last Go/Wails release is 3.5.0; its code is in git history (tag `v3.5.0`) and its behaviour, recorded in **docs/DESIGN.md**, is the spec to port. Read DESIGN.md before changing behaviour, and update it in the same commit when you make or change a decision.
 
-## Layout
+## Layout (Rust, `src/`)
 
-- `*.go` (main package): app service (`app.go`), windows and sessions (`windows.go`), the command table that drives the menu bar, palette and ⌘ keys (`commands.go`, `menu.go`), Settings window (`settingswindow.go`), safety (`safety.go`: busy check, native alerts, Secure Keyboard Entry, reattach), right-click menu and window frames (`contextmenu.go`), crash reports (`crash.go`), moving tabs between windows (`tabmove.go`), menu bar icon and Dock menu (`tray.go`, `dockmenu_darwin.go`), update status and What's new (`updatestatus.go`), self-test (`smoke.go`).
-- `internal/`: `shell` (pty, pump, integration scripts), `ai`, `settings` (settings.json, encrypted keys), `update` (updater and Sigstore check), `winstate`, `diag` (problem log), `secureinput`.
-- `frontend/`: two pages, `index.html` (terminal window, `src/main.ts`) and `settings.html` (`src/settingsPage.ts`). All calls to Go go through `src/backend.ts`.
+- `main.rs` (window setup), `app.rs` (tabs, tab bar, keyboard/mouse, window title), `view.rs` (drawing the terminal: runs of cells, cursor, selection, ✓/✕ marks).
+- `session.rs` (a tab's shell: PTY via `portable-pty`, emulator via `alacritty_terminal`, commands built from the marks), `marks.rs` (OSC 133 / 7 / 6973 scanner), `shell.rs` (which shell, its environment, loading the hooks), `input.rs` (keys to bytes, paste).
+- `settings.rs` (settings.json, same file and fields as 3.x), `themes.rs` (the 10 themes), `fonts.rs`, `smoke.rs` (self-test).
+- `resources/integration/` (the shell hook scripts, unchanged from 3.x), `assets/fonts/`.
 
 ## Build and test
 
 ```bash
-cd frontend && npm ci && npm run build && npm run test:ui   # UI tests + theme contrast
+cargo test                                   # unit tests + real zsh/bash/tcsh/fish
+cargo fmt --check && cargo clippy --all-targets -- -D warnings
 ```
 ```bash
-go test ./internal/... && go test .      # `go test .` needs frontend/dist built
+cargo run                                    # the app (Linux needs libxkbcommon-x11-0)
 ```
 
-- **Bindings:** after changing an exported `App` method, run `make bindings` (needs `wails3`, `go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0`). It regenerates `frontend/bindings` and the method list in `src/backend.ts`. CI fails if they're stale.
-- **Linux (dev only):** use `-tags gtk3` (`make linux`). There ⌘ becomes Ctrl+Shift and ⇧⌘ becomes Ctrl+Alt+Shift.
-- **Real-app check without a Mac:** run under `xvfb-run` with `JAMALTERM_SMOKE=<dir>` (the app tests itself and writes `report.json` and screenshots).
+- **Self-test:** `JAMALTERM_SMOKE=<dir> JAMALTERM_SETTINGS=<dir>/settings.json cargo run` types into its own shell, checks what it sees and writes `<dir>/report.json`. Without a Mac: run it under `xvfb-run -a`.
+- **Shell setups test:** set `JT_SHELL_SETUPS` to a folder with clones of ohmyzsh, powerlevel10k and prezto (CI's `shells` job does) and run `cargo test real_shell`.
+- **Mac app:** `scripts/build-mac.sh [version]` builds `build/bin/jamalterm.app` (Apple silicon + Intel, bundle id `com.jamalxcode.jamalterm`, as in 3.x).
 
 ## Rules
 
-- **Commands and shortcuts live only in `commands.go`.** Never add a separate key map or palette list. Every plain command needs a case in `runMenu` (`frontend/src/main.ts`).
-- **Providers live only in `internal/ai/openai.go` (`Providers`).**
-- **Never log or send** commands, terminal output, AI questions or keys. The problem log holds errors only, scrubbed.
-- **API keys go in the encrypted file (`internal/settings/secret.go`), never the Keychain.** Nothing may trigger a password prompt unless the user clicks for it.
-- **Follow Apple's Human Interface Guidelines and Terminal.app:**
-  - native alerts, with Cancel as the default for destructive actions;
-  - Settings changes apply instantly;
-  - menu items say what they will do;
-  - don't rely on color alone (the owner is color-blind).
-- **Keep a test with each change:** Go tests next to the code, UI tests in `frontend/tests/ui.test.mjs` (with the fake Go side in `tests/fake-wails.js`).
+- **Never log or send** commands, terminal output, AI questions or keys.
+- **API keys go in an encrypted file, never the Keychain** (3.x's design, DESIGN.md §8). Nothing may trigger a password prompt unless the user clicks for it.
+- **Follow Apple's Human Interface Guidelines and Terminal.app:** native alerts with Cancel as the default for destructive actions; Settings changes apply instantly; menu items say what they'll do; **don't rely on color alone** (the owner is color-blind; status is ✓/✕/… in shape too).
+- **Keep a test with each change**, next to the code (`#[cfg(test)]`). Real-shell tests live in `session.rs`.
+- **settings.json stays compatible** with 3.x: never rename fields; keep fields not used yet.
 
 ## Commits and releases
 
@@ -40,11 +37,5 @@ go test ./internal/... && go test .      # `go test .` needs frontend/dist built
   ```
   git -c user.name="jamal xcode" -c user.email="j.mutawa@gmail.com" commit -m "..."
   ```
-- **CI** (`.github/workflows/build.yml`) runs on a real Mac. It runs:
-  - the Go and UI tests;
-  - the bindings check;
-  - a universal build;
-  - the smoke test;
-  - the shell setups job (oh-my-zsh, Powerlevel10k, prezto, starship);
-  - the Sigstore proof and its check.
-- **To release:** add a `## X.Y.Z` section to `CHANGELOG.md` and push a commit titled `Release X.Y.Z` (`Release X.Y.Z-beta.N` for the Beta channel). CI publishes it when every job passes. Release notes come from that section plus `.github/release-notes.md`. Follow the **release** skill (`.claude/skills/release/SKILL.md`): it covers waiting, publish failures and confirming.
+- **CI** (`.github/workflows/build.yml`): fmt + clippy, tests and the self-test on Linux, the shell-setups job (Linux and macOS), and on a Mac the tests, a universal build and the self-test.
+- **Releases are off** until the Rust app matches 3.5.0 (DESIGN.md, "Rust port", lists what's left). They come back with the updater, its Sigstore check and the publish job; then follow the **release** skill. Never push a `Release X.Y.Z` commit before that.

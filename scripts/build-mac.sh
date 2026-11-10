@@ -1,27 +1,23 @@
 #!/bin/bash
-# Builds build/bin/jamalterm.app for Apple silicon and Intel (macOS 12+).
-# Usage: scripts/build-mac.sh [version]   (run frontend's `npm run build` first)
+# Builds build/bin/jamalterm.app for Apple silicon and Intel (macOS 12+), from
+# the Rust code. Same bundle id as 3.x, so it's the same app to macOS.
+# Usage: scripts/build-mac.sh [version]
 set -euo pipefail
 cd "$(dirname "$0")/.."
 V="${1:-dev}"
 PLIST_V="${V%%-*}"; [[ "$PLIST_V" =~ ^[0-9.]+$ ]] || PLIST_V="0.0.0"
+export MACOSX_DEPLOYMENT_TARGET=12.0
 
-export CGO_ENABLED=1 MACOSX_DEPLOYMENT_TARGET=12.0
-export CGO_CFLAGS="-mmacosx-version-min=12.0" CGO_LDFLAGS="-mmacosx-version-min=12.0"
-# private_mac_apis: lets the window be see-through (Settings → Window opacity).
-TAGS="production,private_mac_apis"
-LDFLAGS="-w -s -X main.version=$V"
-
-mkdir -p build/bin
-for arch in arm64 amd64; do
-  GOOS=darwin GOARCH=$arch go build -tags "$TAGS" -trimpath -buildvcs=false -ldflags "$LDFLAGS" -o "build/bin/jamalterm-$arch" .
+rustup target add aarch64-apple-darwin x86_64-apple-darwin >/dev/null
+for t in aarch64-apple-darwin x86_64-apple-darwin; do
+  JAMALTERM_VERSION="$V" cargo build --release --locked --target "$t"
 done
 
 APP=build/bin/jamalterm.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-lipo -create -output "$APP/Contents/MacOS/jamalterm" build/bin/jamalterm-arm64 build/bin/jamalterm-amd64
-rm build/bin/jamalterm-arm64 build/bin/jamalterm-amd64
+lipo -create -output "$APP/Contents/MacOS/jamalterm" \
+  target/aarch64-apple-darwin/release/jamalterm target/x86_64-apple-darwin/release/jamalterm
 sed "s/@VERSION@/$PLIST_V/g" build/darwin/Info.plist > "$APP/Contents/Info.plist"
 plutil -lint "$APP/Contents/Info.plist"
 
